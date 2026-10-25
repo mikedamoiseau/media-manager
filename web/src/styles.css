@@ -635,6 +635,8 @@ select option {
   position: relative;
   display: flex;
   flex-direction: column;
+  /* Safari's own style for buttons says flex-start: the lines would be as wide as their text, not cut. */
+  align-items: stretch;
   min-width: 0;
   text-align: left;
   border-radius: 8px;
