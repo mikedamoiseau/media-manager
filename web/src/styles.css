@@ -1777,6 +1777,11 @@ input[type='range']::-moz-range-thumb {
   overflow-wrap: anywhere;
 }
 
+.np-handoff {
+  justify-self: start;
+  margin-top: 8px;
+}
+
 .np-times {
   display: flex;
   justify-content: space-between;

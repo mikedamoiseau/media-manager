@@ -7,7 +7,7 @@ import { Poster } from './Poster.tsx';
 import { MatchDialog } from './MatchDialog.tsx';
 import { PosterPicker } from './PosterPicker.tsx';
 import { IconBack, IconPlay, IconYoutube, IconTv, IconCheck, IconImage, IconLink, IconEye, IconEyeOff, IconPhone, IconThumbUp, IconThumbDown } from './icons.tsx';
-import { isIOS, mediaUrl, vlcLink, episodeName, VLC_APP_STORE } from '../vlc.ts';
+import { isIOS, mediaUrl, vlcLink, vlcBack, episodeName, VLC_APP_STORE } from '../vlc.ts';
 import { TitleTile, MissingTile } from './Library.tsx';
 import { useOpenTitle, useOpenSet } from '../nav.ts';
 
@@ -28,15 +28,6 @@ export function LangSwitch() {
       ))}
     </div>
   );
-}
-
-/**
- * Where VLC's Done button returns: this page in Safari. Not from the home-screen app, where the
- * link would open Safari instead of the app.
- */
-function vlcBack(): string | null {
-  const standalone = matchMedia('(display-mode: standalone)').matches || (navigator as { standalone?: boolean }).standalone === true;
-  return standalone ? null : location.href;
 }
 
 function readFlag(key: string): boolean {

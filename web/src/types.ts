@@ -230,6 +230,8 @@ export interface Settings {
 
 export interface NowPlaying {
   active: boolean;
+  /** the file of the library Kodi plays, when it is one VLC can stream */
+  media?: { kind: 'item' | 'episode'; id: number; ext: string };
   title?: string;
   showTitle?: string;
   season?: number;

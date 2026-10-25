@@ -148,9 +148,10 @@ export function toKodiPath(prefix: string, rel: string, isDir = false): string {
 
 /** Kodi file path → path relative to the media root (undefined if outside it). Handles stack:// multi-part files. */
 export function fromKodiPath(prefix: string, file: string): string | undefined {
-  let f = file;
+  // Both composed (NFC), as Kodi sends them: a prefix typed or detected decomposed must still match.
+  let f = file.normalize('NFC');
   if (f.startsWith('stack://')) f = f.slice('stack://'.length).split(' , ')[0]!;
-  const pre = prefix.replace(/\/+$/, '') + '/';
+  const pre = prefix.normalize('NFC').replace(/\/+$/, '') + '/';
   if (!f.toLowerCase().startsWith(pre.toLowerCase())) return undefined;
   return f.slice(pre.length).replace(/\/+$/, '');
 }

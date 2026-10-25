@@ -1,4 +1,4 @@
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { compress } from 'hono/compress';
 import { streamSSE } from 'hono/streaming';
 import { createReadStream, existsSync, statSync } from 'node:fs';
@@ -9,7 +9,7 @@ import { libraryCards, libraryVersion, itemDetail, img } from './views.ts';
 import { setParts, ownedSetKeys, staleSetKeys } from './sets.ts';
 import { duplicateFilms, incompleteSets } from './reports.ts';
 import { pool } from './scanner.ts';
-import { parseRange, videoType } from './media.ts';
+import { parseRange, videoType, vlcPlaylist, kodiMedia } from './media.ts';
 import { suggestions, recordActivity, rate } from './suggestions.ts';
 import { elsewhere, cinema, inCinemas, filmDetails, asFilm, getPick, setPick, wantedFilms } from './films.ts';
 import { continueWatching, dismissWatching, noteStreamed, noteEpisodeStreamed, nextEpisode } from './watching.ts';
@@ -252,6 +252,34 @@ export function createApi(svc: Service): Hono {
     return c.body(Readable.toWeb(counter) as ReadableStream, status, headers);
   });
 
+  /** Stop the TV if it still plays this file: the phone took over. */
+  const stopIfPlaying = async (kind: string, id: number) => {
+    const cfg = svc.kodiConfig();
+    if (!cfg) return;
+    const np = await nowPlaying(cfg);
+    const m = np.active && np.file ? kodiMedia(db, svc.settings().kodiPathPrefix, np.file) : undefined;
+    if (m?.kind === kind && m.id === id) await remote(cfg, 'stop');
+  };
+
+  /**
+   * A playlist for VLC that starts the film or episode at a time, in seconds (see vlcPlaylist).
+   * /handoff: from the Remote's Continue on phone. VLC loading it proves VLC opened, so the TV stops
+   * then, not on the tap; it may load it more than once, and a second stop finds nothing playing.
+   */
+  const playlist = (handoff: boolean) => (c: Context) => {
+    const kind = c.req.param('kind')!;
+    const id = Number(c.req.param('id'));
+    const start = Number(c.req.param('start'));
+    const name = c.req.param('name')!.replace(/\.m3u$/, '');
+    if ((kind !== 'item' && kind !== 'episode') || !Number.isInteger(id) || !Number.isFinite(start)) return c.json({ error: 'Not found' }, 404);
+    if (handoff) void stopIfPlaying(kind, id).catch((e: Error) => console.warn(`Handoff: could not stop the TV (${e.message})`));
+    // On the address the phone used, as the media links.
+    const url = new URL(`/api/media/${kind}/${id}/${encodeURIComponent(name)}`, c.req.url).href;
+    return c.body(vlcPlaylist(url, name, start), 200, { 'content-type': 'audio/x-mpegurl', 'cache-control': 'no-store' });
+  };
+  api.get('/playlist/:kind/:id/:start/:name', playlist(false));
+  api.get('/handoff/:kind/:id/:start/:name', playlist(true));
+
   api.post('/items/:id/play', async (c) => {
     const id = Number(c.req.param('id'));
     const body = (await c.req.json().catch(() => ({}))) as { episodeId?: number };
@@ -419,7 +447,12 @@ export function createApi(svc: Service): Hono {
     return c.json({ sets: incompleteSets(db), total: keys.length, checked: keys.length - stale.length, running: !!setFill, tmdb: !!tmdb });
   });
 
-  api.get('/kodi/now', async (c) => c.json(await nowPlaying(kodi())));
+  api.get('/kodi/now', async (c) => {
+    const np = await nowPlaying(kodi());
+    // Which file of the library it is, so the phone can take over in VLC.
+    const media = np.active && np.file ? kodiMedia(db, svc.settings().kodiPathPrefix, np.file) : undefined;
+    return c.json(media ? { ...np, media } : np);
+  });
 
   api.get('/kodi/streams', async (c) => c.json(await streams(kodi())));
 

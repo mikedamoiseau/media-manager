@@ -4,10 +4,11 @@ import { useStore, nowPlaying, status, toast, startFastPoll, pollNowPlaying, typ
 import { formatClock } from '../search.ts';
 import { languageName } from '../tracks.ts';
 import { TrackPicker } from './TrackPicker.tsx';
+import { isIOS, handoffLink, vlcBack } from '../vlc.ts';
 import { PowerMenu } from './PowerMenu.tsx';
 import {
   IconUp, IconDown, IconLeft, IconRight, IconBack, IconHome, IconInfo, IconMenu, IconPlay, IconPause, IconStop,
-  IconSkipBack, IconSkipFwd, IconVolume, IconMute, IconSubtitles, IconAudio, IconTv, IconPower, IconKeyboard,
+  IconSkipBack, IconSkipFwd, IconVolume, IconMute, IconSubtitles, IconAudio, IconTv, IconPower, IconKeyboard, IconPhone,
 } from './icons.tsx';
 
 export async function send(action: string, value?: number) {
@@ -67,6 +68,8 @@ export function Remote() {
   const pct = active && np.total ? ((np.time ?? 0) / np.total) * 100 : 0;
   const playing = active && (np.speed ?? 0) !== 0;
   const volume = vol ?? np?.volume ?? 0;
+  // The link is ready before the tap: Safari opens VLC only straight from a tap.
+  const handoff = isIOS && active ? handoffLink(location.origin, np, vlcBack()) : null;
 
   return (
     <>
@@ -99,6 +102,12 @@ export function Remote() {
                   <span>{formatClock(seek !== null && np.total ? (seek / 100) * np.total : np.time)}</span>
                   <span>-{formatClock((np.total ?? 0) - (np.time ?? 0))}</span>
                 </div>
+                {handoff && (
+                  <a className="btn np-handoff" href={handoff}>
+                    <IconPhone size={18} />
+                    Continue on phone
+                  </a>
+                )}
               </>
             ) : (
               <>
