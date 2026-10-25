@@ -39,13 +39,34 @@ export function parseRange(header: string | undefined, size: number): { start: n
   return start >= size || start > end ? 'invalid' : { start, end };
 }
 
+/** Where VLC starts, in seconds, and the tracks it plays (VLC's numbers, from 0, in file order). */
+export interface HandoffOptions {
+  start: number;
+  audio?: number;
+  sub?: number | 'off';
+}
+
 /**
- * A one-entry playlist that makes VLC start the stream at a time: VLC for iOS takes no start time in
- * its links, but honours start-time in a playlist (checked on an iPhone, 2026-10-25).
+ * A one-entry playlist that makes VLC start the stream at a time, with these tracks: VLC for iOS takes
+ * none of that in its links, but honours it in a playlist. It also remembers the tracks last used for
+ * an address and those win, so each handoff streams from an address of its own (checked on an iPhone,
+ * 2026-10-25).
  */
-export function vlcPlaylist(url: string, title: string, start: number): string {
+export function vlcPlaylist(url: string, title: string, o: HandoffOptions): string {
   const name = title.replace(/[\r\n]+/g, ' ');
-  return `#EXTM3U\n#EXTINF:-1,${name}\n#EXTVLCOPT:start-time=${Math.max(0, Math.floor(start))}\n${url}\n`;
+  const opts = [`start-time=${Math.max(0, Math.floor(o.start))}`];
+  if (o.audio !== undefined) opts.push(`audio-track=${o.audio}`);
+  // Off on the TV: none in VLC either, though the film may flag one as default.
+  if (o.sub === 'off') opts.push('sub-language=none');
+  else if (o.sub !== undefined) opts.push(`sub-track=${o.sub}`);
+  return ['#EXTM3U', `#EXTINF:-1,${name}`, ...opts.map((x) => `#EXTVLCOPT:${x}`), url, ''].join('\n');
+}
+
+/** "t445-a2-s1-k<key>" (or "soff"; tracks optional) from a handoff address. Null if malformed. */
+export function parseHandoff(s: string): (HandoffOptions & { key: string }) | null {
+  const m = /^t(\d+)(?:-a(\d+))?(?:-s(\d+|off))?-k([a-z0-9]+)$/.exec(s);
+  if (!m) return null;
+  return { start: Number(m[1]), audio: m[2] ? Number(m[2]) : undefined, sub: m[3] === undefined ? undefined : m[3] === 'off' ? 'off' : Number(m[3]), key: m[4]! };
 }
 
 /**

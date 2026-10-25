@@ -69,7 +69,7 @@ export function Remote() {
   const playing = active && (np.speed ?? 0) !== 0;
   const volume = vol ?? np?.volume ?? 0;
   // The link is ready before the tap: Safari opens VLC only straight from a tap.
-  const handoff = isIOS && active ? handoffLink(location.origin, np, vlcBack()) : null;
+  const handoff = isIOS && active ? handoffLink(location.origin, np, vlcBack(), Date.now().toString(36)) : null;
 
   return (
     <>

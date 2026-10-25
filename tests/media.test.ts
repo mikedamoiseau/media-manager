@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseRange, videoType, vlcPlaylist, kodiMedia } from '../server/media.ts';
+import { parseRange, videoType, vlcPlaylist, kodiMedia, parseHandoff } from '../server/media.ts';
 import { openDb } from '../server/db.ts';
 
 test('byte ranges as VLC and browsers send them', () => {
@@ -22,12 +22,23 @@ test('video content types by extension', () => {
   assert.equal(videoType('x.weird'), 'application/octet-stream');
 });
 
-test('the playlist that makes VLC start at a time: one entry, the start option, the stream', () => {
+test('the playlist that makes VLC start at a time, with the audio and subtitle tracks of the TV', () => {
+  const url = 'http://192.168.0.29:8642/api/media/item/7/k1/Heat.mkv';
   assert.equal(
-    vlcPlaylist('http://192.168.0.29:8642/api/media/item/7/Heat.mkv', 'Heat\r\n#EXTVLCOPT:x', 4321.8),
-    '#EXTM3U\n#EXTINF:-1,Heat #EXTVLCOPT:x\n#EXTVLCOPT:start-time=4321\nhttp://192.168.0.29:8642/api/media/item/7/Heat.mkv\n',
+    vlcPlaylist(url, 'Heat\r\n#EXTVLCOPT:x', { start: 4321.8, audio: 2, sub: 1 }),
+    `#EXTM3U\n#EXTINF:-1,Heat #EXTVLCOPT:x\n#EXTVLCOPT:start-time=4321\n#EXTVLCOPT:audio-track=2\n#EXTVLCOPT:sub-track=1\n${url}\n`,
   );
-  assert.match(vlcPlaylist('http://x/a.mkv', 'A', -3), /start-time=0\n/);
+  // Subtitles off on the TV: none in VLC either (the film may flag one as default).
+  assert.match(vlcPlaylist(url, 'Heat', { start: 10, sub: 'off' }), /start-time=10\n#EXTVLCOPT:sub-language=none\n/);
+  assert.equal(vlcPlaylist(url, 'Heat', { start: -3 }), `#EXTM3U\n#EXTINF:-1,Heat\n#EXTVLCOPT:start-time=0\n${url}\n`);
+});
+
+test('the handoff options in the playlist address: time, tracks, and a key new each time', () => {
+  assert.deepEqual(parseHandoff('t4320-a2-s1-kmvnz5c'), { start: 4320, audio: 2, sub: 1, key: 'mvnz5c' });
+  assert.deepEqual(parseHandoff('t0-soff-kx'), { start: 0, audio: undefined, sub: 'off', key: 'x' });
+  assert.deepEqual(parseHandoff('t12-kab'), { start: 12, audio: undefined, sub: undefined, key: 'ab' });
+  assert.equal(parseHandoff('t12-a2'), null, 'no key');
+  assert.equal(parseHandoff('../../etc'), null);
 });
 
 test('what Kodi plays, as a file of the library: a film or an episode, whatever the accents', () => {

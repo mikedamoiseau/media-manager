@@ -9,7 +9,7 @@ import { libraryCards, libraryVersion, itemDetail, img } from './views.ts';
 import { setParts, ownedSetKeys, staleSetKeys } from './sets.ts';
 import { duplicateFilms, incompleteSets } from './reports.ts';
 import { pool } from './scanner.ts';
-import { parseRange, videoType, vlcPlaylist, kodiMedia } from './media.ts';
+import { parseRange, videoType, vlcPlaylist, kodiMedia, parseHandoff } from './media.ts';
 import { suggestions, recordActivity, rate } from './suggestions.ts';
 import { elsewhere, cinema, inCinemas, filmDetails, asFilm, getPick, setPick, wantedFilms } from './films.ts';
 import { continueWatching, dismissWatching, noteStreamed, noteEpisodeStreamed, nextEpisode } from './watching.ts';
@@ -199,7 +199,7 @@ export function createApi(svc: Service): Hono {
    * or the next episode of a series folder as Play on TV picks it; kind "episode": that episode.
    * The last segment is only a readable name for the player.
    */
-  api.get('/media/:kind/:id/:name', (c) => {
+  const media = (c: Context) => {
     const id = Number(c.req.param('id'));
     let rel: string | undefined;
     let itemId = id;
@@ -250,7 +250,10 @@ export function createApi(svc: Service): Hono {
     });
     pipeline(source, counter, () => progress(start, sent, size));
     return c.body(Readable.toWeb(counter) as ReadableStream, status, headers);
-  });
+  };
+  api.get('/media/:kind/:id/:name', media);
+  // The same, under an address of its own (the key is ignored): see vlcPlaylist.
+  api.get('/media/:kind/:id/:key/:name', media);
 
   /** Stop the TV if it still plays this file: the phone took over. */
   const stopIfPlaying = async (kind: string, id: number) => {
@@ -262,23 +265,21 @@ export function createApi(svc: Service): Hono {
   };
 
   /**
-   * A playlist for VLC that starts the film or episode at a time, in seconds (see vlcPlaylist).
-   * /handoff: from the Remote's Continue on phone. VLC loading it proves VLC opened, so the TV stops
-   * then, not on the tap; it may load it more than once, and a second stop finds nothing playing.
+   * The Remote's Continue on phone: a playlist that starts VLC where the TV is, with its tracks (see
+   * vlcPlaylist). VLC loading it proves VLC opened, so the TV stops then, not on the tap; it may load
+   * it more than once, and a second stop finds nothing playing.
    */
-  const playlist = (handoff: boolean) => (c: Context) => {
-    const kind = c.req.param('kind')!;
+  api.get('/handoff/:kind/:id/:opts/:name', (c) => {
+    const kind = c.req.param('kind');
     const id = Number(c.req.param('id'));
-    const start = Number(c.req.param('start'));
-    const name = c.req.param('name')!.replace(/\.m3u$/, '');
-    if ((kind !== 'item' && kind !== 'episode') || !Number.isInteger(id) || !Number.isFinite(start)) return c.json({ error: 'Not found' }, 404);
-    if (handoff) void stopIfPlaying(kind, id).catch((e: Error) => console.warn(`Handoff: could not stop the TV (${e.message})`));
+    const o = parseHandoff(c.req.param('opts'));
+    const name = c.req.param('name').replace(/\.m3u$/, '');
+    if ((kind !== 'item' && kind !== 'episode') || !Number.isInteger(id) || !o) return c.json({ error: 'Not found' }, 404);
+    void stopIfPlaying(kind, id).catch((e: Error) => console.warn(`Handoff: could not stop the TV (${e.message})`));
     // On the address the phone used, as the media links.
-    const url = new URL(`/api/media/${kind}/${id}/${encodeURIComponent(name)}`, c.req.url).href;
-    return c.body(vlcPlaylist(url, name, start), 200, { 'content-type': 'audio/x-mpegurl', 'cache-control': 'no-store' });
-  };
-  api.get('/playlist/:kind/:id/:start/:name', playlist(false));
-  api.get('/handoff/:kind/:id/:start/:name', playlist(true));
+    const url = new URL(`/api/media/${kind}/${id}/${o.key}/${encodeURIComponent(name)}`, c.req.url).href;
+    return c.body(vlcPlaylist(url, name, o), 200, { 'content-type': 'audio/x-mpegurl', 'cache-control': 'no-store' });
+  });
 
   api.post('/items/:id/play', async (c) => {
     const id = Number(c.req.param('id'));

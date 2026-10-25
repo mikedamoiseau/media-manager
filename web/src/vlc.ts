@@ -12,12 +12,22 @@ export function mediaUrl(origin: string, kind: 'item' | 'episode', id: number, n
 }
 
 /**
- * A playlist that starts that video at a time in VLC (see server/media.ts vlcPlaylist). handoff: VLC
- * loading it also stops the TV, if the TV still plays that video.
+ * The playlist that hands a video over to VLC (see server/media.ts vlcPlaylist): where to start, the
+ * tracks, and a key new each time, so VLC treats it as an address it has never seen.
  */
-export function playlistUrl(origin: string, kind: 'item' | 'episode', id: number, start: number, name: string, handoff = false): string {
-  const route = handoff ? 'handoff' : 'playlist';
-  return new URL(`/api/${route}/${kind}/${id}/${Math.max(0, Math.floor(start))}/${encodeURIComponent(name)}.m3u`, origin).href;
+export function handoffUrl(
+  origin: string,
+  kind: 'item' | 'episode',
+  id: number,
+  o: { start: number; audio?: number; sub?: number | 'off' },
+  key: string,
+  name: string,
+): string {
+  const parts = [`t${Math.max(0, Math.floor(o.start))}`];
+  if (o.audio !== undefined) parts.push(`a${o.audio}`);
+  if (o.sub !== undefined) parts.push(o.sub === 'off' ? 'soff' : `s${o.sub}`);
+  parts.push(`k${key}`);
+  return new URL(`/api/handoff/${kind}/${id}/${parts.join('-')}/${encodeURIComponent(name)}.m3u`, origin).href;
 }
 
 /**
@@ -40,18 +50,20 @@ export function episodeName(show: string, e: { name: string; season: number | nu
 const HANDOFF_REWIND = 5;
 
 /**
- * VLC on the phone taking over from the TV, a few seconds before where the TV is (a playlist carries
- * the start time), named like the episode or the film. The TV stops once VLC loads the playlist, so
- * nothing stops when VLC doesn't open. Null when Kodi plays no file of the library.
+ * VLC on the phone taking over from the TV: a few seconds before where the TV is, with its audio and
+ * subtitle tracks, named like the episode or the film. The TV stops once VLC loads the playlist, so
+ * nothing stops when VLC doesn't open. `key`: new for each link. Null when Kodi plays no file of the library.
  */
-export function handoffLink(origin: string, np: NowPlaying, back: string | null): string | null {
+export function handoffLink(origin: string, np: NowPlaying, back: string | null, key: string): string | null {
   const m = np.media;
   if (!m) return null;
   const name =
     m.kind === 'episode' && np.showTitle
       ? episodeName(np.showTitle, { name: `${np.showTitle} - ${np.title ?? 'Episode'}${m.ext}`, season: np.season ?? null, episode: np.episode ?? null })
       : `${np.title ?? 'Video'}${m.ext}`;
-  return vlcLink(playlistUrl(origin, m.kind, m.id, (np.time ?? 0) - HANDOFF_REWIND, name, true), back);
+  const sub: number | 'off' | undefined = np.subtitlesOn === false ? 'off' : np.subtitlesOn && np.subtitle ? np.subtitle.index : undefined;
+  const o = { start: (np.time ?? 0) - HANDOFF_REWIND, audio: np.audio?.index, sub };
+  return vlcLink(handoffUrl(origin, m.kind, m.id, o, key, name), back);
 }
 
 /**
