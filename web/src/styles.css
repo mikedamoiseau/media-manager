@@ -1260,15 +1260,37 @@ input[type='range']::-moz-range-thumb {
   border-top: 1px solid var(--line);
 }
 
+.episode-list li {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border-bottom: 1px solid var(--line);
+}
+
 .episode {
+  flex: 1;
+  min-width: 0;
   display: grid;
   grid-template-columns: 44px 1fr 24px;
   align-items: center;
   gap: 10px;
-  width: 100%;
   padding: 12px 0;
-  border-bottom: 1px solid var(--line);
   text-align: left;
+}
+
+/* Play this episode on the phone. */
+.ep-vlc {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  color: var(--brume);
+}
+
+.ep-vlc:active {
+  background: var(--rideau);
 }
 
 .ep-num {

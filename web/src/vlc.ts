@@ -17,4 +17,12 @@ export function vlcLink(url: string, back: string | null): string {
   return `vlc-x-callback://x-callback-url/stream?url=${encodeURIComponent(url)}${back ? `&x-success=${encodeURIComponent(back)}` : ''}`;
 }
 
+/** What VLC shows for an episode: "Show S01E05.mkv", or the file name when it has no number. */
+export function episodeName(show: string, e: { name: string; season: number | null; episode: number | null }): string {
+  const ext = /\.[^./]+$/.exec(e.name)?.[0] ?? '';
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const num = e.season != null && e.episode != null ? ` S${pad(e.season)}E${pad(e.episode)}` : e.episode != null ? ` E${pad(e.episode)}` : '';
+  return num ? `${show}${num}${ext}` : e.name;
+}
+
 export const VLC_APP_STORE = 'https://apps.apple.com/app/id650377962';

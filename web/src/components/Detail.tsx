@@ -7,7 +7,7 @@ import { Poster } from './Poster.tsx';
 import { MatchDialog } from './MatchDialog.tsx';
 import { PosterPicker } from './PosterPicker.tsx';
 import { IconBack, IconPlay, IconYoutube, IconTv, IconCheck, IconImage, IconLink, IconEye, IconEyeOff, IconPhone, IconThumbUp, IconThumbDown } from './icons.tsx';
-import { isIOS, mediaUrl, vlcLink, VLC_APP_STORE } from '../vlc.ts';
+import { isIOS, mediaUrl, vlcLink, episodeName, VLC_APP_STORE } from '../vlc.ts';
 import { TitleTile, MissingTile } from './Library.tsx';
 import { useOpenTitle, useOpenSet } from '../nav.ts';
 
@@ -189,6 +189,8 @@ export function DetailView({ id, onClose }: { id: number; onClose: () => void })
   const overview = d ? (overviewLang === 'fr' ? (d.overviewFr ?? d.overviewEn) : (d.overviewEn ?? d.overviewFr)) : null;
   const kodiReady = !!st?.kodi.host;
   const present = d?.versions.some((v) => v.present);
+  // The episodes listed are this copy's: playable only when this copy is on the NAS.
+  const episodesHere = !!d?.versions.find((v) => v.id === d.id)?.present;
   // The copy VLC gets: this one when it is on the NAS, else another copy that is.
   const phoneCopy = d?.versions.find((v) => v.id === d.id && v.present) ?? d?.versions.find((v) => v.present);
   const phoneName = phoneCopy && d ? `${displayTitle(d, titleLang).main}${phoneCopy.isDir ? '' : phoneCopy.path.slice(phoneCopy.path.lastIndexOf('.'))}` : '';
@@ -280,7 +282,7 @@ export function DetailView({ id, onClose }: { id: number; onClose: () => void })
           {present && !kodiReady && <p className="hint pad">Kodi isn't connected yet. Open Settings to find it on your network.</p>}
           {isIOS && phoneCopy && !vlcSeen && (
             <p className="hint pad">
-              Play in VLC plays the film on this phone with all its audio and subtitle tracks. It needs the free{' '}
+              Play in VLC plays {d.episodes.length ? 'episodes' : 'the film'} on this phone with all their audio and subtitle tracks. It needs the free{' '}
               <a href={VLC_APP_STORE} target="_blank" rel="noreferrer">
                 VLC app
               </a>
@@ -314,7 +316,14 @@ export function DetailView({ id, onClose }: { id: number; onClose: () => void })
               </div>
             )}
 
-            {d.episodes.length > 0 && <Episodes itemId={d.id} episodes={d.episodes} kodiReady={kodiReady && !!present} />}
+            {d.episodes.length > 0 && (
+              <Episodes
+                itemId={d.id}
+                episodes={d.episodes}
+                kodiReady={kodiReady && episodesHere}
+                vlc={isIOS && episodesHere ? { show: t.main, onOpen: watchVlcLaunch } : null}
+              />
+            )}
 
             {d.collection && <SetRow name={d.collection} itemId={d.id} />}
 
@@ -501,7 +510,18 @@ function SetRow({ name, itemId }: { name: string; itemId: number }) {
   );
 }
 
-function Episodes({ itemId, episodes, kodiReady }: { itemId: number; episodes: Episode[]; kodiReady: boolean }) {
+function Episodes({
+  itemId,
+  episodes,
+  kodiReady,
+  vlc,
+}: {
+  itemId: number;
+  episodes: Episode[];
+  kodiReady: boolean;
+  /** each episode can also go to VLC on the phone */
+  vlc: { show: string; onOpen: () => void } | null;
+}) {
   const seasons = useMemo(() => {
     const m = new Map<string, { order: number; eps: Episode[] }>();
     for (const e of episodes) {
@@ -540,6 +560,16 @@ function Episodes({ itemId, episodes, kodiReady }: { itemId: number; episodes: E
               </span>
               {e.watched ? <IconCheck size={16} className="ep-check" /> : <IconPlay size={16} className="ep-play" />}
             </button>
+            {vlc && (
+              <a
+                className="ep-vlc"
+                href={vlcLink(mediaUrl(location.origin, 'episode', e.id, episodeName(vlc.show, e)), vlcBack())}
+                onClick={vlc.onOpen}
+                aria-label={`Play ${e.title ?? e.name} in VLC`}
+              >
+                <IconPhone size={20} />
+              </a>
+            )}
           </li>
         ))}
       </ol>
