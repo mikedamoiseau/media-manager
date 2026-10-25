@@ -97,7 +97,7 @@ export function Remote() {
                 {handoff && (
                   <a className="btn np-handoff" href={handoff}>
                     <IconPhone size={18} />
-                    Continue on phone
+                    Continue on this device
                   </a>
                 )}
               </>

@@ -265,7 +265,7 @@ export function createApi(svc: Service): Hono {
   };
 
   /**
-   * The Remote's Continue on phone: a playlist that starts VLC where the TV is, with its tracks (see
+   * The Remote's Continue on this device: a playlist that starts VLC where the TV is, with its tracks (see
    * vlcPlaylist). VLC loading it proves VLC opened, so the TV stops then, not on the tap; it may load
    * it more than once, and a second stop finds nothing playing.
    */
