@@ -1784,6 +1784,87 @@ input[type='range']::-moz-range-thumb {
   margin-top: 8px;
 }
 
+/* The seek bar: a 44px touch area, the bar drawn in its middle. */
+.seek {
+  --bar: 6px;
+  position: relative;
+  height: 44px;
+  margin: -8px 0;
+  touch-action: none;
+  cursor: pointer;
+  border-radius: 8px;
+}
+
+.seek::before,
+.seek-fill {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  height: var(--bar);
+  margin-top: calc(var(--bar) / -2);
+  border-radius: calc(var(--bar) / 2);
+}
+
+.seek::before {
+  content: '';
+  right: 0;
+  background: rgba(237, 235, 228, 0.16);
+}
+
+.seek-fill {
+  width: var(--pct);
+  background: var(--lampe);
+}
+
+.seek-knob {
+  position: absolute;
+  top: 50%;
+  left: var(--pct);
+  width: 22px;
+  height: 22px;
+  margin: -11px 0 0 -11px;
+  border-radius: 50%;
+  background: var(--ecran);
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.4);
+  transition: transform 0.12s;
+}
+
+.seek.is-dragging {
+  --bar: 10px;
+}
+
+.seek.is-dragging .seek-knob {
+  transform: scale(1.25);
+}
+
+/* The time under the finger, kept inside the card at the ends. */
+.seek-tip {
+  position: absolute;
+  bottom: calc(100% - 2px);
+  left: clamp(30px, var(--pct), calc(100% - 30px));
+  transform: translateX(-50%);
+  padding: 3px 9px;
+  border-radius: 8px;
+  background: var(--ecran);
+  color: var(--nuit);
+  font-size: 15px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.seek:focus-visible {
+  outline: 2px solid var(--lampe);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .seek-knob {
+    transition: none;
+  }
+}
+
 .np-times {
   display: flex;
   justify-content: space-between;
