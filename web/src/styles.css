@@ -1720,6 +1720,8 @@ input[type='range']::-moz-range-thumb {
 
 .remote {
   display: grid;
+  /* Rows keep their height and the page scrolls: squeezed, the card (overflow hidden) would cut its content. */
+  grid-auto-rows: max-content;
   align-content: start;
   justify-items: center;
   gap: 22px;
