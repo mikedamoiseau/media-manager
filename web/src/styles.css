@@ -1491,6 +1491,16 @@ input[type='range']::-moz-range-thumb {
   outline: none;
 }
 
+.kodi-keyboard {
+  display: grid;
+  gap: 4px;
+}
+
+.kodi-keyboard input {
+  width: 100%;
+  font-size: 18px;
+}
+
 .sheet-head {
   display: flex;
   align-items: center;

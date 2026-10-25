@@ -201,6 +201,10 @@ export function SettingsView() {
         <h2>Kodi</h2>
         <p className="muted">
           {st?.kodi.connected ? `Connected to ${s.kodiHost}:${s.kodiPort}.` : s.kodiHost ? `Set to ${s.kodiHost}:${s.kodiPort}, not answering right now.` : 'Not set up yet.'}
+          {st?.kodi.connected &&
+            (st.kodi.keyboard
+              ? ' When Kodi shows its keyboard, you can type on the phone.'
+              : ' To type on the phone when Kodi shows its keyboard, turn on Settings › Services › Control › “Allow remote control from applications on other systems” in Kodi.')}
           {st?.kodi.transport === 'curl' && ' macOS is blocking local network access for Node, so calls go through curl (works, slightly slower). Allow your terminal app under System Settings › Privacy & Security › Local Network to fix it.'}
         </p>
         <div className="tool-row">

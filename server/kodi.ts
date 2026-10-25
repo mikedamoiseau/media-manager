@@ -399,3 +399,8 @@ export async function play(cfg: KodiConfig, target: { file: string } | { movieid
 export async function playTrailer(cfg: KodiConfig, youtube: string): Promise<void> {
   await kodiCall(cfg, 'Player.Open', { item: { file: `plugin://plugin.video.youtube/play/?video_id=${encodeURIComponent(youtube)}` } }, 10000);
 }
+
+/** Type into Kodi's on-screen keyboard and confirm it, as pressing Done on the TV. */
+export async function sendText(cfg: KodiConfig, text: string): Promise<void> {
+  await kodiCall(cfg, 'Input.SendText', { text, done: true });
+}

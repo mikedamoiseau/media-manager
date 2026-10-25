@@ -20,7 +20,7 @@ export class HttpError extends Error {
   }
 }
 
-function isLanBlock(e: unknown): boolean {
+export function isLanBlock(e: unknown): boolean {
   const code = (e as { cause?: { code?: string } })?.cause?.code ?? (e as { code?: string })?.code;
   return code === 'EHOSTUNREACH' || code === 'ENETUNREACH';
 }

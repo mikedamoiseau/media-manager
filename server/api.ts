@@ -16,7 +16,7 @@ import { continueWatching, dismissWatching, noteStreamed } from './watching.ts';
 import { sheetIdFrom } from './sheet.ts';
 import { cachedImage, isAllowedImage, storeUpload, videoThumb } from './images.ts';
 import {
-  KodiError, discoverKodi, nowPlaying, streams, remote, play, playTrailer, toKodiPath, powerOptions, power, type RemoteAction,
+  KodiError, discoverKodi, nowPlaying, streams, remote, play, playTrailer, toKodiPath, powerOptions, power, sendText, type RemoteAction,
 } from './kodi.ts';
 import { Tmdb, type Candidate } from './tmdb.ts';
 import { ensureTitle, slimCandidates } from './metadata.ts';
@@ -427,6 +427,13 @@ export function createApi(svc: Service): Hono {
   api.post('/kodi/remote', async (c) => {
     const body = (await c.req.json()) as { action: RemoteAction; value?: number };
     await remote(kodi(), body.action, body.value);
+    return c.json({ ok: true });
+  });
+
+  api.post('/kodi/input', async (c) => {
+    const { text } = (await c.req.json()) as { text?: unknown };
+    if (typeof text !== 'string' || text.length > 1000) return c.json({ error: 'Text for Kodi is missing or too long' }, 400);
+    await sendText(kodi(), text);
     return c.json({ ok: true });
   });
 

@@ -17,6 +17,7 @@ Built for one household's setup: a Synology share mounted on a Mac, a Kodi box o
 - *Play in VLC* streams the original file to the phone, with every audio and subtitle track.
 - Trailers play in the app, or on the TV through Kodi's YouTube add-on.
 - A Kodi remote: d-pad, play/pause, seek, volume, subtitle and audio tracks, and a now-playing bar.
+- When Kodi shows its on-screen keyboard (a YouTube search, a password), the phone's keyboard comes up instead, on any screen.
 
 **Discover**
 - *Continue watching*: what you started, on Kodi or in the app.
@@ -54,7 +55,7 @@ The app never writes to the media folders or to the Google Sheet.
 - **Node 24 or later.** The server runs TypeScript directly, with no build step. Developed on Node 25.
 - **The media share mounted on the Mac**, by default at `/Volumes/video/MEDIA`.
 - **A TMDB API key**, free at [themoviedb.org](https://www.themoviedb.org/settings/api).
-- **Kodi** with *Settings → Services → Control → Allow remote control via HTTP* on. Tested with Kodi 21 Omega.
+- **Kodi** with *Settings → Services → Control → Allow remote control via HTTP* on, and *Allow remote control from applications on other systems* for typing from the phone. Tested with Kodi 21 Omega.
 - Optional: `ffmpeg` (frames for videos with no poster), VLC on the phone, Kodi's YouTube add-on (trailers on the TV).
 
 ## Install
@@ -119,6 +120,7 @@ Stack: Node with `node:sqlite` and [Hono](https://hono.dev) on the server; React
 | `server/parse.ts` | release-name parser: title, year, alternate titles, episodes, quality badges |
 | `server/scanner.ts`, `server/library.ts` | NAS walk, add/move/remove reconciliation, sheet hints |
 | `server/kodi.ts`, `server/net.ts` | Kodi JSON-RPC, discovery, path mapping, player and remote |
+| `server/kodiEvents.ts` | Kodi's event stream (port 9090): its on-screen keyboard |
 | `server/tmdb.ts`, `server/metadata.ts` | TMDB client and matcher, Kodi library sync, enrichment |
 | `server/suggestions.ts`, `server/films.ts`, `server/watching.ts` | tastes, suggestions, films not on the NAS, cinemas, continue watching |
 | `server/sheet.ts` | read-only Google Sheet import |

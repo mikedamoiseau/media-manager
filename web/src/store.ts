@@ -147,6 +147,9 @@ export function startFastPoll(): () => void {
   };
 }
 
+/** The Remote's Keyboard button: type for Kodi even when its keyboard wasn't announced. */
+export const typingForKodi = createStore(false);
+
 // ---------- toasts ----------
 
 export interface Toast {

@@ -10,6 +10,7 @@ import { type KodiConfig, kodiCall, discoverKodi, detectPathPrefix } from './kod
 import { syncFromKodi, matchPending, enrichTitles } from './metadata.ts';
 import { Tmdb } from './tmdb.ts';
 import { lanTransport } from './net.ts';
+import { KodiEvents, type KodiInput } from './kodiEvents.ts';
 
 export interface TaskStatus {
   running: boolean;
@@ -23,7 +24,15 @@ export interface Status {
   nas: { mounted: boolean; root: string };
   scan: TaskStatus;
   sheet: TaskStatus;
-  kodi: TaskStatus & { connected: boolean; host?: string; transport: string };
+  kodi: TaskStatus & {
+    connected: boolean;
+    host?: string;
+    transport: string;
+    /** Kodi's event connection is up: the phone can type when Kodi shows its keyboard */
+    keyboard: boolean;
+    /** Kodi's keyboard, while it waits for text */
+    input: KodiInput | null;
+  };
   metadata: TaskStatus;
   tmdbConfigured: boolean;
   counts: Record<string, number>;
@@ -36,6 +45,7 @@ export class Service extends EventEmitter {
   private timer?: NodeJS.Timeout;
   private libraryTimer?: NodeJS.Timeout;
   private kodiResyncTimer?: NodeJS.Timeout;
+  private kodiEvents: KodiEvents;
 
   constructor(db: DB, dataDir: string) {
     super();
@@ -47,12 +57,17 @@ export class Service extends EventEmitter {
       nas: { mounted: existsSync(s.mediaRoot), root: s.mediaRoot },
       scan: { running: false },
       sheet: { running: false, lastAt: s.sheetImportedAt || undefined },
-      kodi: { running: false, connected: false, host: s.kodiHost || undefined, transport: lanTransport() },
+      kodi: { running: false, connected: false, host: s.kodiHost || undefined, transport: lanTransport(), keyboard: false, input: null },
       metadata: { running: false },
       tmdbConfigured: !!s.tmdbKey,
       counts: {},
     };
     this.refreshCounts();
+    this.kodiEvents = new KodiEvents(() => {
+      this.status.kodi.keyboard = this.kodiEvents.live;
+      this.status.kodi.input = this.kodiEvents.input;
+      this.emitStatus();
+    });
   }
 
   settings(): Settings {
@@ -60,7 +75,9 @@ export class Service extends EventEmitter {
   }
 
   updateSettings(patch: Partial<Settings>): Settings {
+    const before = this.settings().kodiHost;
     const s = saveSettings(this.db, patch);
+    if (s.kodiHost !== before) this.kodiEvents.connect(s.kodiHost);
     this.status.tmdbConfigured = !!s.tmdbKey;
     this.status.kodi.host = s.kodiHost || undefined;
     this.status.nas.root = s.mediaRoot;
@@ -298,6 +315,7 @@ export class Service extends EventEmitter {
 
   start(): void {
     this.schedule();
+    this.kodiEvents.connect(this.settings().kodiHost);
     void this.scan();
   }
 
@@ -305,5 +323,6 @@ export class Service extends EventEmitter {
     this.stopRequested = true;
     clearInterval(this.timer);
     clearTimeout(this.kodiResyncTimer);
+    this.kodiEvents.stop();
   }
 }

@@ -184,11 +184,27 @@ export interface TaskStatus {
   progress?: { done: number; total: number };
 }
 
+/** Kodi's on-screen keyboard: what for (keyboard, password, numericpassword, number, seconds, ip, date, time) and what it holds. */
+export interface KodiInput {
+  id: number;
+  type: string;
+  title: string;
+  value: string;
+}
+
 export interface Status {
   nas: { mounted: boolean; root: string };
   scan: TaskStatus;
   sheet: TaskStatus;
-  kodi: TaskStatus & { connected: boolean; host?: string; transport: string };
+  kodi: TaskStatus & {
+    connected: boolean;
+    host?: string;
+    transport: string;
+    /** the phone can type when Kodi shows its keyboard */
+    keyboard?: boolean;
+    /** Kodi's keyboard, while it waits for text */
+    input?: KodiInput | null;
+  };
   metadata: TaskStatus;
   tmdbConfigured: boolean;
   counts: Record<string, number>;

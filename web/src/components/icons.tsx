@@ -229,6 +229,12 @@ export const IconAudio = (p: P) => (
     <path d="M4 10v4M8 7v10M12 4v16M16 8v8M20 11v2" />
   </svg>
 );
+export const IconKeyboard = (p: P) => (
+  <svg {...base(p)}>
+    <rect x="2.5" y="6" width="19" height="12" rx="2.5" />
+    <path d="M6.5 10h.01M10 10h.01M14 10h.01M17.5 10h.01M8 14h8" />
+  </svg>
+);
 export const IconUpload = (p: P) => (
   <svg {...base(p)}>
     <path d="M12 16V4M7 9l5-5 5 5M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3" />

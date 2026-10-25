@@ -8,6 +8,7 @@ import { Remote } from './components/Remote.tsx';
 import { SettingsView } from './components/Settings.tsx';
 import { NowPlayingBar } from './components/NowPlayingBar.tsx';
 import { Toasts } from './components/Toasts.tsx';
+import { KodiKeyboard } from './components/KodiKeyboard.tsx';
 import { IconFilm, IconInbox, IconRemote, IconSettings } from './components/icons.tsx';
 import { useStore, status, online } from './store.ts';
 
@@ -90,6 +91,7 @@ export function App() {
           ))}
         </nav>
       </footer>
+      <KodiKeyboard />
       <Toasts />
     </div>
   );

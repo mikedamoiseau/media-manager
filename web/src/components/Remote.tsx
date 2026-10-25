@@ -1,13 +1,13 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api.ts';
-import { useStore, nowPlaying, status, toast, startFastPoll, pollNowPlaying } from '../store.ts';
+import { useStore, nowPlaying, status, toast, startFastPoll, pollNowPlaying, typingForKodi } from '../store.ts';
 import { formatClock } from '../search.ts';
 import { languageName } from '../tracks.ts';
 import { TrackPicker } from './TrackPicker.tsx';
 import { PowerMenu } from './PowerMenu.tsx';
 import {
   IconUp, IconDown, IconLeft, IconRight, IconBack, IconHome, IconInfo, IconMenu, IconPlay, IconPause, IconStop,
-  IconSkipBack, IconSkipFwd, IconVolume, IconMute, IconSubtitles, IconAudio, IconTv, IconPower,
+  IconSkipBack, IconSkipFwd, IconVolume, IconMute, IconSubtitles, IconAudio, IconTv, IconPower, IconKeyboard,
 } from './icons.tsx';
 
 export async function send(action: string, value?: number) {
@@ -170,6 +170,9 @@ export function Remote() {
           </button>
           <button onClick={() => setPicker('audio')} disabled={!active}>
             <IconAudio /> <span>{active && np.audio ? languageName(np.audio.language) : 'Audio'}</span>
+          </button>
+          <button onClick={() => typingForKodi.set(true)}>
+            <IconKeyboard /> <span>Keyboard</span>
           </button>
         </div>
 
