@@ -1,0 +1,22 @@
+node_modules/
+web/dist/
+
+# Local data: SQLite database (holds the TMDB key, Kodi password and sheet id), image cache, logs
+data/
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# Secrets
+.env
+.env.*
+*.pem
+*.key
+
+# Editors and OS
+.DS_Store
+.vscode/
+.idea/
+*.log

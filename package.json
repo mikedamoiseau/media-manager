@@ -1,0 +1,37 @@
+{
+  "name": "media-manager",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Personal media library manager for a NAS + Kodi setup",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "start": "node server/index.ts",
+    "dev:server": "node --watch-path=server server/index.ts",
+    "dev:web": "vite",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "node --test --test-reporter=spec 'tests/**/*.test.ts'"
+  },
+  "dependencies": {
+    "@hono/node-server": "^2.1.4",
+    "bonjour-service": "^1.4.4",
+    "hono": "^4.13.13"
+  },
+  "devDependencies": {
+    "@fontsource-variable/atkinson-hyperlegible-next": "^5.3.0",
+    "@fontsource-variable/big-shoulders-display": "^5.3.0",
+    "@tanstack/react-virtual": "^3.14.14",
+    "@types/node": "^26.6.5",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.4",
+    "wouter": "^3.13.0"
+  }
+}
