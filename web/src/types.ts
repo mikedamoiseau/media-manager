@@ -96,9 +96,13 @@ export interface FilmDetail extends Film {
 /** A film started and not finished (see server/watching.ts). */
 export interface Watching {
   id: number;
+  /** into the film, or into the episode in progress (0: the next episode, not started) */
   fraction: number;
   where: 'tv' | 'phone';
   at: number;
+  /** a series: the episode to go on with, and how many of its episodes were watched */
+  episode?: { id: number; season: number | null; episode: number | null; title: string | null };
+  seen?: { watched: number; total: number };
 }
 
 /** A title to watch next, from what was watched or started (see server/suggestions.ts). */

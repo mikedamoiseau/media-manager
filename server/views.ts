@@ -2,7 +2,7 @@ import type { DB } from './db.ts';
 import { normalize } from './parse.ts';
 import { isLatin } from './tmdb.ts';
 import { ratingOf } from './suggestions.ts';
-import { FINISHED } from './watching.ts';
+import { FINISHED, watchedEpisode } from './watching.ts';
 
 interface Row {
   id: number;
@@ -170,7 +170,7 @@ export function itemDetail(db: DB, id: number) {
     matchSource: s.match_source,
   }));
   const episodes = r.is_dir
-    ? (db.prepare('SELECT id, path, size, season, episode, title, playcount FROM episodes WHERE item_id = ? ORDER BY season IS NULL, season, episode IS NULL, episode, path').all(r.id) as Array<Record<string, unknown>>).map((e) => ({
+    ? (db.prepare('SELECT id, path, size, season, episode, title, playcount, resume, streamed FROM episodes WHERE item_id = ? ORDER BY season IS NULL, season, episode IS NULL, episode, path').all(r.id) as Array<Record<string, unknown>>).map((e) => ({
         id: e.id as number,
         name: (e.path as string).slice((e.path as string).lastIndexOf('/') + 1),
         dir: (e.path as string).slice(r.path.length + 1, (e.path as string).lastIndexOf('/')) || null,
@@ -178,7 +178,7 @@ export function itemDetail(db: DB, id: number) {
         season: e.season,
         episode: e.episode,
         title: e.title,
-        watched: ((e.playcount as number | null) ?? 0) > 0,
+        watched: watchedEpisode(e as { playcount: number | null; resume: number | null; streamed: number | null }),
       }))
     : [];
   // Only a film you watched can be liked or not: played to the end on Kodi, or most of the way in VLC.

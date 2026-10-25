@@ -38,13 +38,17 @@ test('Kodi (NFC) links to macOS (NFD) paths, folder films and episodes', () => {
       movie(`${PREFIX}/MOVIES/Monsters (2010)/Monsters.mkv`, { movieid: 8, uniqueid: { tmdb: '43' } }),
     ],
     shows: [],
-    episodes: [{ episodeid: 99, file: `${PREFIX}/SERIES/Les Misérables/Épisode 1.mkv`.normalize('NFC'), playcount: 2 }],
+    episodes: [{
+      episodeid: 99, file: `${PREFIX}/SERIES/Les Misérables/Épisode 1.mkv`.normalize('NFC'), playcount: 2,
+      resume: { position: 600, total: 2400 }, lastplayed: '2026-10-20 21:00:00',
+    }],
   }, 1000);
   assert.deepEqual([r.linked, r.episodes], [2, 1]);
   const ia = db.prepare('SELECT kodi_id, playcount, tmdb_id, match_state FROM items WHERE id = ?').get(a) as Record<string, unknown>;
   assert.deepEqual({ ...ia }, { kodi_id: 7, playcount: 1, tmdb_id: 42, match_state: 'matched' });
   assert.equal((db.prepare('SELECT tmdb_id FROM items WHERE id = ?').get(b) as { tmdb_id: number }).tmdb_id, 43);
-  assert.equal((db.prepare('SELECT kodi_id FROM episodes WHERE item_id = ?').get(s) as { kodi_id: number }).kodi_id, 99);
+  assert.deepEqual({ ...(db.prepare('SELECT kodi_id, playcount, resume, last_played FROM episodes WHERE item_id = ?').get(s) as object) },
+    { kodi_id: 99, playcount: 2, resume: 0.25, last_played: '2026-10-20 21:00:00' });
 });
 
 test('watched changes bump the library version; identical syncs do not', () => {

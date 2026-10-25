@@ -434,7 +434,16 @@ function SetView({ name, results, groups }: { name: string; results: Group[]; gr
   );
 }
 
-/** Films started and not finished, with how far you got and where; × removes one from the row. */
+/** "S1 E5", or what there is of it. */
+function episodeLabel(e: NonNullable<Watching['episode']>): string {
+  if (e.season != null && e.episode != null) return `S${e.season} E${e.episode}`;
+  return e.episode != null ? `E${e.episode}` : (e.title ?? 'Next episode');
+}
+
+/**
+ * Films started and not finished, with how far you got and where; series with the episode to go on
+ * with and how much of it you've seen. × removes one from the row.
+ */
 function ContinueShelf({ entries, lang, onDismiss }: { entries: Array<{ w: Watching; g: Group }>; lang: TitleLang; onDismiss: (id: number) => void }) {
   const openTitle = useOpenTitle();
   return (
@@ -446,20 +455,25 @@ function ContinueShelf({ entries, lang, onDismiss }: { entries: Array<{ w: Watch
         {entries.map(({ w, g }) => {
           const t = displayTitle(g.main, lang);
           const pct = Math.round(w.fraction * 100);
+          // A series' bar is the share of its episodes watched.
+          const bar = w.seen ? Math.round((w.seen.watched / Math.max(1, w.seen.total)) * 100) : pct;
+          const why = !w.episode
+            ? `${pct}% on the ${w.where === 'tv' ? 'TV' : 'phone'}`
+            : w.fraction > 0
+              ? `${episodeLabel(w.episode)} at ${pct}%`
+              : `Next: ${episodeLabel(w.episode)}`;
           return (
             <div key={g.key} className="shelf-item">
               <button className="tile shelf-tile" onClick={() => openTitle(w.id)}>
                 <Poster src={g.main.p} title={t.main} year={g.main.y} />
                 <span className="tile-bar" aria-hidden="true">
                   <span>
-                    <i style={{ width: `${pct}%` }} />
+                    <i style={{ width: `${bar}%` }} />
                   </span>
                 </span>
                 <span className="tile-title">{t.main}</span>
                 <span className="tile-meta">
-                  <span className="shelf-why">
-                    {pct}% on the {w.where === 'tv' ? 'TV' : 'phone'}
-                  </span>
+                  <span className="shelf-why">{why}</span>
                 </span>
               </button>
               <button className="tile-remove" onClick={() => onDismiss(w.id)} aria-label={`Remove ${t.main} from Continue watching`}>

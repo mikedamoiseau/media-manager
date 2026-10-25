@@ -12,7 +12,7 @@ import { pool } from './scanner.ts';
 import { parseRange, videoType } from './media.ts';
 import { suggestions, recordActivity, rate } from './suggestions.ts';
 import { elsewhere, cinema, inCinemas, filmDetails, asFilm, getPick, setPick, wantedFilms } from './films.ts';
-import { continueWatching, dismissWatching, noteStreamed } from './watching.ts';
+import { continueWatching, dismissWatching, noteStreamed, noteEpisodeStreamed, nextEpisode } from './watching.ts';
 import { sheetIdFrom } from './sheet.ts';
 import { cachedImage, isAllowedImage, storeUpload, videoThumb } from './images.ts';
 import {
@@ -193,11 +193,6 @@ export function createApi(svc: Service): Hono {
   }
 
   type Episode = { path: string; kodi_id: number | null };
-  /** First unwatched episode in order (extras last), else the first one. */
-  const nextEpisode = (itemId: number) =>
-    db.prepare('SELECT path, kodi_id FROM episodes WHERE item_id = ? ORDER BY COALESCE(playcount, 0) > 0, season IS NULL, season = 0, season, episode IS NULL, episode, path LIMIT 1').get(itemId) as
-      | Episode
-      | undefined;
 
   /**
    * The original video file with byte ranges, so a player on the phone (VLC) can seek. kind "item": a film,
@@ -208,17 +203,21 @@ export function createApi(svc: Service): Hono {
     const id = Number(c.req.param('id'));
     let rel: string | undefined;
     let itemId = id;
-    let film = false;
+    // What the bytes VLC takes are counted against, for Continue watching.
+    let progress: ((start: number, sent: number, size: number) => void) | undefined;
     if (c.req.param('kind') === 'episode') {
       const ep = db.prepare('SELECT e.path, e.item_id FROM episodes e JOIN items i ON i.id = e.item_id WHERE e.id = ? AND i.present = 1').get(id) as
         | { path: string; item_id: number }
         | undefined;
       rel = ep?.path;
       itemId = ep?.item_id ?? id;
+      if (ep) progress = (start, sent, size) => noteEpisodeStreamed(db, id, start, sent, size);
     } else {
       const it = db.prepare('SELECT path, is_dir FROM items WHERE id = ? AND present = 1').get(id) as { path: string; is_dir: number } | undefined;
-      rel = it && (it.is_dir ? nextEpisode(id)?.path : it.path);
-      film = !!it && !it.is_dir;
+      const ep = it?.is_dir ? nextEpisode(db, id) : undefined;
+      rel = it && (it.is_dir ? ep?.path : it.path);
+      if (it && !it.is_dir) progress = (start, sent, size) => noteStreamed(db, id, start, sent, size);
+      else if (ep) progress = (start, sent, size) => noteEpisodeStreamed(db, ep.id, start, sent, size);
     }
     if (!rel) return c.json({ error: 'File is not on the NAS' }, 404);
     const file = join(svc.settings().mediaRoot, rel);
@@ -239,7 +238,7 @@ export function createApi(svc: Service): Hono {
     // VLC asks again on every seek; recordActivity counts one play per half hour.
     recordActivity(db, itemId, 'play');
     const source = createReadStream(file, { start, end });
-    if (!film) return c.body(Readable.toWeb(source) as ReadableStream, status, headers);
+    if (!progress) return c.body(Readable.toWeb(source) as ReadableStream, status, headers);
     // Count what VLC actually takes, for Continue watching. pipeline keeps the backpressure and
     // closes the file when VLC drops the connection (it does on every seek).
     let sent = 0;
@@ -249,7 +248,7 @@ export function createApi(svc: Service): Hono {
         done(null, chunk);
       },
     });
-    pipeline(source, counter, () => noteStreamed(db, itemId, start, sent, size));
+    pipeline(source, counter, () => progress(start, sent, size));
     return c.body(Readable.toWeb(counter) as ReadableStream, status, headers);
   });
 
@@ -266,7 +265,7 @@ export function createApi(svc: Service): Hono {
     if (it.is_dir) {
       const ep = body.episodeId
         ? (db.prepare('SELECT path, kodi_id FROM episodes WHERE id = ? AND item_id = ?').get(body.episodeId, id) as Episode | undefined)
-        : nextEpisode(id);
+        : nextEpisode(db, id);
       if (!ep) return c.json({ error: 'No episode found' }, 404);
       await play(cfg, ep.kodi_id ? { episodeid: ep.kodi_id } : { file: toKodiPath(prefix, ep.path) });
     } else if (it.kodi_id && it.kodi_type === 'movie') {

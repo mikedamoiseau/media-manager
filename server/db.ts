@@ -161,6 +161,13 @@ const MIGRATIONS: string[] = [
     PRIMARY KEY (media_type, tmdb_id)
   );
   `,
+  `
+  -- Where each episode got to: Kodi's resume point and last play, and how far VLC got on the phone.
+  ALTER TABLE episodes ADD COLUMN resume REAL;
+  ALTER TABLE episodes ADD COLUMN last_played TEXT;
+  ALTER TABLE episodes ADD COLUMN streamed REAL;
+  ALTER TABLE episodes ADD COLUMN streamed_at INTEGER;
+  `,
 ];
 
 export function openDb(file: string): DB {
