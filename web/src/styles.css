@@ -2053,6 +2053,8 @@ input[type='range']::-moz-range-thumb {
 
 .panel {
   display: grid;
+  /* One column that can shrink: an auto column grows to the widest child (the country list). */
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
   margin: 0 var(--gutter) 16px;
   padding: 20px;
