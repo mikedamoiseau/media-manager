@@ -458,7 +458,7 @@ function ContinueShelf({ entries, lang, onDismiss }: { entries: Array<{ w: Watch
           // A series' bar is the share of its episodes watched.
           const bar = w.seen ? Math.round((w.seen.watched / Math.max(1, w.seen.total)) * 100) : pct;
           const why = !w.episode
-            ? `${pct}% on the ${w.where === 'tv' ? 'TV' : 'phone'}`
+            ? `${pct}% ${w.where === 'tv' ? 'on the TV' : 'in VLC'}`
             : w.fraction > 0
               ? `${episodeLabel(w.episode)} at ${pct}%`
               : `Next: ${episodeLabel(w.episode)}`;

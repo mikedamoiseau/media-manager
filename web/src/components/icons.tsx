@@ -1,4 +1,5 @@
 import type { SVGProps } from 'react';
+import { isTablet } from '../vlc.ts';
 
 type P = SVGProps<SVGSVGElement> & { size?: number };
 
@@ -140,9 +141,10 @@ export const IconEyeOff = (p: P) => (
     <path d="M9.9 9.9a2.8 2.8 0 0 0 4.2 4.2" />
   </svg>
 );
-export const IconPhone = (p: P) => (
+/** This device: a tablet on the iPad, a phone otherwise. */
+export const IconDevice = (p: P) => (
   <svg {...base(p)}>
-    <rect x="6.5" y="2.5" width="11" height="19" rx="2.5" />
+    {isTablet ? <rect x="4" y="2.5" width="16" height="19" rx="2" /> : <rect x="6.5" y="2.5" width="11" height="19" rx="2.5" />}
     <path d="M10.5 18.5h3" />
   </svg>
 );

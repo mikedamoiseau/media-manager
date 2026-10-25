@@ -6,7 +6,7 @@ import type { Detail, Episode, SetPart, TitleLang } from '../types.ts';
 import { Poster } from './Poster.tsx';
 import { MatchDialog } from './MatchDialog.tsx';
 import { PosterPicker } from './PosterPicker.tsx';
-import { IconBack, IconPlay, IconYoutube, IconTv, IconCheck, IconImage, IconLink, IconEye, IconEyeOff, IconPhone, IconThumbUp, IconThumbDown } from './icons.tsx';
+import { IconBack, IconPlay, IconYoutube, IconTv, IconCheck, IconImage, IconLink, IconEye, IconEyeOff, IconDevice, IconThumbUp, IconThumbDown } from './icons.tsx';
 import { isIOS, mediaUrl, vlcLink, vlcBack, episodeName, VLC_APP_STORE } from '../vlc.ts';
 import { TitleTile, MissingTile } from './Library.tsx';
 import { useOpenTitle, useOpenSet } from '../nav.ts';
@@ -251,7 +251,7 @@ export function DetailView({ id, onClose }: { id: number; onClose: () => void })
             )}
             {isIOS && phoneCopy && (
               <a className="btn big" href={vlcLink(mediaUrl(location.origin, 'item', phoneCopy.id, phoneName), vlcBack())} onClick={watchVlcLaunch}>
-                <IconPhone size={20} />
+                <IconDevice size={20} />
                 Play in VLC
               </a>
             )}
@@ -273,7 +273,7 @@ export function DetailView({ id, onClose }: { id: number; onClose: () => void })
           {present && !kodiReady && <p className="hint pad">Kodi isn't connected yet. Open Settings to find it on your network.</p>}
           {isIOS && phoneCopy && !vlcSeen && (
             <p className="hint pad">
-              Play in VLC plays {d.episodes.length ? 'episodes' : 'the film'} on this phone with all their audio and subtitle tracks. It needs the free{' '}
+              Play in VLC plays {d.episodes.length ? 'episodes' : 'the film'} on this device with all their audio and subtitle tracks. It needs the free{' '}
               <a href={VLC_APP_STORE} target="_blank" rel="noreferrer">
                 VLC app
               </a>
@@ -558,7 +558,7 @@ function Episodes({
                 onClick={vlc.onOpen}
                 aria-label={`Play ${e.title ?? e.name} in VLC`}
               >
-                <IconPhone size={20} />
+                <IconDevice size={20} />
               </a>
             )}
           </li>

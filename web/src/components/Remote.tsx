@@ -9,7 +9,7 @@ import { sliderKey } from '../sliderKeys.ts';
 import { PowerMenu } from './PowerMenu.tsx';
 import {
   IconUp, IconDown, IconLeft, IconRight, IconBack, IconHome, IconInfo, IconMenu, IconPlay, IconPause, IconStop,
-  IconSkipBack, IconSkipFwd, IconVolume, IconMute, IconSubtitles, IconAudio, IconTv, IconPower, IconKeyboard, IconPhone,
+  IconSkipBack, IconSkipFwd, IconVolume, IconMute, IconSubtitles, IconAudio, IconTv, IconPower, IconKeyboard, IconDevice,
 } from './icons.tsx';
 
 export async function send(action: string, value?: number) {
@@ -96,7 +96,7 @@ export function Remote() {
                 </TouchSlider>
                 {handoff && (
                   <a className="btn np-handoff" href={handoff}>
-                    <IconPhone size={18} />
+                    <IconDevice size={18} />
                     Continue on this device
                   </a>
                 )}

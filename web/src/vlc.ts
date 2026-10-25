@@ -6,6 +6,9 @@ const ua = nav?.userAgent ?? '';
 /** iPhone, iPod, or iPad (which reports itself as a Mac with a touch screen). */
 export const isIOS = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && (nav?.maxTouchPoints ?? 0) > 1);
 
+/** An iPad (iPadOS reports itself as a Mac with a touch screen). */
+export const isTablet = /iPad/.test(ua) || (/Macintosh/.test(ua) && (nav?.maxTouchPoints ?? 0) > 1);
+
 /** The original file, served with byte ranges so the player can seek. The name is only what VLC shows. */
 export function mediaUrl(origin: string, kind: 'item' | 'episode', id: number, name: string): string {
   return new URL(`/api/media/${kind}/${id}/${encodeURIComponent(name)}`, origin).href;
