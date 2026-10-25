@@ -128,4 +128,8 @@ Stack: Node with `node:sqlite` and [Hono](https://hono.dev) on the server; React
 | `web/src` | React app: poster grid, title and film pages, review, remote, settings |
 | `tests/` | parser, sheet, scanner, matcher, suggestions, cinemas, playback |
 
+## License
+
+[MIT](LICENSE)
+
 This product uses the TMDB API but is not endorsed or certified by TMDB.

@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "description": "Personal media library manager for a NAS + Kodi setup",
+  "license": "MIT",
   "engines": {
     "node": ">=24"
   },
