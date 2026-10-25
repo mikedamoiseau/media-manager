@@ -486,45 +486,6 @@ select option {
   background: var(--rideau);
 }
 
-input[type='range'] {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 100%;
-  height: 28px;
-  background: transparent;
-  cursor: pointer;
-}
-
-input[type='range']::-webkit-slider-runnable-track {
-  height: 6px;
-  border-radius: 3px;
-  background: linear-gradient(to right, var(--lampe) var(--pct, 0%), rgba(237, 235, 228, 0.16) var(--pct, 0%));
-}
-
-input[type='range']::-moz-range-track {
-  height: 6px;
-  border-radius: 3px;
-  background: linear-gradient(to right, var(--lampe) var(--pct, 0%), rgba(237, 235, 228, 0.16) var(--pct, 0%));
-}
-
-input[type='range']::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  width: 22px;
-  height: 22px;
-  margin-top: -8px;
-  border-radius: 50%;
-  background: var(--ecran);
-  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.4);
-}
-
-input[type='range']::-moz-range-thumb {
-  width: 22px;
-  height: 22px;
-  border: 0;
-  border-radius: 50%;
-  background: var(--ecran);
-}
-
 /* ---------- library ---------- */
 
 .lib-head {
@@ -1784,8 +1745,8 @@ input[type='range']::-moz-range-thumb {
   margin-top: 8px;
 }
 
-/* The seek bar: a 44px touch area, the bar drawn in its middle. */
-.seek {
+/* The bars of the Remote (position, volume): a 44px touch area, the bar drawn in its middle. */
+.slider {
   --bar: 6px;
   position: relative;
   height: 44px;
@@ -1795,8 +1756,8 @@ input[type='range']::-moz-range-thumb {
   border-radius: 8px;
 }
 
-.seek::before,
-.seek-fill {
+.slider::before,
+.slider-fill {
   position: absolute;
   left: 0;
   top: 50%;
@@ -1805,18 +1766,18 @@ input[type='range']::-moz-range-thumb {
   border-radius: calc(var(--bar) / 2);
 }
 
-.seek::before {
+.slider::before {
   content: '';
   right: 0;
   background: rgba(237, 235, 228, 0.16);
 }
 
-.seek-fill {
+.slider-fill {
   width: var(--pct);
   background: var(--lampe);
 }
 
-.seek-knob {
+.slider-knob {
   position: absolute;
   top: 50%;
   left: var(--pct);
@@ -1829,16 +1790,16 @@ input[type='range']::-moz-range-thumb {
   transition: transform 0.12s;
 }
 
-.seek.is-dragging {
+.slider.is-dragging {
   --bar: 10px;
 }
 
-.seek.is-dragging .seek-knob {
+.slider.is-dragging .slider-knob {
   transform: scale(1.25);
 }
 
 /* The time under the finger, kept inside the card at the ends. */
-.seek-tip {
+.slider-tip {
   position: absolute;
   bottom: calc(100% - 2px);
   left: clamp(30px, var(--pct), calc(100% - 30px));
@@ -1854,13 +1815,13 @@ input[type='range']::-moz-range-thumb {
   pointer-events: none;
 }
 
-.seek:focus-visible {
+.slider:focus-visible {
   outline: 2px solid var(--lampe);
   outline-offset: 2px;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .seek-knob {
+  .slider-knob {
     transition: none;
   }
 }
@@ -1975,6 +1936,10 @@ input[type='range']::-moz-range-thumb {
   display: flex;
   align-items: center;
   gap: 10px;
+}
+
+.volume .slider {
+  flex: 1;
 }
 
 .vol-num {

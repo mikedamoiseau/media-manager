@@ -1,11 +1,11 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { api } from '../api.ts';
 import { useStore, nowPlaying, status, toast, startFastPoll, pollNowPlaying, typingForKodi } from '../store.ts';
 import { formatClock } from '../search.ts';
 import { languageName } from '../tracks.ts';
 import { TrackPicker } from './TrackPicker.tsx';
 import { isIOS, handoffLink, vlcBack } from '../vlc.ts';
-import { seekKey } from '../seekKeys.ts';
+import { sliderKey } from '../sliderKeys.ts';
 import { PowerMenu } from './PowerMenu.tsx';
 import {
   IconUp, IconDown, IconLeft, IconRight, IconBack, IconHome, IconInfo, IconMenu, IconPlay, IconPause, IconStop,
@@ -30,7 +30,6 @@ const KEYS: Record<string, string> = {
 export function Remote() {
   const np = useStore(nowPlaying);
   const st = useStore(status);
-  const [vol, setVol] = useState<number | null>(null);
   const [picker, setPicker] = useState<'audio' | 'subtitles' | null>(null);
   const [powerMenu, setPowerMenu] = useState(false);
 
@@ -66,7 +65,6 @@ export function Remote() {
 
   const active = np?.active;
   const playing = active && (np.speed ?? 0) !== 0;
-  const volume = vol ?? np?.volume ?? 0;
   // The link is ready before the tap: Safari opens VLC only straight from a tap.
   const handoff = isIOS && active ? handoffLink(location.origin, np, vlcBack(), Date.now().toString(36)) : null;
 
@@ -80,7 +78,22 @@ export function Remote() {
               <>
                 <p className="np-label">{np.showTitle ? `${np.showTitle}${np.season ? `, season ${np.season}` : ''}${np.episode ? ` episode ${np.episode}` : ''}` : 'Now playing'}</p>
                 <h1 className="np-title">{np.title}</h1>
-                <SeekBar time={np.time ?? 0} total={np.total ?? 0} />
+                <TouchSlider
+                  value={np.time ?? 0}
+                  max={np.total ?? 0}
+                  label="Position"
+                  valueText={(t) => `${formatClock(t)} of ${formatClock(np.total)}`}
+                  tip={formatClock}
+                  steps={{ back: 10, forward: 30 }}
+                  onPick={(t) => send('seek', (t / (np.total || 1)) * 100)}
+                >
+                  {(t) => (
+                    <div className="np-times">
+                      <span>{formatClock(t)}</span>
+                      <span>-{formatClock((np.total ?? 0) - t)}</span>
+                    </div>
+                  )}
+                </TouchSlider>
                 {handoff && (
                   <a className="btn np-handoff" href={handoff}>
                     <IconPhone size={18} />
@@ -168,22 +181,16 @@ export function Remote() {
           <button className="icon-btn" onClick={() => void send('mute')} aria-label={np?.muted ? 'Unmute' : 'Mute'}>
             {np?.muted ? <IconMute /> : <IconVolume />}
           </button>
-          <input
-            type="range"
-            min={0}
+          <TouchSlider
+            value={np?.volume ?? 0}
             max={100}
-            value={volume}
-            onChange={(e) => setVol(Number(e.target.value))}
-            onPointerUp={() => {
-              if (vol !== null) void send('volume', vol).finally(() => setVol(null));
-            }}
-            onKeyUp={() => {
-              if (vol !== null) void send('volume', vol).finally(() => setVol(null));
-            }}
-            aria-label="Volume"
-            style={{ '--pct': `${volume}%` } as React.CSSProperties}
-          />
-          <span className="vol-num">{volume}</span>
+            label="Volume"
+            valueText={(v) => String(Math.round(v))}
+            steps={{ back: 5, forward: 5 }}
+            onPick={(v) => send('volume', Math.round(v))}
+          >
+            {(v) => <span className="vol-num">{Math.round(v)}</span>}
+          </TouchSlider>
         </div>
       </div>
       {/* Outside .remote: its children are width-capped, the sheet backdrop must cover the screen. */}
@@ -194,35 +201,55 @@ export function Remote() {
 }
 
 /**
- * Where the video is, and where to go: tap the bar or drag along it, Kodi seeks when you let go. Not the
- * browser's slider: on the iPhone that one moves only by its small knob, and a tap on the bar does nothing.
+ * A bar to tap or drag along, for the position and the volume. Not the browser's slider: on the iPhone
+ * that one moves only by its small knob, and a tap on the bar does nothing. `onPick` runs once, when you
+ * let go (or press a key); the picked value stays shown until Kodi reports it. `children`: what goes
+ * with the bar, drawn with the value shown.
  */
-function SeekBar({ time, total }: { time: number; total: number }) {
-  // Where to go (0 to 1): while dragging, and for a moment after, until Kodi reports the new position.
+function TouchSlider({ value, max, label, valueText, tip, steps, onPick, children }: {
+  value: number;
+  max: number;
+  label: string;
+  valueText: (v: number) => string;
+  tip?: (v: number) => string;
+  steps: { back: number; forward: number };
+  onPick: (v: number) => Promise<void>;
+  children: (v: number) => ReactNode;
+}) {
+  // While dragging, and for a moment after, until Kodi reports it.
   const [to, setTo] = useState<number | null>(null);
   const [dragging, setDragging] = useState(false);
   const touch = useRef(0);
   const at = (e: React.PointerEvent<HTMLDivElement>) => {
     const r = e.currentTarget.getBoundingClientRect();
-    return r.width ? Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)) : 0;
+    return r.width ? Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)) * max : 0;
   };
-  const pos = to !== null ? to * total : time;
-  const shown = total ? Math.min(1, pos / total) : 0;
+  const shown = Math.min(max, to ?? value);
+  const pick = (v: number) => {
+    const n = ++touch.current;
+    setTo(v);
+    // send() polls Kodi 250 ms after: show the pick until then, not the old value.
+    void onPick(v).finally(() =>
+      setTimeout(() => {
+        if (touch.current === n) setTo(null);
+      }, 1000),
+    );
+  };
 
   return (
     <>
       <div
-        className={`seek${dragging ? ' is-dragging' : ''}`}
+        className={`slider${dragging ? ' is-dragging' : ''}`}
         role="slider"
         tabIndex={0}
-        aria-label="Position"
+        aria-label={label}
         aria-valuemin={0}
-        aria-valuemax={Math.round(total)}
-        aria-valuenow={Math.round(pos)}
-        aria-valuetext={`${formatClock(pos)} of ${formatClock(total)}`}
-        style={{ '--pct': `${shown * 100}%` } as React.CSSProperties}
+        aria-valuemax={Math.round(max)}
+        aria-valuenow={Math.round(shown)}
+        aria-valuetext={valueText(shown)}
+        style={{ '--pct': `${max ? (shown / max) * 100 : 0}%` } as React.CSSProperties}
         onPointerDown={(e) => {
-          if (!total || e.button !== 0) return;
+          if (!max || e.button !== 0) return;
           e.currentTarget.setPointerCapture(e.pointerId);
           touch.current++;
           setDragging(true);
@@ -233,16 +260,8 @@ function SeekBar({ time, total }: { time: number; total: number }) {
         }}
         onPointerUp={(e) => {
           if (!dragging) return;
-          const f = at(e);
-          const n = ++touch.current;
           setDragging(false);
-          setTo(f);
-          // send() polls Kodi 250 ms after: show the target until then, not the old position.
-          void send('seek', f * 100).finally(() =>
-            setTimeout(() => {
-              if (touch.current === n) setTo(null);
-            }, 1000),
-          );
+          pick(at(e));
         }}
         onPointerCancel={() => {
           touch.current++;
@@ -250,22 +269,19 @@ function SeekBar({ time, total }: { time: number; total: number }) {
           setTo(null);
         }}
         onKeyDown={(e) => {
-          // Arrows move in the video, not Kodi's cursor (the Remote's keys listen on window).
-          const k = seekKey(e.key);
-          if (!k) return;
+          // The bar's keys, not Kodi's cursor (the Remote's keys listen on window).
+          const v = max ? sliderKey(e.key, shown, { max, ...steps }) : null;
+          if (v === null) return;
           e.preventDefault();
           e.stopPropagation();
-          void send(k.action, 'value' in k ? k.value : undefined);
+          pick(v);
         }}
       >
-        <span className="seek-fill" />
-        <span className="seek-knob" />
-        {dragging && <span className="seek-tip">{formatClock(pos)}</span>}
+        <span className="slider-fill" />
+        <span className="slider-knob" />
+        {dragging && tip && <span className="slider-tip">{tip(shown)}</span>}
       </div>
-      <div className="np-times">
-        <span>{formatClock(pos)}</span>
-        <span>-{formatClock(total - pos)}</span>
-      </div>
+      {children(shown)}
     </>
   );
 }
