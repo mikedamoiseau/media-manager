@@ -781,6 +781,16 @@ input[type='range']::-moz-range-thumb {
   filter: grayscale(1);
 }
 
+/* Not on the NAS: still in colour, but faded and tagged, so it reads as a film to get, not one to play. */
+.tile.is-elsewhere .poster {
+  filter: saturate(0.45) brightness(0.72);
+}
+
+.tile-flag.is-plain {
+  color: var(--ecran);
+  font-weight: 600;
+}
+
 .poster {
   position: relative;
   width: 100%;

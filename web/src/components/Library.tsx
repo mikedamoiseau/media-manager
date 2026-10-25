@@ -231,7 +231,7 @@ export function Library({ active }: { active: boolean }) {
           id="elsewhere-title"
           title="Not on the NAS"
           lang={titleLang}
-          greyed
+          notOnNas
           films={elsewhere.map((f) => {
             const seed = groupOf.get(f.because);
             const like = seed ? displayTitle(seed.main, titleLang).main : null;
@@ -517,9 +517,8 @@ function Shelf({ entries, lang }: { entries: Array<{ s: Suggestion; g: Group; se
   );
 }
 
-/** A film of the set that is not in the library at all: shown greyed, nothing to open. */
-/** A row of films that aren't on the NAS, each opening its page. Greyed: like the missing films of a set. */
-function FilmShelf({ id, title, films, lang, greyed = false }: { id: string; title: string; films: Array<{ f: Film; why: string }>; lang: TitleLang; greyed?: boolean }) {
+/** A row of films that aren't on the NAS, each opening its page. notOnNas: faded and tagged, as films to get rather than to play. */
+function FilmShelf({ id, title, films, lang, notOnNas = false }: { id: string; title: string; films: Array<{ f: Film; why: string }>; lang: TitleLang; notOnNas?: boolean }) {
   const openFilm = useOpenFilm();
   return (
     <section className="shelf" aria-labelledby={id}>
@@ -530,8 +529,9 @@ function FilmShelf({ id, title, films, lang, greyed = false }: { id: string; tit
         {films.map(({ f, why }) => {
           const t = displayTitle(f, lang);
           return (
-            <button key={f.id} className={`tile shelf-tile${greyed ? ' is-missing' : ''}`} onClick={() => openFilm(f.id)}>
+            <button key={f.id} className={`tile shelf-tile${notOnNas ? ' is-elsewhere' : ''}`} onClick={() => openFilm(f.id)}>
               <Poster src={f.poster} title={t.main} year={f.date ? Number(f.date.slice(0, 4)) : null} />
+              {notOnNas && <span className="tile-flag is-plain">Not on NAS</span>}
               <span className="tile-title">{t.main}</span>
               <span className="tile-meta">
                 <span className="shelf-why">{why}</span>
@@ -544,6 +544,7 @@ function FilmShelf({ id, title, films, lang, greyed = false }: { id: string; tit
   );
 }
 
+/** A film of the set that is not in the library at all: shown greyed, nothing to open. */
 export function MissingTile({ part, lang }: { part: SetPart; lang: TitleLang }) {
   const t = displayTitle(part, lang);
   const year = part.date ? Number(part.date.slice(0, 4)) : null;
