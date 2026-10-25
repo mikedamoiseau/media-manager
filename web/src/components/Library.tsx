@@ -1,13 +1,14 @@
-import { useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useLocation, useRoute } from 'wouter';
-import { useStore, library, prefs, toast, loadLibrary } from '../store.ts';
+import { useStore, library, prefs, toast, loadLibrary, personRequest } from '../store.ts';
 import {
   applyFilters, allGenres, groupCards, groupSets, isSet, setName, splitSet, displayTitle, formatDay, CATEGORIES, DECADES, DEFAULT_FILTERS,
   type Filters, type SortKey, type StatusKey,
 } from '../search.ts';
-import type { Entry, Film, Group, SetGroup, SetPart, Suggestion, TitleLang, Watching } from '../types.ts';
+import type { Entry, Film, Group, Person, SetGroup, SetPart, Suggestion, TitleLang, Watching } from '../types.ts';
 import { api } from '../api.ts';
+import { peopleTitles } from '../peopleTitles.ts';
 import { Poster } from './Poster.tsx';
 import { Sheet } from './Sheet.tsx';
 import { IconSearch, IconClose, IconFilter, IconCheck, IconSets, IconBack } from './icons.tsx';
@@ -68,14 +69,27 @@ export function Library({ active }: { active: boolean }) {
   const deferred = useDeferredValue(filters);
   const scroller = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+  // The titles of each person in the filter (group keys), from the server.
+  const people = useMemo(() => peopleTitles((name) => api.get<{ g: string[] }>(`/api/person?name=${encodeURIComponent(name)}`).then((r) => r.g)), []);
+  const { keys: peopleKeys, error: peopleError } = useSyncExternalStore(people.subscribe, people.get);
+  const person = useStore(personRequest);
 
   useEffect(() => {
     sessionStorage.setItem('mm.filters', JSON.stringify(filters));
   }, [filters]);
 
+  useEffect(() => people.want(filters.people, version ?? ''), [people, filters.people, version, peopleError]);
+  // A name tapped on a title's page: only their titles, whatever was filtered before.
+  useEffect(() => {
+    if (!person) return;
+    setFilters((f) => ({ ...DEFAULT_FILTERS, sort: f.sort, people: [person] }));
+    scroller.current?.scrollTo({ top: 0 });
+    personRequest.set(null);
+  }, [person]);
+
   const groups = useMemo(() => groupCards(items), [items]);
   const genres = useMemo(() => allGenres(groups), [groups]);
-  const results = useMemo(() => applyFilters(groups, deferred, titleLang), [groups, deferred, titleLang]);
+  const results = useMemo(() => applyFilters(groups, deferred, titleLang, peopleKeys), [groups, deferred, titleLang, peopleKeys]);
   const entries = useMemo(() => (setsOn ? groupSets(results, deferred) : results), [setsOn, results, deferred]);
   const [suggested, setSuggested] = useState<Suggestion[]>([]);
   const [watching, setWatching] = useState<Watching[]>([]);
@@ -154,18 +168,21 @@ export function Library({ active }: { active: boolean }) {
   );
   const catCounts = useMemo(() => {
     const counts: Record<string, number> = {};
-    const base = applyFilters(groups, { ...deferred, cat: 'all' }, titleLang);
+    const base = applyFilters(groups, { ...deferred, cat: 'all' }, titleLang, peopleKeys);
     for (const g of base) counts[g.main.c] = (counts[g.main.c] ?? 0) + 1;
     counts.all = base.length;
     return counts;
-  }, [groups, deferred, titleLang]);
+  }, [groups, deferred, titleLang, peopleKeys]);
 
   const set = (patch: Partial<Filters>) => {
     setFilters((f) => ({ ...f, ...patch }));
     scroller.current?.scrollTo({ top: 0 });
   };
   const activeFilterCount =
-    filters.genres.length + filters.quality.length + (filters.decade ? 1 : 0) + (filters.status !== 'all' ? 1 : 0);
+    filters.genres.length + filters.quality.length + filters.people.length + (filters.decade ? 1 : 0) + (filters.status !== 'all' ? 1 : 0);
+  const peopleLoading = filters.people.some((n) => !peopleKeys.has(n));
+  const togglePerson = (name: string) =>
+    set({ people: filters.people.includes(name) ? filters.people.filter((x) => x !== name) : [...filters.people, name] });
 
   // "/" focuses search on desktop.
   useEffect(() => {
@@ -213,6 +230,16 @@ export function Library({ active }: { active: boolean }) {
               {activeFilterCount > 0 && <b>{activeFilterCount}</b>}
             </button>
           </div>
+          {filters.people.length > 0 && (
+            <div className="chips" aria-label="Actors and directors">
+              {filters.people.map((n) => (
+                <button key={n} className="chip person-chip" aria-pressed="true" onClick={() => togglePerson(n)} aria-label={`Stop showing only titles with ${n}`}>
+                  {n}
+                  <IconClose size={15} />
+                </button>
+              ))}
+            </div>
+          )}
           <div className="chips" role="tablist" aria-label="Category">
             {CATEGORIES.filter((c) => c.key === 'all' || catCounts[c.key]).map((c) => (
               <button key={c.key} role="tab" aria-selected={filters.cat === c.key} className="chip" onClick={() => set({ cat: c.key })}>
@@ -256,6 +283,20 @@ export function Library({ active }: { active: boolean }) {
         ) : loading && !items.length ? (
           <div className="empty">
             <p>Loading your library…</p>
+          </div>
+        ) : peopleLoading ? (
+          <div className="empty">
+            {peopleError ? (
+              <>
+                <h2>Can't find their titles</h2>
+                <p>{peopleError}</p>
+                <button className="btn" onClick={() => people.retry()}>
+                  Try again
+                </button>
+              </>
+            ) : (
+              <p>Finding their titles…</p>
+            )}
           </div>
         ) : results.length === 0 ? (
           <div className="empty">
@@ -340,8 +381,9 @@ export function Library({ active }: { active: boolean }) {
                 </button>
               ))}
             </div>
+            <PeoplePicker chosen={filters.people} onToggle={togglePerson} version={version} />
             <div className="sheet-actions">
-              <button className="btn ghost" onClick={() => set({ genres: [], decade: null, quality: [], status: 'all' })}>
+              <button className="btn ghost" onClick={() => set({ genres: [], decade: null, quality: [], status: 'all', people: [] })}>
                 Reset filters
               </button>
               <button className="btn primary" onClick={() => setShowFilters(false)}>
@@ -354,6 +396,81 @@ export function Library({ active }: { active: boolean }) {
       <PullToRefresh scroller={scroller} onRefresh={refreshAll} />
       {/* A sibling of the library scroller, so the grid underneath keeps its scroll position. */}
       {openSet && <SetView key={openSet} name={openSet} results={results} groups={groups} />}
+    </>
+  );
+}
+
+/** The Filters' actors and directors: those with the most titles, or those whose name you type. */
+function PeoplePicker({ chosen, onToggle, version }: { chosen: string[]; onToggle: (name: string) => void; version: string | null }) {
+  const [q, setQ] = useState('');
+  const [found, setFound] = useState<Person[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  // Again when the library changes: new people, new counts.
+  useEffect(() => {
+    let stale = false;
+    const t = setTimeout(
+      () =>
+        api.get<{ people: Person[] }>(`/api/people?q=${encodeURIComponent(q)}`).then(
+          (r) => {
+            if (stale) return;
+            setFound(r.people);
+            setError(null);
+          },
+          (e: Error) => {
+            if (stale) return;
+            setFound(null);
+            setError(e.message);
+          },
+        ),
+      q ? 150 : 0,
+    );
+    return () => {
+      stale = true;
+      clearTimeout(t);
+    };
+  }, [q, version, attempt]);
+  const others = (found ?? []).filter((p) => !chosen.includes(p.name));
+
+  return (
+    <>
+      <h3 className="field-label">Actors and directors</h3>
+      <div className="search people-search">
+        <IconSearch size={18} />
+        <input
+          type="search"
+          enterKeyHint="search"
+          autoComplete="off"
+          spellCheck={false}
+          placeholder="Find an actor or director"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          aria-label="Find an actor or director"
+        />
+      </div>
+      <div className="chips wrap">
+        {chosen.map((n) => (
+          <button key={n} className="chip" aria-pressed="true" onClick={() => onToggle(n)}>
+            {n}
+          </button>
+        ))}
+        {others.map((p) => (
+          <button key={p.name} className="chip" aria-pressed="false" onClick={() => onToggle(p.name)}>
+            {p.name}
+            <span className="chip-count">{p.n}</span>
+          </button>
+        ))}
+      </div>
+      {error ? (
+        <p className="muted small">
+          Can't load actors and directors: {error}{' '}
+          <button className="link-btn" onClick={() => setAttempt((n) => n + 1)}>
+            Try again
+          </button>
+        </p>
+      ) : (
+        found && !found.length && q && <p className="muted small">No one called “{q}” in the library.</p>
+      )}
     </>
   );
 }

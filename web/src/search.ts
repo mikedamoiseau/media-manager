@@ -44,9 +44,11 @@ export interface Filters {
   quality: string[];
   status: StatusKey;
   sort: SortKey;
+  /** actors and directors: titles with all of them */
+  people: string[];
 }
 
-export const DEFAULT_FILTERS: Filters = { q: '', cat: 'all', genres: [], decade: null, quality: [], status: 'all', sort: 'added' };
+export const DEFAULT_FILTERS: Filters = { q: '', cat: 'all', genres: [], decade: null, quality: [], status: 'all', sort: 'added', people: [] };
 
 export function displayTitle(c: Pick<Card, 'fr' | 'en' | 'o'>, lang: TitleLang): { main: string; sub?: string } {
   const order = lang === 'fr' ? [c.fr, c.o, c.en] : lang === 'en' ? [c.en, c.o, c.fr] : [c.o, c.fr, c.en];
@@ -105,8 +107,11 @@ function statusMatch(g: Group, s: StatusKey): boolean {
   }
 }
 
-/** Filter + search + sort. Every query word must appear somewhere in the item's titles, people or file name. */
-export function applyFilters(groups: Group[], f: Filters, lang: TitleLang): Group[] {
+/**
+ * Filter + search + sort. Every query word must appear somewhere in the item's titles, people or file name.
+ * `people`: the titles of each person of the filter (group keys, from the server); none show until loaded.
+ */
+export function applyFilters(groups: Group[], f: Filters, lang: TitleLang, people: Map<string, Set<string>> = new Map()): Group[] {
   const words = normalize(f.q).split(' ').filter(Boolean);
   const decade = DECADES.find((d) => d.key === f.decade);
   const out: Array<{ g: Group; score: number }> = [];
@@ -117,6 +122,7 @@ export function applyFilters(groups: Group[], f: Filters, lang: TitleLang): Grou
     if (f.genres.length && !f.genres.every((ge) => c.ge.includes(ge))) continue;
     if (decade && (!c.y || c.y < decade.from || c.y > decade.to)) continue;
     if (f.quality.length && !f.quality.every((q) => g.items.some((i) => i.q.includes(q)))) continue;
+    if (f.people.length && !f.people.every((p) => people.get(p)?.has(g.key))) continue;
     let score = 0;
     if (words.length) {
       let ok = true;

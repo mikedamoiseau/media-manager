@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { Readable, Transform, pipeline } from 'node:stream';
 import type { Service } from './service.ts';
 import { libraryCards, libraryVersion, itemDetail, img } from './views.ts';
+import { peopleIndex, findPeople } from './people.ts';
 import { setParts, ownedSetKeys, staleSetKeys } from './sets.ts';
 import { duplicateFilms, incompleteSets } from './reports.ts';
 import { pool } from './scanner.ts';
@@ -65,6 +66,20 @@ export function createApi(svc: Service): Hono {
     c.header('cache-control', 'no-cache');
     return c.json({ version, items: libraryCards(db) });
   });
+
+  // The actors and directors of the library, built again only when the library changes.
+  let people: { version: string; index: ReturnType<typeof peopleIndex> } | undefined;
+  const peopleNow = () => {
+    const version = libraryVersion(db);
+    if (people?.version !== version) people = { version, index: peopleIndex(db) };
+    return people.index;
+  };
+
+  /** For the Filters: the people with the most titles, or those whose name has every word of q. */
+  api.get('/people', (c) => c.json({ people: findPeople(peopleNow(), c.req.query('q') ?? '') }));
+
+  /** The titles of one person, as library group keys ("movie:949"). */
+  api.get('/person', (c) => c.json({ g: [...(peopleNow().get(c.req.query('name') ?? '')?.g ?? [])] }));
 
   api.get('/items/:id', (c) => {
     const d = itemDetail(db, Number(c.req.param('id')));

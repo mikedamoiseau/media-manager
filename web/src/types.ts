@@ -106,6 +106,12 @@ export interface Watching {
 }
 
 /** A title to watch next, from what was watched or started (see server/suggestions.ts). */
+/** An actor or director, and how many titles the library shows with them (see server/people.ts). */
+export interface Person {
+  name: string;
+  n: number;
+}
+
 export interface Suggestion {
   id: number;
   because: number;

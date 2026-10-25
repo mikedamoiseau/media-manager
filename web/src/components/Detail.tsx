@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { api, ApiError } from '../api.ts';
 import { useStore, prefs, status, toast, pollNowPlaying, library } from '../store.ts';
 import { displayTitle, plotLang, categoryLabel, formatRuntime, formatSize, groupCards, setLineup, setName, splitSet } from '../search.ts';
@@ -9,7 +9,7 @@ import { PosterPicker } from './PosterPicker.tsx';
 import { IconBack, IconPlay, IconYoutube, IconTv, IconCheck, IconImage, IconLink, IconEye, IconEyeOff, IconDevice, IconThumbUp, IconThumbDown } from './icons.tsx';
 import { isIOS, mediaUrl, vlcLink, vlcBack, episodeName, VLC_APP_STORE } from '../vlc.ts';
 import { TitleTile, MissingTile } from './Library.tsx';
-import { useOpenTitle, useOpenSet } from '../nav.ts';
+import { useOpenTitle, useOpenSet, useShowPerson } from '../nav.ts';
 
 export const LANGS: Array<{ key: TitleLang; label: string; hint: string }> = [
   { key: 'fr', label: 'FR', hint: 'French titles and plots' },
@@ -113,20 +113,32 @@ function Rating({ itemId, value, onChange }: { itemId: number; value: 1 | -1 | n
   );
 }
 
+/** Directors and cast; tap a name for the library's titles with them. */
 export function People({ directors, cast, tv }: { directors: string[]; cast: Array<{ name: string; character?: string }>; tv: boolean }) {
+  const showPerson = useShowPerson();
   if (!directors.length && !cast.length) return null;
   return (
     <section className="people">
       {directors.length > 0 && (
         <p>
-          <span className="muted">{tv ? 'Created by' : 'Directed by'}</span> {directors.join(', ')}
+          <span className="muted">{tv ? 'Created by' : 'Directed by'}</span>{' '}
+          {directors.map((n, i) => (
+            <Fragment key={n}>
+              {i > 0 && ', '}
+              <button className="person" onClick={() => showPerson(n)}>
+                {n}
+              </button>
+            </Fragment>
+          ))}
         </p>
       )}
       {cast.length > 0 && (
         <ul className="cast">
           {cast.map((c) => (
             <li key={c.name + c.character}>
-              <strong>{c.name}</strong>
+              <button className="person" onClick={() => showPerson(c.name)}>
+                <strong>{c.name}</strong>
+              </button>
               {c.character && <span>{c.character}</span>}
             </li>
           ))}

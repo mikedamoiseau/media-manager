@@ -147,6 +147,9 @@ export function startFastPoll(): () => void {
   };
 }
 
+/** A name tapped on a title's page: the library shows the titles of that actor or director. */
+export const personRequest = createStore<string | null>(null);
+
 /** The Remote's Keyboard button: type for Kodi even when its keyboard wasn't announced. */
 export const typingForKodi = createStore(false);
 

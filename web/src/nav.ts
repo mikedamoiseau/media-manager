@@ -1,4 +1,5 @@
 import { useLocation } from 'wouter';
+import { personRequest } from './store.ts';
 
 /** Open a title over the current tab; closing returns to exactly where you were. */
 export function useOpenTitle() {
@@ -16,4 +17,13 @@ export function useOpenFilm() {
 export function useOpenSet() {
   const [, navigate] = useLocation();
   return (key: string) => navigate(`/set/${encodeURIComponent(key)}`, { state: { fromApp: true } });
+}
+
+/** The library, showing only the titles of one actor or director. Back returns to the page. */
+export function useShowPerson() {
+  const [, navigate] = useLocation();
+  return (name: string) => {
+    personRequest.set(name);
+    navigate('/');
+  };
 }

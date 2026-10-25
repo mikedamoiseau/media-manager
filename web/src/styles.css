@@ -324,6 +324,11 @@ body.has-overlay .chrome {
   overflow: visible;
 }
 
+/* An actor or director the library is filtered to, with the ✕ that removes them. */
+.person-chip {
+  align-items: center;
+}
+
 .chip {
   flex: none;
   display: inline-flex;
@@ -1321,12 +1326,28 @@ select option {
 
 .cast li {
   display: grid;
+  align-content: start;
   line-height: 1.3;
 }
 
 .cast span {
   font-size: 13px;
   color: var(--brume);
+}
+
+/* A name on a title's page: opens the library's titles with them. */
+.person {
+  justify-self: start;
+  text-align: left;
+  text-decoration: underline;
+  text-decoration-color: rgba(237, 235, 228, 0.25);
+  text-underline-offset: 3px;
+}
+
+@media (hover: hover) {
+  .person:hover {
+    text-decoration-color: currentColor;
+  }
 }
 
 .versions ul {
@@ -1521,6 +1542,11 @@ select option {
   font-weight: 700;
   color: var(--brume);
   margin-top: 8px;
+}
+
+.people-search {
+  flex: none;
+  background: var(--nuit);
 }
 
 .sheet-actions {
