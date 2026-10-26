@@ -1,7 +1,16 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { openDb } from '../server/db.ts';
-import { continueWatching, dismissWatching, noteStreamed, noteEpisodeStreamed, nextEpisode } from '../server/watching.ts';
+import { openDb, type DB } from '../server/db.ts';
+import * as w from '../server/watching.ts';
+import { marks, itemDetail } from '../server/views.ts';
+import { MAIN_PROFILE, PROFILE_COLORS, addProfile } from '../server/profiles.ts';
+
+// The main profile's, as these tests were before profiles.
+const continueWatching = (db: DB, now: number) => w.continueWatching(db, MAIN_PROFILE, now);
+const dismissWatching = (db: DB, id: number, now: number) => w.dismissWatching(db, MAIN_PROFILE, id, now);
+const noteStreamed = (db: DB, id: number, start: number, sent: number, size: number, now: number) => w.noteStreamed(db, MAIN_PROFILE, id, start, sent, size, now);
+const noteEpisodeStreamed = (db: DB, id: number, start: number, sent: number, size: number, now: number) => w.noteEpisodeStreamed(db, MAIN_PROFILE, id, start, sent, size, now);
+const nextEpisode = (db: DB, id: number) => w.nextEpisode(db, id, MAIN_PROFILE);
 
 const NOW = Date.parse('2026-10-24T12:00:00');
 const DAY = 24 * 3600 * 1000;
@@ -12,8 +21,13 @@ function seed() {
   const db = openDb(':memory:');
   const ins = db.prepare(`INSERT INTO items (path, folder, category, is_dir, media_type, tmdb_id, match_state, present, hidden, resume, last_played, added_at, updated_at)
     VALUES (?, 'MOVIES', 'movies', ?, 'movie', ?, 'matched', ?, ?, ?, ?, 1, 1)`);
-  const add = (name: string, o: { tmdb?: number; dir?: number; present?: number; hidden?: number; resume?: number; ago?: number } = {}) =>
-    Number(ins.run(`MOVIES/${name}`, o.dir ?? 0, o.tmdb ?? null, o.present ?? 1, o.hidden ?? 0, o.resume ?? null, o.ago === undefined ? null : kodiDate(NOW - o.ago)).lastInsertRowid);
+  const add = (name: string, o: { tmdb?: number; dir?: number; present?: number; hidden?: number; resume?: number; ago?: number } = {}) => {
+    const last = o.ago === undefined ? null : kodiDate(NOW - o.ago);
+    const id = Number(ins.run(`MOVIES/${name}`, o.dir ?? 0, o.tmdb ?? null, o.present ?? 1, o.hidden ?? 0, o.resume ?? null, last).lastInsertRowid);
+    // Played on a TV: the main profile's progress.
+    if (o.resume !== undefined || last) db.prepare('INSERT INTO film_states (profile_id, item_id, resume, last_played) VALUES (1, ?, ?, ?)').run(id, o.resume ?? null, last);
+    return id;
+  };
   const ids = {
     hp: add('HP 1', { tmdb: 671, resume: 0.64, ago: 3 * DAY }),
     mufasa: add('Mufasa', { tmdb: 762509, resume: 0.81, ago: 24 * DAY }),
@@ -69,14 +83,21 @@ test('pruned after 90 days without resuming', () => {
 type Ep = { s: number | null; e: number | null; plays?: number; resume?: number; ago?: number; phone?: number; phoneAgo?: number };
 
 /** A series folder and its episodes: Kodi's plays, resume point and last play, and VLC's progress. */
-function addShow(db: ReturnType<typeof seed>['db'], name: string, eps: Ep[], o: { present?: number; hidden?: number } = {}) {
+function addShow(db: ReturnType<typeof seed>['db'], name: string, eps: Ep[], o: { present?: number; hidden?: number; profile?: number } = {}) {
   const id = Number(db.prepare(`INSERT INTO items (path, folder, category, is_dir, media_type, match_state, present, hidden, added_at, updated_at)
     VALUES (?, 'SERIES', 'series', 1, 'tv', 'matched', ?, ?, 1, 1)`).run(`SERIES/${name}`, o.present ?? 1, o.hidden ?? 0).lastInsertRowid);
   const ins = db.prepare(`INSERT INTO episodes (item_id, path, season, episode, playcount, resume, last_played, streamed, streamed_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`);
-  const ep = eps.map((x, i) =>
-    Number(ins.run(id, `SERIES/${name}/${i}.mkv`, x.s, x.e, x.plays ?? 0, x.resume ?? null, x.ago === undefined ? null : kodiDate(NOW - x.ago),
-      x.phone ?? null, x.phoneAgo === undefined ? null : NOW - x.phoneAgo).lastInsertRowid));
+  const state = db.prepare(`INSERT INTO episode_states (profile_id, episode_id, playcount, resume, last_played, streamed, streamed_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)`);
+  const ep = eps.map((x, i) => {
+    const last = x.ago === undefined ? null : kodiDate(NOW - x.ago);
+    const phoneAt = x.phoneAgo === undefined ? null : NOW - x.phoneAgo;
+    const epId = Number(ins.run(id, `SERIES/${name}/${i}.mkv`, x.s, x.e, x.plays ?? 0, x.resume ?? null, last, null, null).lastInsertRowid);
+    // Played on a TV or in VLC: the profile's progress (the main one's unless said).
+    if (x.plays || x.resume !== undefined || last || phoneAt) state.run(o.profile ?? MAIN_PROFILE, epId, x.plays ?? 0, x.resume ?? null, last, x.phone ?? null, phoneAt);
+    return epId;
+  });
   return { id, ep };
 }
 
@@ -166,4 +187,59 @@ test('series: an episode finished in VLC stays watched when the TV resumes it la
   const { db } = seed();
   addShow(db, 'Dark', [{ s: 1, e: 1, phone: 0.95, phoneAgo: 2 * DAY, resume: 0.3, ago: DAY }, { s: 1, e: 2 }]);
   assert.deepEqual(shows(db), ['Dark S1E1 30% tv 1/2']);
+});
+
+const anna = (db: DB) => addProfile(db, { name: 'Anna', color: PROFILE_COLORS[1] }).id;
+const names = (db: DB, list: Array<{ id: number }>) => list.map((x) => (db.prepare('SELECT path FROM items WHERE id = ?').get(x.id) as { path: string }).path.split('/')[1]);
+
+test('continue watching is per profile', () => {
+  const { db, ids } = seed();
+  const a = anna(db);
+  w.noteStreamed(db, a, ids.fresh, 0, 400 * MB, 1000 * MB, NOW - 60_000);
+  const show = addShow(db, 'Dark', [{ s: 1, e: 1, plays: 1, ago: DAY }, { s: 1, e: 2 }], { profile: a });
+  assert.deepEqual(names(db, w.continueWatching(db, a, NOW)), ['Narnia', 'Dark']);
+  assert.deepEqual(names(db, w.continueWatching(db, MAIN_PROFILE, NOW)), ['HP 1', 'Mufasa']);
+  w.dismissWatching(db, a, ids.hp, NOW);
+  w.dismissWatching(db, a, show.id, NOW);
+  assert.deepEqual(names(db, w.continueWatching(db, a, NOW + 1)), ['Narnia']);
+  assert.deepEqual(names(db, w.continueWatching(db, MAIN_PROFILE, NOW + 1)), ['HP 1', 'Mufasa'], 'removed for Anna only');
+});
+
+test('next episode is per profile', () => {
+  const { db } = seed();
+  const a = anna(db);
+  const show = addShow(db, 'Dark', [1, 2, 3, 4, 5, 6].map((e) => ({ s: 1, e })));
+  const state = db.prepare('INSERT INTO episode_states (profile_id, episode_id, playcount, resume, last_played) VALUES (?, ?, ?, ?, ?)');
+  state.run(MAIN_PROFILE, show.ep[0], 1, null, kodiDate(NOW - 3 * DAY));
+  state.run(MAIN_PROFILE, show.ep[1], 1, null, kodiDate(NOW - 2 * DAY));
+  state.run(MAIN_PROFILE, show.ep[2], 0, 0.4, kodiDate(NOW - DAY));
+  for (const i of [0, 1, 2, 3, 4]) state.run(a, show.ep[i], 1, null, kodiDate(NOW - (10 - i) * 3600_000));
+  assert.equal(w.nextEpisode(db, show.id, MAIN_PROFILE)?.id, show.ep[2]);
+  assert.equal(w.nextEpisode(db, show.id, a)?.id, show.ep[5]);
+});
+
+test('marks are per profile: watched and in progress', () => {
+  const { db, ids } = seed();
+  const a = anna(db);
+  db.prepare('UPDATE film_states SET playcount = 1 WHERE item_id = ?').run(ids.mufasa);
+  const done = addShow(db, 'Done', [{ s: 1, e: 1, plays: 1, ago: DAY }, { s: 0, e: 1 }]);
+  const half = addShow(db, 'Half', [{ s: 1, e: 1, plays: 1, ago: DAY }, { s: 1, e: 2 }]);
+  const main = marks(db, MAIN_PROFILE);
+  assert.ok(main.w.includes(ids.mufasa) && main.w.includes(done.id) && !main.w.includes(half.id) && !main.w.includes(ids.hp));
+  assert.ok(main.rs.includes(ids.hp) && main.rs.includes(half.id) && !main.rs.includes(done.id));
+  assert.deepEqual(marks(db, a), { w: [], rs: [] });
+  w.noteStreamed(db, a, ids.fresh, 0, 950 * MB, 1000 * MB, NOW);
+  w.noteStreamed(db, a, ids.hp, 0, 300 * MB, 1000 * MB, NOW);
+  assert.deepEqual(marks(db, a), { w: [ids.fresh], rs: [ids.hp] });
+});
+
+test('only a film this profile watched can be rated', () => {
+  const { db, ids } = seed();
+  const a = anna(db);
+  db.prepare('UPDATE film_states SET playcount = 1 WHERE item_id = ?').run(ids.mufasa);
+  assert.equal(itemDetail(db, ids.mufasa, MAIN_PROFILE)?.canRate, true);
+  assert.equal(itemDetail(db, ids.mufasa, a)?.canRate, false);
+  w.noteStreamed(db, a, ids.mufasa, 0, 950 * MB, 1000 * MB, NOW);
+  assert.equal(itemDetail(db, ids.mufasa, a)?.canRate, true);
+  assert.equal(itemDetail(db, ids.hp, a)?.versions.find((v) => v.id === ids.hp)?.resume, null, "the main profile's resume point is not Anna's");
 });

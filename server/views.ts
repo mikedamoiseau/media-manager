@@ -2,7 +2,7 @@ import type { DB } from './db.ts';
 import { normalize } from './parse.ts';
 import { isLatin } from './tmdb.ts';
 import { ratingOf } from './suggestions.ts';
-import { FINISHED, watchedEpisode } from './watching.ts';
+import { FINISHED, STARTED, watchedEpisode, episodesOf } from './watching.ts';
 
 interface Row {
   id: number;
@@ -67,7 +67,7 @@ export function badges(q: string | null): string[] {
   return [v.res, v.hdr ? 'HDR' : undefined, ...(v.langs ?? [])].filter((x): x is string => !!x);
 }
 
-/** Compact card for the grid. Short keys keep the full-library payload small (~3k items). */
+/** Compact card for the grid, the same for every profile (watched and in progress come from marks). Short keys keep the full-library payload small (~3k items). */
 export interface Card {
   id: number;
   /** group key: items sharing a TMDB id are versions of the same title */
@@ -85,8 +85,6 @@ export interface Card {
   d: boolean; // folder item
   n: number;
   m: string; // match state
-  w: boolean; // watched
-  rs: boolean; // in progress
   pr: boolean; // on disk
   h: boolean; // hidden
   a: number; // added
@@ -123,8 +121,6 @@ export function card(r: Row): Card {
     d: !!r.is_dir,
     n: r.file_count ?? 1,
     m: r.match_state,
-    w: (r.playcount ?? 0) > 0,
-    rs: (r.resume ?? 0) > 0.02,
     pr: !!r.present,
     h: !!r.hidden,
     a: r.added_at,
@@ -140,7 +136,33 @@ export function libraryCards(db: DB): Card[] {
 export function libraryVersion(db: DB): string {
   const r = db.prepare('SELECT max(updated_at) a, count(*) n, (SELECT max(fetched_at) FROM titles) t, (SELECT count(*) FROM titles) tn FROM items').get() as Record<string, number>;
   // The prefix names the card format: bump it when cards gain a field so cached libraries refresh.
-  return `c2-${r.a}-${r.n}-${r.t}-${r.tn}`;
+  return `c3-${r.a}-${r.n}-${r.t}-${r.tn}`;
+}
+
+/**
+ * What this profile watched (a film played to the end on a TV or most of the way in VLC; a series with
+ * every episode watched, extras aside) and has in progress, as item ids. Small, so the library cards can
+ * be the same for everyone.
+ */
+export function marks(db: DB, profileId: number): { w: number[]; rs: number[] } {
+  const w = new Set<number>();
+  const rs = new Set<number>();
+  for (const r of db.prepare(`SELECT item_id id, playcount, resume, NULL fraction FROM film_states WHERE profile_id = ?1
+      UNION ALL SELECT item_id, NULL, NULL, fraction FROM watching WHERE profile_id = ?1 AND fraction IS NOT NULL`).all(profileId) as Array<{
+    id: number; playcount: number | null; resume: number | null; fraction: number | null;
+  }>) {
+    if ((r.playcount ?? 0) > 0 || (r.fraction ?? 0) >= FINISHED) w.add(r.id);
+    if ((r.resume ?? 0) > STARTED || ((r.fraction ?? 0) > STARTED && (r.fraction ?? 0) < FINISHED)) rs.add(r.id);
+  }
+  const shows = db.prepare(`SELECT DISTINCT e.item_id id FROM episode_states s JOIN episodes e ON e.id = s.episode_id WHERE s.profile_id = ?`).all(profileId) as Array<{ id: number }>;
+  for (const { id } of shows) {
+    const eps = episodesOf(db, id, profileId).filter((e) => e.season !== 0);
+    const watched = eps.filter(watchedEpisode).length;
+    if (eps.length && watched === eps.length) w.add(id);
+    else if (watched || eps.some((e) => (e.resume ?? 0) > STARTED || ((e.streamed ?? 0) > STARTED && (e.streamed ?? 0) < FINISHED))) rs.add(id);
+  }
+  const sorted = (s: Set<number>) => [...s].sort((a, b) => a - b);
+  return { w: sorted(w), rs: sorted(rs) };
 }
 
 /** A title's page, with the likes and progress of this profile. */
@@ -154,6 +176,8 @@ export function itemDetail(db: DB, id: number, profileId: number) {
   const siblings = r.tmdb_id
     ? (db.prepare(`${SELECT} WHERE i.media_type = ? AND i.tmdb_id = ? ORDER BY i.present DESC, i.size DESC`).all(r.media_type, r.tmdb_id) as unknown as Row[])
     : [r];
+  const film = db.prepare('SELECT playcount, resume FROM film_states WHERE profile_id = ? AND item_id = ?');
+  const own = (itemId: number) => (film.get(profileId, itemId) as { playcount: number | null; resume: number | null } | undefined) ?? { playcount: null, resume: null };
   const versions = siblings.map((s) => ({
     id: s.id,
     path: s.path,
@@ -165,13 +189,15 @@ export function itemDetail(db: DB, id: number, profileId: number) {
     fileCount: s.file_count,
     quality: badges(s.quality),
     kodiId: s.kodi_id,
-    watched: (s.playcount ?? 0) > 0,
-    resume: s.resume,
+    watched: (own(s.id).playcount ?? 0) > 0,
+    resume: own(s.id).resume,
     matchState: s.match_state,
     matchSource: s.match_source,
   }));
   const episodes = r.is_dir
-    ? (db.prepare('SELECT id, path, size, season, episode, title, playcount, resume, streamed FROM episodes WHERE item_id = ? ORDER BY season IS NULL, season, episode IS NULL, episode, path').all(r.id) as Array<Record<string, unknown>>).map((e) => ({
+    ? (db.prepare(`SELECT e.id, e.path, e.size, e.season, e.episode, e.title, s.playcount, s.resume, s.streamed
+        FROM episodes e LEFT JOIN episode_states s ON s.episode_id = e.id AND s.profile_id = ?
+        WHERE e.item_id = ? ORDER BY e.season IS NULL, e.season, e.episode IS NULL, e.episode, e.path`).all(profileId, r.id) as Array<Record<string, unknown>>).map((e) => ({
         id: e.id as number,
         name: (e.path as string).slice((e.path as string).lastIndexOf('/') + 1),
         dir: (e.path as string).slice(r.path.length + 1, (e.path as string).lastIndexOf('/')) || null,
@@ -182,11 +208,11 @@ export function itemDetail(db: DB, id: number, profileId: number) {
         watched: watchedEpisode(e as { playcount: number | null; resume: number | null; streamed: number | null }),
       }))
     : [];
-  // Only a film you watched can be liked or not: played to the end on Kodi, or most of the way in VLC.
+  // Only a film this profile watched can be liked or not: played to the end on a TV, or most of the way in VLC.
   const watchedFilm =
     r.media_type === 'movie' && !!r.tmdb_id &&
-    (siblings.some((s) => (s.playcount ?? 0) > 0) ||
-      !!db.prepare('SELECT 1 FROM watching w JOIN items i ON i.id = w.item_id WHERE i.media_type = ? AND i.tmdb_id = ? AND w.fraction >= ?').get(r.media_type, r.tmdb_id, FINISHED));
+    (siblings.some((s) => (own(s.id).playcount ?? 0) > 0) ||
+      !!db.prepare('SELECT 1 FROM watching w JOIN items i ON i.id = w.item_id WHERE w.profile_id = ? AND i.media_type = ? AND i.tmdb_id = ? AND w.fraction >= ?').get(profileId, r.media_type, r.tmdb_id, FINISHED));
   const c = card(r);
   return {
     ...c,

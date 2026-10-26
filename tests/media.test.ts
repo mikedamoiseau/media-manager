@@ -34,11 +34,13 @@ test('the playlist that makes VLC start at a time, with the audio and subtitle t
 });
 
 test('the handoff options in the playlist address: time, tracks, and a key new each time', () => {
-  assert.deepEqual(parseHandoff('t4320-a2-s1-kmvnz5c'), { start: 4320, audio: 2, sub: 1, tv: undefined, key: 'mvnz5c' });
-  assert.deepEqual(parseHandoff('t0-soff-kx'), { start: 0, audio: undefined, sub: 'off', tv: undefined, key: 'x' });
-  assert.deepEqual(parseHandoff('t12-kab'), { start: 12, audio: undefined, sub: undefined, tv: undefined, key: 'ab' });
+  assert.deepEqual(parseHandoff('t4320-a2-s1-kmvnz5c'), { start: 4320, audio: 2, sub: 1, tv: undefined, profile: undefined, key: 'mvnz5c' });
+  assert.deepEqual(parseHandoff('t0-soff-kx'), { start: 0, audio: undefined, sub: 'off', tv: undefined, profile: undefined, key: 'x' });
+  assert.deepEqual(parseHandoff('t12-kab'), { start: 12, audio: undefined, sub: undefined, tv: undefined, profile: undefined, key: 'ab' });
   // The TV to stop once VLC takes over: the one the phone controls.
-  assert.deepEqual(parseHandoff('t12-vtv2-kab'), { start: 12, audio: undefined, sub: undefined, tv: 'tv2', key: 'ab' });
+  assert.deepEqual(parseHandoff('t12-vtv2-kab'), { start: 12, audio: undefined, sub: undefined, tv: 'tv2', profile: undefined, key: 'ab' });
+  // Who's watching on that phone: VLC's progress is theirs.
+  assert.deepEqual(parseHandoff('t90-vtv2-p3-kab'), { start: 90, audio: undefined, sub: undefined, tv: 'tv2', profile: 3, key: 'ab' });
   assert.equal(parseHandoff('t12-a2'), null, 'no key');
   assert.equal(parseHandoff('../../etc'), null);
 });

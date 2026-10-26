@@ -5,7 +5,7 @@ import { createReadStream, existsSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { Readable, Transform, pipeline } from 'node:stream';
 import type { Service } from './service.ts';
-import { libraryCards, libraryVersion, itemDetail, img } from './views.ts';
+import { libraryCards, libraryVersion, itemDetail, img, marks } from './views.ts';
 import { peopleIndex, findPeople } from './people.ts';
 import { setParts, ownedSetKeys, staleSetKeys } from './sets.ts';
 import { duplicateFilms, incompleteSets } from './reports.ts';
@@ -78,6 +78,9 @@ export function createApi(svc: Service): Hono {
     c.header('cache-control', 'no-cache');
     return c.json({ version, items: libraryCards(db) });
   });
+
+  /** What the asking profile watched and has in progress, for the library's badges and filters. */
+  api.get('/marks', (c) => c.json(marks(db, who(c))));
 
   // The actors and directors of the library, built again only when the library changes.
   let people: { version: string; index: ReturnType<typeof peopleIndex> } | undefined;
@@ -229,6 +232,7 @@ export function createApi(svc: Service): Hono {
    */
   const media = (c: Context) => {
     const id = Number(c.req.param('id'));
+    const p = who(c);
     let rel: string | undefined;
     let itemId = id;
     // What the bytes VLC takes are counted against, for Continue watching.
@@ -239,13 +243,13 @@ export function createApi(svc: Service): Hono {
         | undefined;
       rel = ep?.path;
       itemId = ep?.item_id ?? id;
-      if (ep) progress = (start, sent, size) => noteEpisodeStreamed(db, id, start, sent, size);
+      if (ep) progress = (start, sent, size) => noteEpisodeStreamed(db, p, id, start, sent, size);
     } else {
       const it = db.prepare('SELECT path, is_dir FROM items WHERE id = ? AND present = 1').get(id) as { path: string; is_dir: number } | undefined;
-      const ep = it?.is_dir ? nextEpisode(db, id) : undefined;
+      const ep = it?.is_dir ? nextEpisode(db, id, p) : undefined;
       rel = it && (it.is_dir ? ep?.path : it.path);
-      if (it && !it.is_dir) progress = (start, sent, size) => noteStreamed(db, id, start, sent, size);
-      else if (ep) progress = (start, sent, size) => noteEpisodeStreamed(db, ep.id, start, sent, size);
+      if (it && !it.is_dir) progress = (start, sent, size) => noteStreamed(db, p, id, start, sent, size);
+      else if (ep) progress = (start, sent, size) => noteEpisodeStreamed(db, p, ep.id, start, sent, size);
     }
     if (!rel) return c.json({ error: 'File is not on the NAS' }, 404);
     const file = join(svc.settings().mediaRoot, rel);
@@ -264,7 +268,7 @@ export function createApi(svc: Service): Hono {
     const status = range ? 206 : 200;
     if (c.req.method === 'HEAD') return c.body(null, status, headers);
     // VLC asks again on every seek; recordActivity counts one play per half hour.
-    recordActivity(db, who(c), itemId, 'play');
+    recordActivity(db, p, itemId, 'play');
     const source = createReadStream(file, { start, end });
     if (!progress) return c.body(Readable.toWeb(source) as ReadableStream, status, headers);
     // Count what VLC actually takes, for Continue watching. pipeline keeps the backpressure and
@@ -305,8 +309,8 @@ export function createApi(svc: Service): Hono {
     const name = c.req.param('name').replace(/\.m3u$/, '');
     if ((kind !== 'item' && kind !== 'episode') || !Number.isInteger(id) || !o) return c.json({ error: 'Not found' }, 404);
     void stopIfPlaying(kind, id, o.tv).catch((e: Error) => console.warn(`Handoff: could not stop the TV (${e.message})`));
-    // On the address the phone used, as the media links.
-    const url = new URL(`/api/media/${kind}/${id}/${o.key}/${encodeURIComponent(name)}`, c.req.url).href;
+    // On the address the phone used, as the media links; VLC's progress goes to the phone's profile.
+    const url = new URL(`/api/media/${kind}/${id}/${o.key}/${encodeURIComponent(name)}${o.profile ? `?p=${o.profile}` : ''}`, c.req.url).href;
     return c.body(vlcPlaylist(url, name, o), 200, { 'content-type': 'audio/x-mpegurl', 'cache-control': 'no-store' });
   });
 
@@ -322,7 +326,7 @@ export function createApi(svc: Service): Hono {
     if (it.is_dir) {
       const ep = body.episodeId
         ? (db.prepare('SELECT path, kodi_id FROM episodes WHERE id = ? AND item_id = ?').get(body.episodeId, id) as Episode | undefined)
-        : nextEpisode(db, id);
+        : nextEpisode(db, id, who(c));
       if (!ep) return c.json({ error: 'No episode found' }, 404);
       await play(cfg, ep.kodi_id ? { episodeid: ep.kodi_id } : { file: toKodiPath(prefix, ep.path) });
     } else if (it.kodi_id && it.kodi_type === 'movie') {
@@ -363,12 +367,12 @@ export function createApi(svc: Service): Hono {
     return c.json({ ok: true });
   });
 
-  api.get('/continue', (c) => c.json({ items: continueWatching(db) }));
+  api.get('/continue', (c) => c.json({ items: continueWatching(db, who(c)) }));
 
   api.post('/continue/:id/dismiss', (c) => {
     const id = Number(c.req.param('id'));
     if (!db.prepare('SELECT 1 FROM items WHERE id = ?').get(id)) return c.json({ error: 'Not found' }, 404);
-    dismissWatching(db, id);
+    dismissWatching(db, who(c), id);
     return c.json({ ok: true });
   });
 
