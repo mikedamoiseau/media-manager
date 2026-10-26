@@ -1,0 +1,63 @@
+# Roadmap
+
+Feature ideas for Cinémathèque, best first. Each one goes through a design
+discussion before it is built.
+
+| # | Feature | Size | Status |
+|---|---------|------|--------|
+| 1 | Who's watching (profiles) | Medium | Next: design in progress |
+| 2 | Kids mode | Medium | Idea |
+| 3 | What do we watch tonight? | Medium | Idea |
+| 4 | Series tracker | Medium | Idea |
+| 5 | Trailer on the TV | Small | Already in the app |
+| 6 | Up next queue and sleep timer | Small to medium | Idea |
+| 7 | Coming soon | Medium | Idea |
+| 8 | Your year in film | Small to medium | Idea |
+
+## 1. Who's watching (profiles)
+
+Several Kodi TVs now share one library, so everyone's watched marks and
+resume points end up mixed together. Each phone or tablet picks who is
+watching, and that person gets their own Continue watching, ratings and
+suggestions.
+
+## 2. Kids mode
+
+A locked view that shows only kids' and family-rated titles, with big
+posters and one tap to play on the chosen TV. It hides settings and the power
+menu, and needs a PIN to leave. An optional bedtime stops playback at the end
+of the current film or episode after a set hour. It fits well with profiles:
+a kids' profile could open in this mode.
+
+## 3. What do we watch tonight?
+
+Two phones swipe through a shortlist built from unwatched films, a chosen
+length (for example under 2 hours) and titles both people rated well. When
+both say yes to the same film, it shows up with a Play on TV button.
+
+## 4. Series tracker
+
+For each series on the NAS, compare the episodes on disk with TMDB and show
+what is missing ("S02E05–E08 missing") or new ("Season 3 is out"). Missing
+episodes feed a list of episodes to get, like "Films to get" does for films.
+
+## 5. Trailer on the TV
+
+Already in the app: a title page's trailer has "Play trailer on TV", through
+Kodi's YouTube add-on. Each Kodi box needs that add-on.
+
+## 6. Up next queue and sleep timer
+
+Line up a few episodes or films to play one after another on a chosen TV.
+Add "stop after this episode" or "stop in 45 minutes".
+
+## 7. Coming soon
+
+A row of sequels to films you own or liked, new seasons of your series, and
+upcoming cinema releases in your country. Each can have a "remind me" that
+adds it to the to-get lists once it is out.
+
+## 8. Your year in film
+
+Hours watched, favourite genres, most-watched actors, and which TV gets used
+most.
