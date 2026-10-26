@@ -1,5 +1,6 @@
 import { normalize } from './parse.ts';
 import type { MediaType } from './scanner.ts';
+import { CERT_COUNTRIES, type Certs } from './kids.ts';
 
 const API = 'https://api.themoviedb.org/3';
 export const IMG = 'https://image.tmdb.org/t/p';
@@ -51,6 +52,8 @@ export interface TitleDetails {
   imdbId?: string;
   collection?: string;
   seasons?: number;
+  /** age ratings (Germany, France, US); none fetched: undefined */
+  certs?: Certs;
 }
 
 /** One film of a collection. */
@@ -180,10 +183,12 @@ export class Tmdb {
       belongs_to_collection?: { name: string } | null; created_by?: Array<{ name: string }>;
       videos?: { results: Video[] }; credits?: { cast: Array<{ name: string; character?: string }>; crew: Array<{ name: string; job: string }> };
       translations?: { translations: Translation[] };
+      release_dates?: { results: Array<{ iso_3166_1: string; release_dates?: Array<{ certification?: string }> }> };
+      content_ratings?: { results: Array<{ iso_3166_1: string; rating?: string }> };
     };
     const d = await this.get<D>(`/${type}/${id}`, {
       language: 'en-US',
-      append_to_response: type === 'tv' ? 'videos,credits,translations,external_ids' : 'videos,credits,translations',
+      append_to_response: type === 'tv' ? 'videos,credits,translations,external_ids,content_ratings' : 'videos,credits,translations,release_dates',
       include_video_language: 'fr,en,null',
     });
     const tr = d.translations?.translations ?? [];
@@ -217,6 +222,8 @@ export class Tmdb {
       imdbId: d.imdb_id ?? d.external_ids?.imdb_id,
       collection: d.belongs_to_collection?.name,
       seasons: d.number_of_seasons,
+      certs: certsOf(d.release_dates?.results.map((r) => [r.iso_3166_1, (r.release_dates ?? []).map((x) => x.certification)])
+        ?? d.content_ratings?.results.map((r) => [r.iso_3166_1, [r.rating]])),
     };
   }
 
@@ -229,6 +236,16 @@ export class Tmdb {
 }
 
 type FilmResult = { id: number; title?: string; original_title?: string; release_date?: string; poster_path?: string | null };
+
+/** Per country, the first rating given (a film has one per release), for the countries kept. */
+function certsOf(byCountry: Array<[string, Array<string | undefined>]> | undefined): Certs {
+  const certs: Certs = {};
+  for (const [country, ratings] of byCountry ?? []) {
+    const r = ratings.map((x) => x?.trim()).find((x) => x);
+    if (r && (CERT_COUNTRIES as readonly string[]).includes(country)) certs[country as keyof Certs] ??= r;
+  }
+  return certs;
+}
 
 export const isLatin = (s: string) => /^[\p{Script=Latin}\p{N}\p{P}\p{Zs}\p{S}]+$/u.test(s);
 

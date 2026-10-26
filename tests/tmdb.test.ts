@@ -160,3 +160,24 @@ test('a year that filters out the right film is dropped and retried', async () =
   assert.equal(r.best?.id, 41213);
   assert.equal(r.confident, true);
 });
+
+test("details: the age ratings of Germany, France and the US", async () => {
+  const asked: string[] = [];
+  const fn = (async (input: string | URL) => {
+    const url = new URL(String(input));
+    asked.push(url.searchParams.get('append_to_response') ?? '');
+    if (url.pathname.endsWith('/movie/1')) {
+      return new Response(JSON.stringify({ id: 1, title: 'A', release_dates: { results: [
+        { iso_3166_1: 'DE', release_dates: [{ certification: '' }, { certification: '12' }] },
+        { iso_3166_1: 'FR', release_dates: [{ certification: 'TP' }] },
+        { iso_3166_1: 'GB', release_dates: [{ certification: 'PG' }] },
+      ] } }));
+    }
+    return new Response(JSON.stringify({ id: 2, name: 'B', content_ratings: { results: [{ iso_3166_1: 'US', rating: 'TV-Y7' }, { iso_3166_1: 'DE', rating: '' }] } }));
+  }) as typeof fetch;
+  const tmdb = new Tmdb('k', fn, 0);
+  assert.deepEqual((await tmdb.details('movie', 1)).certs, { DE: '12', FR: 'TP' });
+  assert.deepEqual((await tmdb.details('tv', 2)).certs, { US: 'TV-Y7' });
+  assert.ok(asked[0]!.split(',').includes('release_dates'), asked[0]);
+  assert.ok(asked[1]!.split(',').includes('content_ratings'), asked[1]);
+});

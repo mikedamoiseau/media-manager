@@ -251,6 +251,24 @@ export const MIGRATIONS: string[] = [
     PRIMARY KEY (kodi_type, kodi_id)
   );
   `,
+  `
+  -- Kids mode. Age ratings from TMDB, kept for Germany, France and the US: JSON {"DE":"12","FR":"TP"};
+  -- '{}' when TMDB has none, NULL until fetched.
+  ALTER TABLE titles ADD COLUMN certs TEXT;
+
+  -- A kids profile sees only titles fit for it (age limit on Germany's FSK steps) and stops at bedtime ("HH:MM").
+  ALTER TABLE profiles ADD COLUMN kids INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE profiles ADD COLUMN max_age INTEGER NOT NULL DEFAULT 12;
+  ALTER TABLE profiles ADD COLUMN bedtime TEXT;
+
+  -- A parent's call on a title, for every kids profile: ok 1 (OK for kids) or 0 (not for kids).
+  -- key: the library's group key (movie:671, tv:1399, i:<item id> when not matched).
+  CREATE TABLE kids_overrides (
+    key TEXT PRIMARY KEY,
+    ok INTEGER NOT NULL,
+    at INTEGER NOT NULL
+  );
+  `,
 ];
 
 export function openDb(file: string): DB {

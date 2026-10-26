@@ -16,8 +16,8 @@ export function upsertTitle(db: DB, t: TitleDetails, source: 'kodi' | 'tmdb', no
     if (existing && now - existing.fetched_at < 86_400_000) return;
   }
   db.prepare(`INSERT INTO titles (media_type, tmdb_id, title_en, title_fr, original_title, original_language, year, genres, overview_en,
-      overview_fr, tagline, runtime, rating, votes, poster, backdrop, trailer, cast_json, directors, imdb_id, collection, seasons, source, fetched_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      overview_fr, tagline, runtime, rating, votes, poster, backdrop, trailer, cast_json, directors, imdb_id, collection, seasons, source, fetched_at, certs)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(media_type, tmdb_id) DO UPDATE SET
       title_en = excluded.title_en, title_fr = COALESCE(excluded.title_fr, titles.title_fr),
       original_title = excluded.original_title, original_language = COALESCE(excluded.original_language, titles.original_language),
@@ -26,11 +26,12 @@ export function upsertTitle(db: DB, t: TitleDetails, source: 'kodi' | 'tmdb', no
       rating = excluded.rating, votes = excluded.votes, poster = COALESCE(excluded.poster, titles.poster),
       backdrop = COALESCE(excluded.backdrop, titles.backdrop), trailer = COALESCE(excluded.trailer, titles.trailer),
       cast_json = excluded.cast_json, directors = excluded.directors, imdb_id = COALESCE(excluded.imdb_id, titles.imdb_id),
-      collection = excluded.collection, seasons = excluded.seasons, source = excluded.source, fetched_at = excluded.fetched_at`).run(
+      collection = excluded.collection, seasons = excluded.seasons, source = excluded.source, fetched_at = excluded.fetched_at,
+      certs = COALESCE(excluded.certs, titles.certs)`).run(
     t.type, t.id, t.titleEn ?? null, t.titleFr ?? null, t.originalTitle ?? null, t.originalLanguage ?? null, t.year ?? null,
     JSON.stringify(t.genres), t.overviewEn ?? null, t.overviewFr ?? null, t.tagline ?? null, t.runtime ?? null, t.rating ?? null,
     t.votes ?? null, t.poster ?? null, t.backdrop ?? null, t.trailer ?? null, JSON.stringify(t.cast), JSON.stringify(t.directors),
-    t.imdbId ?? null, t.collection ?? null, t.seasons ?? null, source, now,
+    t.imdbId ?? null, t.collection ?? null, t.seasons ?? null, source, now, t.certs ? JSON.stringify(t.certs) : null,
   );
 }
 
@@ -254,19 +255,19 @@ export function ensureTitle(db: DB, tmdb: Tmdb, type: MediaType, id: number, for
   return inflight.get(k)!;
 }
 
-/** Upgrade titles known only from Kodi (or matched but never fetched) to full TMDB records. */
+/** Upgrade titles known only from Kodi (or matched but never fetched, or without age ratings yet) to full TMDB records. */
 export async function enrichTitles(
   db: DB, tmdb: Tmdb, opts: { onProgress?: (done: number, total: number) => void; shouldStop?: () => boolean } = {},
 ): Promise<number> {
   const rows = db.prepare(`
-    SELECT DISTINCT i.media_type AS type, i.tmdb_id AS id FROM items i
+    SELECT DISTINCT i.media_type AS type, i.tmdb_id AS id, t.source = 'tmdb' AS again FROM items i
     LEFT JOIN titles t ON t.media_type = i.media_type AND t.tmdb_id = i.tmdb_id
-    WHERE i.tmdb_id IS NOT NULL AND (t.tmdb_id IS NULL OR t.source = 'kodi')`).all() as Array<{ type: MediaType; id: number }>;
+    WHERE i.tmdb_id IS NOT NULL AND (t.tmdb_id IS NULL OR t.source = 'kodi' OR t.certs IS NULL)`).all() as Array<{ type: MediaType; id: number; again: number | null }>;
   let done = 0;
   await pool(rows, 4, async (r) => {
     if (opts.shouldStop?.()) return;
     try {
-      await ensureTitle(db, tmdb, r.type, r.id);
+      await ensureTitle(db, tmdb, r.type, r.id, !!r.again);
     } catch (e) {
       console.warn(`details failed for ${r.type}/${r.id}: ${(e as Error).message}`);
     }
