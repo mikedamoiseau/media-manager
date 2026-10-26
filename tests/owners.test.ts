@@ -189,6 +189,10 @@ test("on a TV in its kids view, what starts there is the kid's, unless a phone p
   assert.equal(o.chained('tv1'), true, 'Kodi going on by itself, not the Play');
   o.stop('tv1', true, NOW + 40 * MIN);
   assert.equal(o.start('tv1', NOW + 40 * MIN + 20_000, 8, 3), 3, 'another show after it, with the TV remote');
-  o.stop('tv1', false, NOW + 70 * MIN);
+  o.touch('tv1', 2, NOW + 69 * MIN);
+  o.stop('tv1', true, NOW + 70 * MIN);
+  assert.equal(o.start('tv1', NOW + 70 * MIN + 20_000, 8, 3), 3, "the kid's next episode, a parent's phone remote just before");
+  assert.equal(o.chained('tv1'), true);
+  o.stop('tv1', false, NOW + 75 * MIN);
   assert.equal(o.start('tv1', NOW + 80 * MIN), MAIN_PROFILE, 'kids view off again');
 });

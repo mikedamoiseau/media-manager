@@ -39,7 +39,7 @@ export class TvOwners {
     const afterEnd = !!e && now - e.at <= CHAIN_WINDOW;
     // Kodi goes on only to the next episode of the series that just ended, and not when the app said Play.
     const chained = afterEnd && show !== undefined && e.show === show && !played;
-    const owner = played ? t.profile : kid !== undefined && !chained ? kid : touched ? t.profile : afterEnd ? e.profile : MAIN_PROFILE;
+    const owner = played ? t.profile : kid !== undefined ? (chained ? e.profile : kid) : touched ? t.profile : afterEnd ? e.profile : MAIN_PROFILE;
     // A Play from the app is for the one play it started.
     if (played) this.touched.set(tvId, { ...t, play: false });
     this.playing.set(tvId, { profile: owner, show });
