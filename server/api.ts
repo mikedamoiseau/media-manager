@@ -355,7 +355,12 @@ export function createApi(svc: Service): Hono {
       | { path: string; is_dir: number; present: number; kodi_id: number | null; kodi_type: string | null }
       | undefined;
     if (!it || !it.present) return c.json({ error: 'File is not on the NAS' }, 404);
-    if (!prefix) return c.json({ error: 'Kodi path for the media folder is unknown: set it in Settings' }, 400);
+    // Only a file Kodi doesn't have needs Kodi's path to the media folder: worked out now if not yet.
+    const fileOf = async (rel: string) => {
+      const pre = prefix || (await svc.findPathPrefix(tv));
+      if (!pre) throw new KodiError('rpc', 'Kodi path for the media folder is unknown: set it in Settings');
+      return { file: toKodiPath(pre, rel) };
+    };
     // Played from this device: Kodi's next changes to it are this profile's, even if the TV's events don't come through.
     const now = Date.now();
     svc.owners.touch(tv, p, now, true);
@@ -365,13 +370,13 @@ export function createApi(svc: Service): Hono {
         : nextEpisode(db, id, p);
       if (!ep) return c.json({ error: 'No episode found' }, 404);
       // Where this profile stopped, not where someone else did. Noted once Kodi started it: a Play that failed claims nothing.
-      await play(cfg, ep.kodi_id ? { episodeid: ep.kodi_id } : { file: toKodiPath(prefix, ep.path) }, startPoint(db, p, { episodeId: ep.id }));
+      await play(cfg, ep.kodi_id ? { episodeid: ep.kodi_id } : await fileOf(ep.path), startPoint(db, p, { episodeId: ep.id }));
       if (ep.kodi_id) notePlay(db, 'episode', ep.kodi_id, p, now);
     } else if (it.kodi_id && it.kodi_type === 'movie') {
       await play(cfg, { movieid: it.kodi_id }, startPoint(db, p, { itemId: id }));
       notePlay(db, 'movie', it.kodi_id, p, now);
     } else {
-      await play(cfg, { file: toKodiPath(prefix, it.path) }, startPoint(db, p, { itemId: id }));
+      await play(cfg, await fileOf(it.path), startPoint(db, p, { itemId: id }));
     }
     recordActivity(db, p, id, 'play');
     return c.json({ ok: true });

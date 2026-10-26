@@ -141,6 +141,30 @@ export function inferPathPrefix(sourcePaths: string[], topFolders: string[], roo
   return [...votes.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
 }
 
+/**
+ * How Kodi addresses the media root, from its library's files (a Kodi without video sources of its own, its
+ * library coming from a shared database): a file the app knows, minus its path inside the media root.
+ */
+export function prefixFromFiles(files: string[], paths: string[]): string | undefined {
+  const known = new Set(paths.map((p) => p.normalize('NFC')));
+  const votes = new Map<string, number>();
+  for (const raw of files) {
+    const f = raw.normalize('NFC');
+    for (let i = f.indexOf('/'); i > 0; i = f.indexOf('/', i + 1)) {
+      if (!known.has(f.slice(i + 1))) continue;
+      votes.set(f.slice(0, i), (votes.get(f.slice(0, i)) ?? 0) + 1);
+      break;
+    }
+  }
+  return [...votes.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+}
+
+/** prefixFromFiles on the first films of Kodi's library. */
+export async function libraryPathPrefix(cfg: KodiConfig, paths: string[]): Promise<string | undefined> {
+  const r = await kodiCall<{ movies?: Array<{ file: string }> }>(cfg, 'VideoLibrary.GetMovies', { properties: ['file'], limits: { start: 0, end: 200 } }, 30000);
+  return prefixFromFiles((r.movies ?? []).map((m) => m.file), paths);
+}
+
 /** Kodi reads the share with its own SMB client, which wants the names as stored (NFC), not macOS's NFD listing. */
 export function toKodiPath(prefix: string, rel: string, isDir = false): string {
   return `${prefix.replace(/\/+$/, '')}/${rel}${isDir ? '/' : ''}`.normalize('NFC');

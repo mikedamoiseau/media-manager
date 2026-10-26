@@ -6,7 +6,7 @@ import { scanMediaRoot, pool } from './scanner.ts';
 import { cachedImage, isAllowedImage } from './images.ts';
 import { reconcile, applySheetHints, syncSheetOnlyItems, importSheetRows } from './library.ts';
 import { fetchSheet } from './sheet.ts';
-import { type KodiConfig, kodiCall, discoverKodi, detectPathPrefix, remote } from './kodi.ts';
+import { type KodiConfig, kodiCall, discoverKodi, detectPathPrefix, libraryPathPrefix, remote } from './kodi.ts';
 import { listProfiles, type Profile } from './profiles.ts';
 import { hasParentsCode, kidsProfile, bedtimeStop } from './kids.ts';
 import { syncKidsTag } from './kidsTag.ts';
@@ -381,17 +381,23 @@ export class Service extends EventEmitter {
     return cfg;
   }
 
-  /** Work out how this TV's Kodi addresses the media folder, unless known. */
-  async findPathPrefix(id: string): Promise<void> {
+  /**
+   * Work out how this TV's Kodi addresses the media folder, unless known: from its video sources, else (a
+   * Kodi whose library comes from a shared database has none) from its library's files. Answers it, if found.
+   */
+  async findPathPrefix(id: string): Promise<string | undefined> {
     const s = this.settings();
     const tv = s.kodiTvs.find((t) => t.id === id);
-    if (!tv || tv.pathPrefix || !existsSync(s.mediaRoot)) return;
+    if (!tv || tv.pathPrefix || !existsSync(s.mediaRoot)) return tv?.pathPrefix || undefined;
     const tops = readdirSync(s.mediaRoot, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name);
-    const prefix = await detectPathPrefix(this.kodiConfig(id)!, tops, basename(s.mediaRoot));
+    const cfg = this.kodiConfig(id)!;
+    const known = () => (this.db.prepare('SELECT path FROM items WHERE present = 1 AND is_dir = 0').all() as Array<{ path: string }>).map((r) => r.path);
+    const prefix = (await detectPathPrefix(cfg, tops, basename(s.mediaRoot))) ?? (await libraryPathPrefix(cfg, known()));
     // The TVs may have changed while Kodi answered.
     if (prefix && this.tvs().some((t) => t.id === id && t.host === tv.host && !t.pathPrefix)) {
       saveSettings(this.db, { kodiTvs: editTv(this.tvs(), id, { pathPrefix: prefix }) });
     }
+    return prefix;
   }
 
   /** Asked again while it runs (the first TV changed meanwhile): it syncs once more after. */
