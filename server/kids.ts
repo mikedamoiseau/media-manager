@@ -31,6 +31,76 @@ export function ageOf(certs: Certs | null | undefined): number | undefined {
   return others.length ? Math.max(...others) : undefined;
 }
 
+// ---------- which titles a kid sees ----------
+
+/** Made for kids: in the KIDS folder, or TMDB calls it Family or Animation. */
+export function madeForKids(category: string, genres: string[]): boolean {
+  return category === 'kids' || genres.includes('Family') || genres.includes('Animation');
+}
+
+type KeyRow = { id: number; media_type: string | null; tmdb_id: number | null };
+/** As the library groups items: one key for every copy of a title (an override covers them all). */
+const keyOf = (r: KeyRow) => (r.tmdb_id ? `${r.media_type}:${r.tmdb_id}` : `i:${r.id}`);
+
+export function itemKey(db: DB, itemId: number): string | undefined {
+  const r = db.prepare('SELECT id, media_type, tmdb_id FROM items WHERE id = ?').get(itemId) as KeyRow | undefined;
+  return r && keyOf(r);
+}
+
+/** A parent's call on a title: OK for kids, not for kids, or none (the rule decides). */
+export type Override = 'ok' | 'no' | null;
+
+export function overrideOf(db: DB, key: string): Override {
+  const r = db.prepare('SELECT ok FROM kids_overrides WHERE key = ?').get(key) as { ok: number } | undefined;
+  return r ? (r.ok ? 'ok' : 'no') : null;
+}
+
+export function setOverride(db: DB, key: string, value: Override, now = Date.now()): void {
+  if (value === null) db.prepare('DELETE FROM kids_overrides WHERE key = ?').run(key);
+  else db.prepare('INSERT INTO kids_overrides (key, ok, at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET ok = excluded.ok, at = excluded.at')
+    .run(key, value === 'ok' ? 1 : 0, now);
+}
+
+/**
+ * The items a kid with this age limit sees (on disk, not hidden): a parent's "OK for kids", or made for
+ * kids and within age (no rating: only in the KIDS folder), unless a parent said "not for kids".
+ */
+export function allowedItems(db: DB, maxAge: number): Set<number> {
+  const overrides = new Map((db.prepare('SELECT key, ok FROM kids_overrides').all() as Array<{ key: string; ok: number }>).map((r) => [r.key, r.ok]));
+  const rows = db.prepare(`SELECT i.id, i.media_type, i.tmdb_id, i.category, t.genres, t.certs FROM items i
+    LEFT JOIN titles t ON t.media_type = i.media_type AND t.tmdb_id = i.tmdb_id
+    WHERE i.present = 1 AND i.hidden = 0`).all() as Array<KeyRow & { category: string; genres: string | null; certs: string | null }>;
+  const allowed = new Set<number>();
+  for (const r of rows) {
+    const o = overrides.get(keyOf(r));
+    if (o === 0) continue;
+    const age = ageOf(r.certs ? (JSON.parse(r.certs) as Certs) : null);
+    const withinAge = age === undefined ? r.category === 'kids' : age <= maxAge;
+    if (o === 1 || (withinAge && madeForKids(r.category, r.genres ? (JSON.parse(r.genres) as string[]) : []))) allowed.add(r.id);
+  }
+  return allowed;
+}
+
+/** A kids profile, as the rule and bedtime need it. */
+export interface KidsProfile {
+  id: number;
+  name: string;
+  maxAge: number;
+  bedtime: string | null;
+}
+
+const KIDS = 'SELECT id, name, max_age AS maxAge, bedtime FROM profiles WHERE kids = 1';
+
+/** The profile when it is a kids one, else null. */
+export function kidsProfile(db: DB, profileId: number): KidsProfile | null {
+  const r = db.prepare(`${KIDS} AND id = ?`).get(profileId) as KidsProfile | undefined;
+  return r ? { ...r } : null;
+}
+
+export function kidsProfiles(db: DB): KidsProfile[] {
+  return (db.prepare(`${KIDS} ORDER BY id`).all() as unknown as KidsProfile[]).map((r) => ({ ...r }));
+}
+
 // ---------- the parents' code ----------
 
 // In the settings table but not among the app's settings (never sent to a phone): a salted hash.

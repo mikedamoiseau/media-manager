@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { openDb, getSettings } from '../server/db.ts';
-import { ageOf, setParentsCode, checkParentsCode, hasParentsCode } from '../server/kids.ts';
+import { openDb, getSettings, type DB } from '../server/db.ts';
+import { ageOf, setParentsCode, checkParentsCode, hasParentsCode, allowedItems, setOverride, overrideOf, itemKey, kidsProfile, kidsProfiles } from '../server/kids.ts';
 import { MAIN_PROFILE, PROFILE_COLORS, addProfile, editProfile } from '../server/profiles.ts';
 import { enrichTitles } from '../server/metadata.ts';
 import type { Tmdb, TitleDetails } from '../server/tmdb.ts';
@@ -75,4 +75,77 @@ test("parents' code: 4 digits, checked, changed without the old one", () => {
   assert.equal(JSON.stringify(getSettings(db)).includes('parentsCode'), false, 'never in the settings the app shows');
   const stored = (db.prepare("SELECT value FROM settings WHERE key = 'parentsCode'").get() as { value: string }).value;
   assert.equal(stored.includes('0000'), false, 'not kept in clear');
+});
+
+/** A library with one item per case of the rule. */
+export function kidsLibrary() {
+  const db = openDb(':memory:');
+  const item = db.prepare(`INSERT INTO items (path, folder, category, is_dir, media_type, tmdb_id, match_state, present, hidden, kodi_id, kodi_type, added_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 1)`);
+  const title = db.prepare("INSERT OR IGNORE INTO titles (media_type, tmdb_id, genres, source, fetched_at, certs) VALUES (?, ?, ?, 'tmdb', 1, ?)");
+  let n = 0;
+  const add = (folder: string, o: { tmdb?: number; type?: string; genres?: string[]; certs?: object; dir?: number; present?: number; hidden?: number; kodi?: [string, number] } = {}) => {
+    const category = folder === 'KIDS' ? 'kids' : folder === 'ANIMES' ? 'animes' : folder === 'SERIES' ? 'series' : 'movies';
+    const type = o.type ?? 'movie';
+    if (o.tmdb) title.run(type, o.tmdb, JSON.stringify(o.genres ?? []), o.certs ? JSON.stringify(o.certs) : '{}');
+    return Number(item.run(`${folder}/${++n}.mkv`, folder, category, o.dir ?? 0, o.tmdb ? type : null, o.tmdb ?? null, o.tmdb ? 'matched' : 'unmatched',
+      o.present ?? 1, o.hidden ?? 0, o.kodi?.[1] ?? null, o.kodi?.[0] ?? null).lastInsertRowid);
+  };
+  const ids = {
+    kidsUnmatched: add('KIDS'),
+    animationDe6: add('MOVIES', { tmdb: 101, genres: ['Animation'], certs: { DE: '6' }, kodi: ['movie', 6] }),
+    dramaDe0: add('MOVIES', { tmdb: 102, genres: ['Drama'], certs: { DE: '0' } }),
+    familyDe16: add('MOVIES', { tmdb: 103, genres: ['Family'], certs: { DE: '16' } }),
+    animeFrTpUsR: add('ANIMES', { tmdb: 104, genres: ['Animation'], certs: { FR: 'TP', US: 'R' } }),
+    animeFrTp: add('ANIMES', { tmdb: 105, genres: ['Animation'], certs: { FR: 'TP' } }),
+    animationUnrated: add('MOVIES', { tmdb: 106, genres: ['Animation'] }),
+    kidsDe16: add('KIDS', { tmdb: 107, certs: { DE: '16' } }),
+    hiddenCartoon: add('KIDS', { hidden: 1 }),
+    goneCartoon: add('KIDS', { present: 0 }),
+    animationDe12: add('MOVIES', { tmdb: 108, genres: ['Animation'], certs: { DE: '12' }, kodi: ['movie', 12] }),
+    drama18: add('MOVIES', { tmdb: 900, genres: ['Drama'], certs: { DE: '18' } }),
+    drama18Copy: add('MOVIES', { tmdb: 900, genres: ['Drama'], certs: { DE: '18' } }),
+    kidsShow: add('KIDS', { dir: 1, type: 'tv', kodi: ['tvshow', 3] }),
+  };
+  return { db, ids };
+}
+
+test('what a kid sees: made for kids and within age, unless a parent said otherwise', () => {
+  const { db, ids } = kidsLibrary();
+  const allowed = allowedItems(db, 12);
+  assert.ok(allowed.has(ids.kidsUnmatched), 'in KIDS, no TMDB match: allowed');
+  assert.ok(allowed.has(ids.kidsShow), 'a series folder in KIDS');
+  assert.ok(allowed.has(ids.animationDe6), 'MOVIES, Animation, FSK 6');
+  assert.ok(allowed.has(ids.animationDe12), 'MOVIES, Animation, FSK 12');
+  assert.ok(!allowed.has(ids.dramaDe0), 'MOVIES, Drama, FSK 0: not made for kids');
+  assert.ok(!allowed.has(ids.familyDe16), 'Family, FSK 16');
+  assert.ok(!allowed.has(ids.animeFrTpUsR), 'ANIMES, Animation, FR TP + US R: 17');
+  assert.ok(allowed.has(ids.animeFrTp), 'ANIMES, Animation, FR TP only: 0');
+  assert.ok(!allowed.has(ids.animationUnrated), 'Animation outside KIDS, no rating');
+  assert.ok(!allowed.has(ids.kidsDe16), 'in KIDS but FSK 16');
+  assert.ok(!allowed.has(ids.hiddenCartoon) && !allowed.has(ids.goneCartoon), 'hidden or not on disk');
+  assert.ok(!allowedItems(db, 6).has(ids.animationDe12), 'FSK 6 limit');
+
+  assert.equal(itemKey(db, ids.drama18), 'movie:900');
+  assert.equal(itemKey(db, ids.kidsUnmatched), `i:${ids.kidsUnmatched}`);
+  setOverride(db, 'movie:900', 'ok');
+  setOverride(db, `i:${ids.kidsUnmatched}`, 'no');
+  assert.equal(overrideOf(db, 'movie:900'), 'ok');
+  const after = allowedItems(db, 12);
+  assert.ok(after.has(ids.drama18) && after.has(ids.drama18Copy), 'OK for kids: both copies');
+  assert.ok(!after.has(ids.kidsUnmatched), 'not for kids');
+  setOverride(db, 'movie:900', null);
+  assert.equal(overrideOf(db, 'movie:900'), null);
+  assert.ok(!allowedItems(db, 12).has(ids.drama18), 'back to automatic');
+});
+
+test('kids profiles: found by id, the others are not', () => {
+  const { db } = kidsLibrary();
+  setParentsCode(db, '4821');
+  const kid = addProfile(db, { name: 'Kid', color: PROFILE_COLORS[2], kids: true, maxAge: 6, bedtime: '20:00' });
+  const other = addProfile(db, { name: 'Other', color: PROFILE_COLORS[3] });
+  assert.deepEqual(kidsProfile(db, kid.id), { id: kid.id, name: 'Kid', maxAge: 6, bedtime: '20:00' });
+  assert.equal(kidsProfile(db, other.id), null);
+  assert.equal(kidsProfile(db, MAIN_PROFILE), null);
+  assert.deepEqual(kidsProfiles(db).map((k) => k.id), [kid.id]);
 });

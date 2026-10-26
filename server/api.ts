@@ -25,7 +25,7 @@ import type { Settings } from './db.ts';
 import { TvError, addTv, editTv, removeTv, publicTvs, handoffTv, type TvInput } from './tvs.ts';
 import type { MediaType } from './scanner.ts';
 import { ProfileError, listProfiles, addProfile, editProfile, removeProfile, profileOf, type ProfileInput } from './profiles.ts';
-import { KidsError, setParentsCode, checkParentsCode } from './kids.ts';
+import { KidsError, setParentsCode, checkParentsCode, kidsProfile, kidsProfiles, allowedItems, itemKey, overrideOf, setOverride, type Override } from './kids.ts';
 import { notePlay } from './owners.ts';
 
 function sendFile(file: string, maxAge = 31536000): Response {
@@ -614,6 +614,32 @@ export function createApi(svc: Service): Hono {
   api.post('/kids/unlock', async (c) => {
     const { code } = (await c.req.json().catch(() => ({}))) as { code?: unknown };
     return checkParentsCode(db, String(code ?? '')) ? c.json({ ok: true }) : c.json({ error: 'Wrong code' }, 403);
+  });
+
+  /** For a kids profile: the items it sees (the app keeps only those of its library); another profile: null. */
+  api.get('/kids/allowed', (c) => {
+    const kid = kidsProfile(db, who(c));
+    return c.json({ ids: kid ? [...allowedItems(db, kid.maxAge)] : null });
+  });
+
+  /** A title for the kids: the parents' call on it, and whether each kid sees it. */
+  const forKids = (c: Context, id: number) => {
+    const key = itemKey(db, id);
+    if (!key) return c.json({ error: 'Not found' }, 404);
+    return c.json({ override: overrideOf(db, key), kids: kidsProfiles(db).map((k) => ({ id: k.id, name: k.name, allowed: allowedItems(db, k.maxAge).has(id) })) });
+  };
+
+  api.get('/kids/items/:id', (c) => forKids(c, Number(c.req.param('id'))));
+
+  api.put('/kids/items/:id', async (c) => {
+    const id = Number(c.req.param('id'));
+    const { value } = (await c.req.json().catch(() => ({}))) as { value?: unknown };
+    if (value !== 'ok' && value !== 'no' && value !== null) return c.json({ error: 'OK for kids, not for kids, or automatic' }, 400);
+    const key = itemKey(db, id);
+    if (key) setOverride(db, key, value as Override);
+    // Kids' devices fetch their list again.
+    svc.libraryChanged(true);
+    return forKids(c, id);
   });
 
   // ---------- settings & jobs ----------
