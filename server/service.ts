@@ -182,7 +182,7 @@ export class Service extends EventEmitter {
   private onPlayer(tvId: string, e: PlayerEvent): void {
     const now = Date.now();
     if (e.kind === 'stop') return this.owners.stop(tvId, !!e.ended, now);
-    const owner = this.owners.start(tvId, now);
+    const owner = this.owners.start(tvId, now, this.seriesOf(e));
     // Called from the TV's socket: an error here would stop the server.
     try {
       if (e.item?.type === 'movie' || e.item?.type === 'episode') notePlay(this.db, e.item.type, e.item.id, owner, now);
@@ -193,6 +193,16 @@ export class Service extends EventEmitter {
       }
     } catch (err) {
       console.warn(`Kodi play not noted: ${(err as Error).message}`);
+    }
+  }
+
+  /** The series (item id) of the episode Kodi started; none for a film, or an episode the app doesn't know. */
+  private seriesOf(e: PlayerEvent): number | undefined {
+    if (e.item?.type !== 'episode') return undefined;
+    try {
+      return (this.db.prepare('SELECT item_id FROM episodes WHERE kodi_id = ?').get(e.item.id) as { item_id: number } | undefined)?.item_id;
+    } catch {
+      return undefined;
     }
   }
 

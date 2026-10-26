@@ -139,14 +139,36 @@ test('a noted play gives one play: a later change, started with the TV remote, i
 
 test('a play Kodi chained by itself is told apart from one started from the app', () => {
   const o = new TvOwners();
-  o.touch('tv1', 2, NOW);
-  o.start('tv1', NOW + 10_000);
+  o.touch('tv1', 2, NOW, true);
+  o.start('tv1', NOW + 10_000, 7);
   assert.equal(o.chained('tv1'), false, 'Play from the app');
   o.stop('tv1', true, NOW + 50 * MIN);
-  o.start('tv1', NOW + 50 * MIN + 20_000);
+  o.start('tv1', NOW + 50 * MIN + 20_000, 7);
   assert.equal(o.chained('tv1'), true, 'the next episode');
   o.stop('tv1', false, NOW + 60 * MIN);
   o.start('tv1', NOW + 100 * MIN);
   assert.equal(o.chained('tv1'), false, 'the TV remote');
   assert.equal(o.chained('tv2'), false, 'never played');
+});
+
+test("only the next episode of the same show is Kodi going on by itself; the kid's remote doesn't count", () => {
+  const o = new TvOwners();
+  o.start('tv1', NOW, 7);
+  o.stop('tv1', true, NOW + 20 * MIN);
+  o.start('tv1', NOW + 21 * MIN);
+  assert.equal(o.chained('tv1'), false, 'a film started with the TV remote after an episode');
+  o.stop('tv1', true, NOW + 140 * MIN);
+  o.start('tv1', NOW + 141 * MIN, 8);
+  assert.equal(o.chained('tv1'), false, 'an episode after a film');
+  o.stop('tv1', true, NOW + 160 * MIN);
+  o.start('tv1', NOW + 161 * MIN, 9);
+  assert.equal(o.chained('tv1'), false, 'another show');
+  o.touch('tv1', 2, NOW + 179 * MIN);
+  o.stop('tv1', true, NOW + 180 * MIN);
+  o.start('tv1', NOW + 181 * MIN, 9);
+  assert.equal(o.chained('tv1'), true, 'the next episode, a pause or the volume just before');
+  o.stop('tv1', true, NOW + 200 * MIN);
+  o.touch('tv1', 2, NOW + 200 * MIN + 5_000, true);
+  o.start('tv1', NOW + 200 * MIN + 20_000, 9);
+  assert.equal(o.chained('tv1'), false, 'a Play from the app');
 });

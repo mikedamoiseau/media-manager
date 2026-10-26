@@ -26,3 +26,8 @@ export function kidsLibrary<T extends { id: number }>(cards: T[], allowed: Set<n
   if (!allowed) return [];
   return cards.filter((c) => allowed.has(c.id));
 }
+
+/** What the library shows the moment this device's profile is picked or changes: a grown-up's everything, a kid's nothing yet. */
+export function allowedAtFirst(me: { kids: boolean } | null): null | undefined {
+  return me && !me.kids ? null : undefined;
+}

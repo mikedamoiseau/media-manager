@@ -8,6 +8,14 @@ import type { Tmdb, TitleDetails } from '../server/tmdb.ts';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { KIDS_TAG, kidsTagKeys, tagChanges, syncKidsTag } from '../server/kidsTag.ts';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { Hono } from 'hono';
+import { createApi } from '../server/api.ts';
+import { Service } from '../server/service.ts';
+import { itemOverride, setItemOverride } from '../server/kids.ts';
+import { allowedAtFirst } from '../web/src/kids.ts';
 
 test('age: Germany first, else the stricter of France and the US', () => {
   assert.equal(ageOf({ DE: '12', FR: 'TP', US: 'PG' }), 12);
@@ -270,4 +278,36 @@ test("the Kids tag in Kodi: only the titles that change, only their tags", async
   } finally {
     server.close();
   }
+});
+
+test('the library a kids profile gets: only its titles, never kept by the browser', async () => {
+  const { db } = kidsLibrary();
+  setParentsCode(db, '4821');
+  const kid = addProfile(db, { name: 'Kid', color: PROFILE_COLORS[2], kids: true, maxAge: 12 });
+  const app = new Hono().route('/api', createApi(new Service(db, mkdtempSync(join(tmpdir(), 'kids-')))));
+  const grown = await app.request('/api/library', { headers: { 'x-profile': String(MAIN_PROFILE) } });
+  const etag = grown.headers.get('etag')!;
+  const r = await app.request('/api/library', { headers: { 'x-profile': String(kid.id), 'if-none-match': etag } });
+  assert.equal(r.status, 200, "not the grown-up's list from the browser's cache");
+  assert.equal(r.headers.get('cache-control'), 'no-store');
+  const items = ((await r.json()) as { items: Array<{ id: number }> }).items;
+  assert.deepEqual(items.map((c) => c.id).sort((a, b) => a - b), [...allowedItems(db, 12)].sort((a, b) => a - b));
+  assert.ok(((await grown.json()) as { items: unknown[] }).items.length > items.length);
+});
+
+test("a parent's call on a file stays when the file gets matched", () => {
+  const { db, ids } = kidsLibrary();
+  setItemOverride(db, ids.kidsUnmatched, 'no');
+  db.prepare("UPDATE items SET media_type = 'movie', tmdb_id = 555, match_state = 'matched' WHERE id = ?").run(ids.kidsUnmatched);
+  assert.equal(itemOverride(db, ids.kidsUnmatched), 'no');
+  assert.ok(!allowedItems(db, 12).has(ids.kidsUnmatched), 'still not for kids');
+  setItemOverride(db, ids.kidsUnmatched, null);
+  assert.equal(itemOverride(db, ids.kidsUnmatched), null);
+  assert.ok(allowedItems(db, 12).has(ids.kidsUnmatched), 'back to automatic');
+});
+
+test("the app's library right after this device's profile changes: a grown-up's at once, a kid's only once known", () => {
+  assert.equal(allowedAtFirst({ kids: false }), null);
+  assert.equal(allowedAtFirst({ kids: true }), undefined);
+  assert.equal(allowedAtFirst(null), undefined);
 });

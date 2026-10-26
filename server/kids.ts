@@ -62,6 +62,23 @@ export function setOverride(db: DB, key: string, value: Override, now = Date.now
     .run(key, value === 'ok' ? 1 : 0, now);
 }
 
+// A call made on a file before it was matched is under the file's own key: it still counts once matched.
+const ownKey = (itemId: number) => `i:${itemId}`;
+
+/** The parents' call on an item: its title's, else one made on the file before it was matched. */
+export function itemOverride(db: DB, itemId: number): Override {
+  const key = itemKey(db, itemId);
+  return (key && overrideOf(db, key)) || overrideOf(db, ownKey(itemId));
+}
+
+/** A parent's call on an item, for every copy of its title; a call left from before it was matched goes. */
+export function setItemOverride(db: DB, itemId: number, value: Override): void {
+  const key = itemKey(db, itemId);
+  if (!key) return;
+  setOverride(db, key, value);
+  if (key !== ownKey(itemId)) setOverride(db, ownKey(itemId), null);
+}
+
 /**
  * The items a kid with this age limit sees (on disk, not hidden): a parent's "OK for kids", or made for
  * kids and within age (no rating: only in the KIDS folder), unless a parent said "not for kids".
@@ -73,7 +90,7 @@ export function allowedItems(db: DB, maxAge: number): Set<number> {
     WHERE i.present = 1 AND i.hidden = 0`).all() as Array<KeyRow & { category: string; genres: string | null; certs: string | null }>;
   const allowed = new Set<number>();
   for (const r of rows) {
-    const o = overrides.get(keyOf(r));
+    const o = overrides.get(keyOf(r)) ?? overrides.get(ownKey(r.id));
     if (o === 0) continue;
     const age = ageOf(r.certs ? (JSON.parse(r.certs) as Certs) : null);
     const withinAge = age === undefined ? r.category === 'kids' : age <= maxAge;

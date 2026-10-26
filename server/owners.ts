@@ -16,24 +16,26 @@ const CLOCK_SLACK = 5 * 60_000;
 
 /** Who is watching on each TV, from the app's use of it; the main profile when nobody used the app. */
 export class TvOwners {
-  private touched = new Map<string, { profile: number; at: number }>();
-  private playing = new Map<string, number>();
-  private ended = new Map<string, { profile: number; at: number }>();
+  private touched = new Map<string, { profile: number; at: number; play: boolean }>();
+  private playing = new Map<string, { profile: number; show?: number }>();
+  private ended = new Map<string, { profile: number; at: number; show?: number }>();
   private byChain = new Map<string, boolean>();
 
-  touch(tvId: string, profileId: number, now: number): void {
-    this.touched.set(tvId, { profile: profileId, at: now });
+  /** `play`: a Play from the app, not the remote (a pause, the volume) or typing. */
+  touch(tvId: string, profileId: number, now: number, play = false): void {
+    this.touched.set(tvId, { profile: profileId, at: now, play });
   }
 
-  /** Something started playing on the TV: whose it is. */
-  start(tvId: string, now: number): number {
+  /** Something started playing on the TV (`show`: the series of the episode, when it is one): whose it is. */
+  start(tvId: string, now: number, show?: number): number {
     const t = this.touched.get(tvId);
     const e = this.ended.get(tvId);
     const touched = !!t && now - t.at <= TOUCH_WINDOW;
-    const chained = !touched && !!e && now - e.at <= CHAIN_WINDOW;
-    const owner = touched ? t.profile : chained ? e.profile : MAIN_PROFILE;
-    this.playing.set(tvId, owner);
-    this.byChain.set(tvId, chained);
+    const afterEnd = !!e && now - e.at <= CHAIN_WINDOW;
+    const owner = touched ? t.profile : afterEnd ? e.profile : MAIN_PROFILE;
+    this.playing.set(tvId, { profile: owner, show });
+    // Kodi goes on only to the next episode of the series that just ended, and not when the app said Play.
+    this.byChain.set(tvId, afterEnd && show !== undefined && e.show === show && !(touched && t.play));
     return owner;
   }
 
@@ -45,15 +47,15 @@ export class TvOwners {
   /** A profile was removed: no TV is theirs any more. */
   forget(profileId: number): void {
     for (const [tv, t] of this.touched) if (t.profile === profileId) this.touched.delete(tv);
-    for (const [tv, p] of this.playing) if (p === profileId) this.playing.delete(tv);
+    for (const [tv, p] of this.playing) if (p.profile === profileId) this.playing.delete(tv);
     for (const [tv, e] of this.ended) if (e.profile === profileId) this.ended.delete(tv);
   }
 
   /** It stopped: by hand, or at its end (then Kodi may go on with the next episode). */
   stop(tvId: string, ended: boolean, now: number): void {
-    const owner = this.playing.get(tvId);
+    const p = this.playing.get(tvId);
     this.playing.delete(tvId);
-    if (ended && owner !== undefined) this.ended.set(tvId, { profile: owner, at: now });
+    if (ended && p) this.ended.set(tvId, { profile: p.profile, at: now, show: p.show });
     else this.ended.delete(tvId);
   }
 }

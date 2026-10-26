@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api } from '../api.ts';
 import { useStore, nowPlaying, startFastPoll, useTv, status, toast } from '../store.ts';
 import { send } from './Remote.tsx';
@@ -16,32 +16,43 @@ const DIGITS = ['1', '2', '3', '4', '5', '6', '7', '8', '9'];
 export function CodePad({ title, onCode, onCancel }: { title: string; onCode: (code: string) => Promise<boolean>; onCancel: () => void }) {
   const [code, setCode] = useState('');
   const [wrong, setWrong] = useState(false);
-  const [checking, setChecking] = useState(false);
+  // Digits typed faster than the screen updates all count: kept here, not read from the last render.
+  const typed = useRef('');
+  const checking = useRef(false);
+  const cancel = useRef(onCancel);
+  cancel.current = onCancel;
 
+  const show = (c: string) => {
+    typed.current = c;
+    setCode(c);
+  };
   const type = async (d: string) => {
-    if (checking || code.length >= 4) return;
-    const next = code + d;
+    if (checking.current || typed.current.length >= 4) return;
+    const next = typed.current + d;
     setWrong(false);
-    setCode(next);
+    show(next);
     if (next.length < 4) return;
-    setChecking(true);
+    checking.current = true;
     const ok = await onCode(next);
-    setChecking(false);
+    checking.current = false;
     if (!ok) {
       setWrong(true);
-      setCode('');
+      show('');
     }
   };
+  const erase = () => !checking.current && show(typed.current.slice(0, -1));
+  const keys = useRef({ type, erase });
+  keys.current = { type, erase };
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (/^\d$/.test(e.key)) void type(e.key);
-      else if (e.key === 'Backspace') setCode((c) => c.slice(0, -1));
-      else if (e.key === 'Escape') onCancel();
+      if (/^\d$/.test(e.key)) void keys.current.type(e.key);
+      else if (e.key === 'Backspace') keys.current.erase();
+      else if (e.key === 'Escape') cancel.current();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  });
+  }, []);
 
   return (
     <div className="code-pad" role="dialog" aria-modal="true" aria-labelledby="code-title">
@@ -63,7 +74,7 @@ export function CodePad({ title, onCode, onCancel }: { title: string; onCode: (c
         ))}
         <span />
         <button onClick={() => void type('0')}>0</button>
-        <button onClick={() => setCode((c) => c.slice(0, -1))} aria-label="Delete">
+        <button onClick={erase} aria-label="Delete">
           ⌫
         </button>
       </div>

@@ -2,7 +2,7 @@ import { useSyncExternalStore } from 'react';
 import { api, setKodiTv, setProfile } from './api.ts';
 import { chosenTv } from './tvs.ts';
 import { chosenProfile } from './profiles.ts';
-import { kidsLibrary } from './kids.ts';
+import { allowedAtFirst, kidsLibrary } from './kids.ts';
 import type { Card, NowPlaying, Profile, Status, TitleLang, TvStatus } from './types.ts';
 
 type Listener = () => void;
@@ -112,8 +112,11 @@ export async function loadMarks(): Promise<void> {
 
 export function loadLibrary(): Promise<void> {
   loadingPromise ??= (async () => {
+    // A kid gets only their titles: an answer for the profile this device has since left is dropped.
+    const who = profileChoice.get();
     try {
       const r = await api.get<{ version: string; items: Card[] }>('/api/library');
+      if (profileChoice.get() !== who) return;
       cards = r.items;
       library.set({ items: shown(), version: r.version, loading: false, error: null });
     } catch (e) {
@@ -123,6 +126,11 @@ export function loadLibrary(): Promise<void> {
     }
   })();
   return loadingPromise;
+}
+
+/** The library again once a load under way is done (that one may be for the profile before). */
+function reloadLibrary(): void {
+  void (loadingPromise ?? Promise.resolve()).then(() => loadLibrary());
 }
 
 // ---------- server status (SSE) ----------
@@ -271,14 +279,8 @@ profileChoice.subscribe(() => {
     /* private mode */
   }
   marks.set({ w: new Set(), rs: new Set() });
-  // A grown-up's profile sees everything at once; a kid's sees nothing until its list comes.
-  const me = chosenProfile(status.get()?.profiles ?? [], id);
-  allowed.set(me && !me.kids ? null : undefined);
-  library.set((s) => ({ ...s, items: shown() }));
-  if (id) {
-    void loadMarks();
-    void loadAllowed();
-  }
+  startOver(chosenProfile(status.get()?.profiles ?? [], id));
+  if (id) void loadMarks();
 });
 // The profile picked was removed (on any device): ask again who's watching.
 status.subscribe(() => {
@@ -287,20 +289,27 @@ status.subscribe(() => {
   if (profiles && id && !profiles.some((p) => p.id === id)) profileChoice.set(null);
 });
 
-// This device's profile turned into a kids one or back, or its age limit changed (on any device): its list again.
-// A grown-up's profile shows everything even before the server answered.
+// The library for this device's profile as it is now: a grown-up's shows everything at once, a kid's nothing
+// until their list comes. Again when the profile turns into a kids one or back, or its age limit changes (on any device).
 let kidsShape: string | undefined;
+const shapeOf = (me: Profile | null) => (me ? `${me.id}:${me.kids}:${me.maxAge}` : undefined);
+function startOver(me: Profile | null): void {
+  kidsShape = shapeOf(me);
+  allowed.set(allowedAtFirst(me));
+  library.set((s) => ({ ...s, items: shown() }));
+  void loadAllowed();
+  reloadLibrary();
+}
 status.subscribe(() => {
   const me = chosenProfile(status.get()?.profiles ?? [], profileChoice.get());
-  if (!me) return;
-  const shape = `${me.id}:${me.kids}:${me.maxAge}`;
-  if (shape === kidsShape) return;
-  kidsShape = shape;
-  if (!me.kids && allowed.get() !== null) {
+  if (!me || shapeOf(me) === kidsShape) return;
+  if (kidsShape !== undefined) return startOver(me);
+  // The first status: the loads under way are this profile's already.
+  kidsShape = shapeOf(me);
+  if (allowed.get() === undefined && !me.kids) {
     allowed.set(null);
     library.set((s) => ({ ...s, items: shown() }));
   }
-  void loadAllowed();
 });
 
 /** This device's profile; null until one is picked (or while the list is loading). */

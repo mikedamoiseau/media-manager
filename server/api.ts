@@ -25,7 +25,7 @@ import type { Settings } from './db.ts';
 import { TvError, addTv, editTv, removeTv, publicTvs, handoffTv, type TvInput } from './tvs.ts';
 import type { MediaType } from './scanner.ts';
 import { ProfileError, listProfiles, addProfile, editProfile, removeProfile, profileOf, type ProfileInput } from './profiles.ts';
-import { KidsError, setParentsCode, checkParentsCode, kidsProfile, kidsProfiles, allowedItems, itemKey, overrideOf, setOverride, kidsRoute, KIDS_REMOTE, isBedtime, type Override } from './kids.ts';
+import { KidsError, setParentsCode, checkParentsCode, kidsProfile, kidsProfiles, allowedItems, itemKey, itemOverride, setItemOverride, kidsRoute, KIDS_REMOTE, isBedtime, type Override } from './kids.ts';
 import { notePlay } from './owners.ts';
 
 function sendFile(file: string, maxAge = 31536000): Response {
@@ -93,6 +93,13 @@ export function createApi(svc: Service): Hono {
 
   api.get('/library', (c) => {
     const version = libraryVersion(db);
+    // A kid's titles only, and never kept by the browser: another profile on the same device has its own list.
+    // Its version never matches the library's, so the app fetches it again at each change (a parent's call too).
+    const sees = kidSees(c);
+    if (sees) {
+      c.header('cache-control', 'no-store');
+      return c.json({ version: `${version}-kids`, items: libraryCards(db).filter((x) => sees.has(x.id)) });
+    }
     const etag = `"${version}"`;
     if (c.req.header('if-none-match') === etag) return c.body(null, 304);
     c.header('etag', etag);
@@ -351,7 +358,7 @@ export function createApi(svc: Service): Hono {
     if (!prefix) return c.json({ error: 'Kodi path for the media folder is unknown: set it in Settings' }, 400);
     // Played from this device: Kodi's next changes to it are this profile's, even if the TV's events don't come through.
     const now = Date.now();
-    svc.owners.touch(tv, p, now);
+    svc.owners.touch(tv, p, now, true);
     if (it.is_dir) {
       const ep = body.episodeId
         ? (db.prepare('SELECT id, path, kodi_id FROM episodes WHERE id = ? AND item_id = ?').get(body.episodeId, id) as Episode | undefined)
@@ -678,9 +685,8 @@ export function createApi(svc: Service): Hono {
 
   /** A title for the kids: the parents' call on it, and whether each kid sees it. */
   const forKids = (c: Context, id: number) => {
-    const key = itemKey(db, id);
-    if (!key) return c.json({ error: 'Not found' }, 404);
-    return c.json({ override: overrideOf(db, key), kids: kidsProfiles(db).map((k) => ({ id: k.id, name: k.name, allowed: allowedItems(db, k.maxAge).has(id) })) });
+    if (!itemKey(db, id)) return c.json({ error: 'Not found' }, 404);
+    return c.json({ override: itemOverride(db, id), kids: kidsProfiles(db).map((k) => ({ id: k.id, name: k.name, allowed: allowedItems(db, k.maxAge).has(id) })) });
   };
 
   api.get('/kids/items/:id', (c) => forKids(c, Number(c.req.param('id'))));
@@ -689,8 +695,7 @@ export function createApi(svc: Service): Hono {
     const id = Number(c.req.param('id'));
     const { value } = (await c.req.json().catch(() => ({}))) as { value?: unknown };
     if (value !== 'ok' && value !== 'no' && value !== null) return c.json({ error: 'OK for kids, not for kids, or automatic' }, 400);
-    const key = itemKey(db, id);
-    if (key) setOverride(db, key, value as Override);
+    setItemOverride(db, id, value as Override);
     // Kids' devices fetch their list again; Kodi's Kids tag follows.
     svc.libraryChanged(true);
     svc.kidsChanged();
