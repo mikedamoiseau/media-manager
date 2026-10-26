@@ -180,9 +180,15 @@ test("on a TV in its kids view, what starts there is the kid's, unless a phone p
   assert.equal(o.start('tv1', NOW + 2 * MIN, undefined, 3), 3, "a parent's phone remote just before");
   o.touch('tv1', 2, NOW + 3 * MIN, true);
   assert.equal(o.start('tv1', NOW + 3 * MIN + 10_000, 7, 3), 2, "Play on a parent's phone");
-  o.stop('tv1', true, NOW + 60 * MIN);
-  assert.equal(o.start('tv1', NOW + 60 * MIN + 20_000, 7, 3), 3, "the parent's next episode, the TV now in its kids view");
-  assert.equal(o.chained('tv1'), true, 'still Kodi going on by itself');
+  o.stop('tv1', false, NOW + 4 * MIN);
+  assert.equal(o.start('tv1', NOW + 4 * MIN + 10_000, undefined, 3), 3, 'then the TV remote: the Play was for the one it started');
+  o.touch('tv1', 2, NOW + 10 * MIN, true);
+  o.start('tv1', NOW + 10 * MIN + 10_000, 7, 3);
+  o.stop('tv1', true, NOW + 12 * MIN);
+  assert.equal(o.start('tv1', NOW + 12 * MIN + 20_000, 7, 3), 2, "Kodi going on with the parent's episodes: still the parent's");
+  assert.equal(o.chained('tv1'), true, 'Kodi going on by itself, not the Play');
+  o.stop('tv1', true, NOW + 40 * MIN);
+  assert.equal(o.start('tv1', NOW + 40 * MIN + 20_000, 8, 3), 3, 'another show after it, with the TV remote');
   o.stop('tv1', false, NOW + 70 * MIN);
   assert.equal(o.start('tv1', NOW + 80 * MIN), MAIN_PROFILE, 'kids view off again');
 });
