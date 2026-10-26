@@ -5,6 +5,9 @@ import { ageOf, setParentsCode, checkParentsCode, hasParentsCode, allowedItems, 
 import { MAIN_PROFILE, PROFILE_COLORS, addProfile, editProfile } from '../server/profiles.ts';
 import { enrichTitles } from '../server/metadata.ts';
 import type { Tmdb, TitleDetails } from '../server/tmdb.ts';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
+import { KIDS_TAG, kidsTagKeys, tagChanges, syncKidsTag } from '../server/kidsTag.ts';
 
 test('age: Germany first, else the stricter of France and the US', () => {
   assert.equal(ageOf({ DE: '12', FR: 'TP', US: 'PG' }), 12);
@@ -197,4 +200,74 @@ test("the app's library for a kids profile: only its titles, nothing until it kn
   assert.deepEqual(filter(cards, null), cards, 'not a kids profile');
   assert.deepEqual(filter(cards, new Set([2])), [{ id: 2 }]);
   assert.deepEqual(filter(cards, undefined), [], 'a kids list not loaded yet');
+});
+
+test('the Kids tag: added and removed, other tags kept', () => {
+  // Kodi's tags are the scraper's TMDB keywords, "kids" among them: the app's tag must not be one.
+  assert.equal(KIDS_TAG, 'Cinematheque Kids');
+  const kodi = [
+    { key: 'movie:1', tags: ['Favs', 'kids'] },
+    { key: 'movie:2', tags: [KIDS_TAG, 'Favs'] },
+    { key: 'tvshow:3', tags: [KIDS_TAG] },
+    { key: 'movie:4', tags: [] },
+    // Kodi's database ignores case: the tag as it was first spelled is the tag.
+    { key: 'movie:5', tags: ['cinematheque kids'] },
+    { key: 'movie:8', tags: ['CINEMATHEQUE KIDS', 'kids'] },
+  ];
+  assert.deepEqual(tagChanges(kodi, new Set(['movie:1', 'tvshow:3', 'movie:5'])), [
+    { key: 'movie:1', tags: ['Favs', 'kids', KIDS_TAG] },
+    { key: 'movie:2', tags: ['Favs'] },
+    { key: 'movie:8', tags: ['kids'] },
+  ]);
+});
+
+test('the Kids tag holds what every kid may watch', () => {
+  // animationDe12 (Kodi movie 12), animationDe6 (Kodi movie 6), kidsShow (KIDS folder series, Kodi tvshow 3)
+  const { db } = kidsLibrary();
+  assert.deepEqual([...kidsTagKeys(db)], [], 'no kids profile: nothing tagged');
+  setParentsCode(db, '4821');
+  addProfile(db, { name: 'Older', color: PROFILE_COLORS[2], kids: true, maxAge: 12 });
+  assert.deepEqual([...kidsTagKeys(db)].sort(), ['movie:12', 'movie:6', 'tvshow:3']);
+  addProfile(db, { name: 'Younger', color: PROFILE_COLORS[3], kids: true, maxAge: 6 });
+  assert.deepEqual([...kidsTagKeys(db)].sort(), ['movie:6', 'tvshow:3'], 'only what both may watch');
+});
+
+test("the Kids tag in Kodi: only the titles that change, only their tags", async () => {
+  const { db } = kidsLibrary();
+  // No kids profile yet: Kodi is left alone (a "Kids" tag set by hand stays).
+  assert.equal(await syncKidsTag(db, { host: '127.0.0.1', port: 9 }), 0);
+  setParentsCode(db, '4821');
+  addProfile(db, { name: 'Older', color: PROFILE_COLORS[2], kids: true, maxAge: 12 });
+  // A stand-in Kodi: films 6 (untagged) and 7 (tagged, not for kids), show 3 (tagged already).
+  const calls: Array<{ method: string; params: Record<string, unknown> }> = [];
+  const server = createServer((req, res) => {
+    let body = '';
+    req.on('data', (d) => (body += d));
+    req.on('end', () => {
+      const m = JSON.parse(body) as { id: number; method: string; params: Record<string, unknown> };
+      calls.push({ method: m.method, params: m.params });
+      const result =
+        m.method === 'VideoLibrary.GetMovies'
+          ? { movies: [{ movieid: 6, tag: ['Favs'] }, { movieid: 7, tag: [KIDS_TAG] }, { movieid: 12, tag: [] }], limits: { total: 3 } }
+          : m.method === 'VideoLibrary.GetTVShows'
+            ? { tvshows: [{ tvshowid: 3, tag: [KIDS_TAG] }], limits: { total: 1 } }
+            : 'OK';
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify({ id: m.id, jsonrpc: '2.0', result }));
+    });
+  });
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+  try {
+    const port = (server.address() as AddressInfo).port;
+    assert.equal(await syncKidsTag(db, { host: '127.0.0.1', port }), 3);
+    const writes = calls.filter((c) => c.method.startsWith('VideoLibrary.Set'));
+    assert.deepEqual(writes, [
+      { method: 'VideoLibrary.SetMovieDetails', params: { movieid: 6, tag: ['Favs', KIDS_TAG] } },
+      { method: 'VideoLibrary.SetMovieDetails', params: { movieid: 7, tag: [] } },
+      { method: 'VideoLibrary.SetMovieDetails', params: { movieid: 12, tag: [KIDS_TAG] } },
+    ]);
+    assert.deepEqual((calls.find((c) => c.method === 'VideoLibrary.GetMovies')?.params.properties), ['tag']);
+  } finally {
+    server.close();
+  }
 });

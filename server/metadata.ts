@@ -63,7 +63,7 @@ interface KodiVideo {
   watchedepisodes?: number;
 }
 
-async function paged<T>(cfg: KodiConfig, method: string, key: string, params: Record<string, unknown>): Promise<T[]> {
+export async function paged<T>(cfg: KodiConfig, method: string, key: string, params: Record<string, unknown>): Promise<T[]> {
   const out: T[] = [];
   for (let start = 0; ; start += 500) {
     const r = await kodiCall<Record<string, unknown> & { limits: { total: number } }>(

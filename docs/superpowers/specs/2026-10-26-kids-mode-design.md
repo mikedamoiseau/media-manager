@@ -95,6 +95,9 @@ kids view of the TV that shows only their titles.
 - The app keeps a **Kids** tag in Kodi's shared library on every film and
   series allowed for the kid (one write reaches both TVs). It adds and
   removes only that tag and never touches anything else on a title.
+  In Kodi the tag is named `Cinematheque Kids`, not "Kids": Kodi's tags
+  are the scraper's TMDB keywords, `kids` is one of them (on *The Sixth
+  Sense*, among others), and Kodi compares tag names without case.
 - The tag follows the list: when the rule, an override, the age limit or
   the files change, and again at each sync with Kodi (a title Kodi
   re-scraped may have lost it).

@@ -127,6 +127,7 @@ export function createApi(svc: Service): Hono {
     const body = (await c.req.json()) as { hidden?: boolean; watched?: boolean };
     if (body.hidden !== undefined) db.prepare('UPDATE items SET hidden = ?, updated_at = ? WHERE id = ?').run(body.hidden ? 1 : 0, Date.now(), id);
     svc.libraryChanged(true);
+    svc.kidsChanged();
     return c.json(itemDetail(db, id, who(c)));
   });
 
@@ -147,6 +148,7 @@ export function createApi(svc: Service): Hono {
       db.prepare("UPDATE items SET tmdb_id = ?, media_type = ?, match_state = 'manual', match_source = 'manual', candidates = NULL, updated_at = ? WHERE id = ?").run(body.tmdbId, body.type, now, id);
     } else return c.json({ error: 'Nothing to do' }, 400);
     svc.libraryChanged(true);
+    svc.kidsChanged();
     return c.json(itemDetail(db, id, who(c)));
   });
 
@@ -623,6 +625,7 @@ export function createApi(svc: Service): Hono {
       throw e;
     }
     svc.profilesChanged();
+    svc.kidsChanged();
     return c.json({ profiles: listProfiles(db) });
   };
 
@@ -688,8 +691,9 @@ export function createApi(svc: Service): Hono {
     if (value !== 'ok' && value !== 'no' && value !== null) return c.json({ error: 'OK for kids, not for kids, or automatic' }, 400);
     const key = itemKey(db, id);
     if (key) setOverride(db, key, value as Override);
-    // Kids' devices fetch their list again.
+    // Kids' devices fetch their list again; Kodi's Kids tag follows.
     svc.libraryChanged(true);
+    svc.kidsChanged();
     return forKids(c, id);
   });
 

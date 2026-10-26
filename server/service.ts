@@ -9,6 +9,7 @@ import { fetchSheet } from './sheet.ts';
 import { type KodiConfig, kodiCall, discoverKodi, detectPathPrefix, remote } from './kodi.ts';
 import { listProfiles, type Profile } from './profiles.ts';
 import { hasParentsCode, kidsProfile, bedtimeStop } from './kids.ts';
+import { syncKidsTag } from './kidsTag.ts';
 import { syncFromKodi, matchPending, enrichTitles } from './metadata.ts';
 import { Tmdb } from './tmdb.ts';
 import { lanTransport } from './net.ts';
@@ -77,6 +78,7 @@ export class Service extends EventEmitter {
   private timer?: NodeJS.Timeout;
   private libraryTimer?: NodeJS.Timeout;
   private kodiResyncTimer?: NodeJS.Timeout;
+  private kidsTimer?: NodeJS.Timeout;
   /** Each TV's event connection, and the address it is for */
   private events = new Map<string, { host: string; ev: KodiEvents }>();
   /** Who is watching on each TV, for whose progress Kodi's changes are. */
@@ -217,6 +219,26 @@ export class Service extends EventEmitter {
     this.status.kodi.transport = lanTransport();
     this.emit('status', this.status);
   }
+
+  /** What the kids may watch may have changed (a profile, a parent's call, Kodi, ratings): the Kids tag in Kodi follows, after a pause. */
+  kidsChanged(): void {
+    clearTimeout(this.kidsTimer);
+    this.kidsTimer = setTimeout(() => {
+      this.kidsTimer = undefined;
+      void this.syncKidsTag();
+    }, 5000);
+  }
+
+  private readonly syncKidsTag = oneAtATime(async () => {
+    const cfg = this.kodiConfig();
+    if (!cfg) return;
+    try {
+      const n = await syncKidsTag(this.db, cfg);
+      if (n) console.log(`[kids] Kids tag changed on ${n} titles in Kodi`);
+    } catch (e) {
+      console.warn(`[kids] Kids tag not updated: ${(e as Error).message}`);
+    }
+  });
 
   /** Tell clients the library changed (debounced while a long job streams updates). */
   libraryChanged(immediate = false): void {
@@ -376,6 +398,8 @@ export class Service extends EventEmitter {
       const r = await syncFromKodi(this.db, cfg, prefix);
       attributeKodiChanges(this.db, before);
       this.libraryChanged(true);
+      // Kodi may have re-scraped a title and lost its tag, or got new ones.
+      this.kidsChanged();
       return `${r.movies} films and ${r.shows} shows in Kodi, ${r.linked} linked to files`;
     }).catch(() => {});
     if (this.status.kodi.error) this.status.kodi.connected = false;
@@ -412,6 +436,8 @@ export class Service extends EventEmitter {
         },
       });
       this.libraryChanged(true);
+      // New ratings and genres: the kids' titles may differ.
+      this.kidsChanged();
       return `${m.matched} matched, ${m.unmatched} to review, ${n} titles completed`;
     });
     void this.prefetchPosters();
