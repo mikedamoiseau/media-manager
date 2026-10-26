@@ -10,7 +10,8 @@ import { TvBar } from './components/TvBar.tsx';
 import { Toasts } from './components/Toasts.tsx';
 import { KodiKeyboard } from './components/KodiKeyboard.tsx';
 import { WhosWatching } from './components/WhosWatching.tsx';
-import { IconFilm, IconInbox, IconRemote, IconSettings } from './components/icons.tsx';
+import { KidsPlaying } from './components/Kids.tsx';
+import { IconFilm, IconInbox, IconPlay, IconRemote, IconSettings } from './components/icons.tsx';
 import { useStore, status, online, profileChoice, useProfile } from './store.ts';
 
 type Tab = 'library' | 'review' | 'remote' | 'settings';
@@ -20,6 +21,11 @@ const TABS: Array<{ key: Tab; path: string; label: string; Icon: typeof IconFilm
   { key: 'review', path: '/review', label: 'To review', Icon: IconInbox },
   { key: 'remote', path: '/remote', label: 'Remote', Icon: IconRemote },
   { key: 'settings', path: '/settings', label: 'Settings', Icon: IconSettings },
+];
+// Kids mode: the library and what plays, nothing else.
+const KIDS_TABS: typeof TABS = [
+  { key: 'library', path: '/', label: 'Library', Icon: IconFilm },
+  { key: 'remote', path: '/remote', label: 'Playing', Icon: IconPlay },
 ];
 
 function tabFor(path: string): Tab | null {
@@ -40,16 +46,24 @@ export function App() {
   const isOnline = useStore(online);
   const choice = useStore(profileChoice);
   const me = useProfile();
+  const kids = !!me?.kids;
+  const tabs = kids ? KIDS_TABS : TABS;
   const reviewCount = (st?.counts.unmatched ?? 0) + (st?.counts.pending ?? 0);
 
   const closeDetail = () => {
     if ((history.state as { fromApp?: boolean } | null)?.fromApp) history.back();
-    else navigate(TABS.find((t) => t.key === lastTab.current)!.path, { replace: true });
+    else navigate((tabs.find((t) => t.key === lastTab.current) ?? tabs[0]!).path, { replace: true });
   };
 
   useEffect(() => {
     document.body.classList.toggle('has-overlay', !!params);
   }, [params]);
+
+  // Kids mode has no To review, Settings, film pages (films not on the NAS) or sets' pages: back to the library.
+  const offLimits = kids && (tab === 'review' || tab === 'settings' || !!filmParams || location.startsWith('/set/'));
+  useEffect(() => {
+    if (offLimits) navigate('/', { replace: true });
+  }, [offLimits]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // No one picked on this device yet, or the one picked was removed: ask first.
   if (!choice || (st && !me)) {
@@ -62,30 +76,30 @@ export function App() {
   }
 
   return (
-    <div className="app">
+    <div className={`app${kids ? ' is-kids' : ''}`}>
       {!isOnline && <div className="offline">Reconnecting to the media server…</div>}
       <main className="pages">
         <section className="page" hidden={tab !== 'library'}>
           <Library active={tab === 'library' && !params} />
         </section>
         <section className="page" hidden={tab !== 'review'}>
-          {tab === 'review' && <Review />}
+          {tab === 'review' && !kids && <Review />}
         </section>
         <section className="page" hidden={tab !== 'remote'}>
-          {tab === 'remote' && <Remote />}
+          {tab === 'remote' && (kids ? <KidsPlaying /> : <Remote />)}
         </section>
         <section className="page" hidden={tab !== 'settings'}>
-          {tab === 'settings' && <SettingsView />}
+          {tab === 'settings' && !kids && <SettingsView />}
         </section>
       </main>
 
       {titleParams && <DetailView key={`${titleParams.id}-${choice}`} id={Number(titleParams.id)} onClose={closeDetail} />}
-      {filmParams && <FilmView key={filmParams.id} id={Number(filmParams.id)} onClose={closeDetail} />}
+      {filmParams && !kids && <FilmView key={filmParams.id} id={Number(filmParams.id)} onClose={closeDetail} />}
 
       <footer className="chrome">
-        <TvBar onRemote={tab === 'remote'} />
+        {!kids && <TvBar onRemote={tab === 'remote'} />}
         <nav className="tabbar" aria-label="Sections">
-          {TABS.map(({ key, path, label, Icon }) => (
+          {tabs.map(({ key, path, label, Icon }) => (
             <button
               key={key}
               className="tab"
@@ -104,7 +118,7 @@ export function App() {
           ))}
         </nav>
       </footer>
-      <KodiKeyboard />
+      {!kids && <KodiKeyboard />}
       <Toasts />
     </div>
   );

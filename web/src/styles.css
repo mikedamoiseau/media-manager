@@ -168,7 +168,8 @@ body.has-overlay .chrome {
 
 .tabbar {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
   height: var(--tabbar-h);
   padding-bottom: var(--safe-bottom);
   background: rgba(13, 27, 33, 0.94);
@@ -2439,7 +2440,8 @@ select option {
   text-align: center;
 }
 
-.whos h1 {
+.whos h1,
+.code-pad h1 {
   font-family: var(--font-display);
   font-size: 48px;
   line-height: 0.95;
@@ -2576,4 +2578,142 @@ select option {
   display: flex;
   align-items: center;
   gap: 12px;
+}
+
+/* Kids mode: the parents' code, to leave it. */
+.code-pad {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  overflow-y: auto;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 18px;
+  padding: calc(var(--safe-top) + 32px) var(--gutter) calc(var(--safe-bottom) + 32px);
+  background: var(--nuit);
+  text-align: center;
+}
+
+.code-pad h1 {
+  margin: 0;
+}
+
+.code-dots {
+  display: flex;
+  gap: 18px;
+}
+
+.code-dots span {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid var(--brume);
+}
+
+.code-dots span.on {
+  background: var(--lampe);
+  border-color: var(--lampe);
+}
+
+.code-dots.wrong {
+  animation: shake 0.4s;
+}
+
+.code-dots.wrong span {
+  border-color: var(--rec);
+}
+
+@keyframes shake {
+  20%,
+  60% {
+    transform: translateX(-10px);
+  }
+  40%,
+  80% {
+    transform: translateX(10px);
+  }
+}
+
+.code-msg {
+  margin: 0;
+  min-height: 1.4em;
+  color: var(--rec);
+  font-weight: 600;
+}
+
+.code-keys {
+  display: grid;
+  grid-template-columns: repeat(3, 76px);
+  gap: 14px 22px;
+}
+
+.code-keys button {
+  width: 76px;
+  height: 76px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--rideau);
+  color: var(--ecran);
+  font-family: var(--font-display);
+  font-size: 32px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.code-keys button:active {
+  background: var(--rideau-3);
+}
+
+/* A parent's to-do, not the kid's. */
+.is-kids .tile-flag {
+  display: none;
+}
+
+/* Kids mode's now playing: few buttons, big ones. */
+.kids-keys,
+.kids-volume {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 28px;
+}
+
+.kids-keys .round.big {
+  width: 96px;
+  height: 96px;
+}
+
+.kids-keys .round.stop {
+  background: var(--rideau);
+  color: var(--ecran);
+}
+
+.kids-vol {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 5ch;
+  color: var(--brume);
+  font-size: 22px;
+  font-variant-numeric: tabular-nums;
+}
+
+.kids-tracks {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.btn.bedtime {
+  margin: 0;
+  background: var(--rideau-2);
+  color: var(--brume);
+  cursor: default;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .code-dots.wrong {
+    animation: none;
+  }
 }

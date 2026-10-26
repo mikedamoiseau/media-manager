@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { api, ApiError } from '../api.ts';
-import { useStore, prefs, status, toast, pollNowPlaying, library, profileChoice } from '../store.ts';
+import { useStore, prefs, status, toast, pollNowPlaying, library, profileChoice, useKids } from '../store.ts';
+import { isBedtime } from '../kids.ts';
 import { displayTitle, plotLang, categoryLabel, formatRuntime, formatSize, groupCards, setLineup, setName, splitSet } from '../search.ts';
 import type { Detail, Episode, SetPart, TitleLang } from '../types.ts';
 import { Poster } from './Poster.tsx';
@@ -161,6 +162,15 @@ export function DetailView({ id, onClose }: { id: number; onClose: () => void })
   const st = useStore(status);
   const libVersion = useStore(library).version;
   const ref = useRef<HTMLDivElement>(null);
+  // Kids mode: only Play on TV (until bedtime), the episodes and liking; nothing that leads elsewhere.
+  const kid = useKids();
+  const [, tick] = useState(0);
+  useEffect(() => {
+    if (!kid?.bedtime) return;
+    const t = setInterval(() => tick((n) => n + 1), 30_000);
+    return () => clearInterval(t);
+  }, [kid?.bedtime]);
+  const bedtime = !!kid && isBedtime(kid.bedtime, new Date());
 
   useEffect(() => {
     let alive = true;
@@ -191,12 +201,12 @@ export function DetailView({ id, onClose }: { id: number; onClose: () => void })
   const t = d ? displayTitle(d, titleLang) : null;
   const overviewLang = d ? plotLang(titleLang, d.originalLanguage) : 'fr';
   const overview = d ? (overviewLang === 'fr' ? (d.overviewFr ?? d.overviewEn) : (d.overviewEn ?? d.overviewFr)) : null;
-  const kodiReady = !!st?.tvs.length;
+  const kodiReady = !!st?.tvs.length && !bedtime;
   const present = d?.versions.some((v) => v.present);
   // The episodes listed are this copy's: playable only when this copy is on the NAS.
   const episodesHere = !!d?.versions.find((v) => v.id === d.id)?.present;
   // The copy VLC gets: this one when it is on the NAS, else another copy that is.
-  const phoneCopy = d?.versions.find((v) => v.id === d.id && v.present) ?? d?.versions.find((v) => v.present);
+  const phoneCopy = kid ? undefined : (d?.versions.find((v) => v.id === d.id && v.present) ?? d?.versions.find((v) => v.present));
   const phoneName = phoneCopy && d ? `${displayTitle(d, titleLang).main}${phoneCopy.isDir ? '' : phoneCopy.path.slice(phoneCopy.path.lastIndexOf('.'))}` : '';
   const [vlcSeen, setVlcSeen] = useState(() => readFlag('mm.vlcOpened'));
   // VLC opening hides this page; once it has, the "needs the VLC app" hint is no longer needed.
@@ -237,9 +247,15 @@ export function DetailView({ id, onClose }: { id: number; onClose: () => void })
           </div>
 
           <div className="detail-hero">
-            <button className="detail-poster" onClick={() => setDialog('poster')} aria-label="Change the poster">
-              <Poster key={d.poster ?? 'none'} src={d.poster} title={t.main} year={d.y} />
-            </button>
+            {kid ? (
+              <div className="detail-poster">
+                <Poster key={d.poster ?? 'none'} src={d.poster} title={t.main} year={d.y} />
+              </div>
+            ) : (
+              <button className="detail-poster" onClick={() => setDialog('poster')} aria-label="Change the poster">
+                <Poster key={d.poster ?? 'none'} src={d.poster} title={t.main} year={d.y} />
+              </button>
+            )}
             <div className="detail-heading">
               <h1 className={`detail-title${t.main.length > 28 ? ' is-long' : ''}`}>{t.main}</h1>
               {t.sub && <p className="detail-sub">{t.sub}</p>}
@@ -259,7 +275,12 @@ export function DetailView({ id, onClose }: { id: number; onClose: () => void })
           </div>
 
           <div className="detail-actions">
-            {present && (
+            {present && bedtime && (
+              <p className="btn big bedtime" role="status">
+                It's bedtime
+              </p>
+            )}
+            {present && !bedtime && (
               <button className="btn primary big" disabled={!kodiReady} onClick={() => void playOnKodi(d.id, undefined, t.main)}>
                 <IconPlay size={20} />
                 {d.d && d.episodes.length ? 'Play next episode' : d.versions.some((v) => v.resume && v.resume > 0.02) ? 'Resume on TV' : 'Play on TV'}
@@ -271,7 +292,7 @@ export function DetailView({ id, onClose }: { id: number; onClose: () => void })
                 Play in VLC
               </a>
             )}
-            {d.trailer && (
+            {d.trailer && !kid && (
               <button
                 className="btn trailer-btn"
                 aria-expanded={trailer}
@@ -286,7 +307,7 @@ export function DetailView({ id, onClose }: { id: number; onClose: () => void })
             )}
             {d.canRate && <Rating itemId={d.id} value={d.rating} onChange={(rating) => setD((x) => x && { ...x, rating })} />}
           </div>
-          {present && !kodiReady && <p className="hint pad">Kodi isn't connected yet. Open Settings to find it on your network.</p>}
+          {present && !bedtime && !kodiReady && <p className="hint pad">Kodi isn't connected yet. Open Settings to find it on your network.</p>}
           {isIOS && phoneCopy && !vlcSeen && (
             <p className="hint pad">
               Play in VLC plays {d.episodes.length ? 'episodes' : 'the film'} on this device with all their audio and subtitle tracks. It needs the free{' '}
@@ -298,7 +319,7 @@ export function DetailView({ id, onClose }: { id: number; onClose: () => void })
           )}
           {!present && <p className="hint pad">This one is in your sheet but its file isn't on the NAS anymore.</p>}
 
-          {trailer && d.trailer && <Trailer videoId={d.trailer} onTv={kodiReady ? () => api.post(`/api/items/${d.id}/trailer`) : undefined} />}
+          {trailer && d.trailer && !kid && <Trailer videoId={d.trailer} onTv={kodiReady ? () => api.post(`/api/items/${d.id}/trailer`) : undefined} />}
 
           <div className="detail-body">
             {/* TMDB only gives the English tagline: don't mix it with a French plot. */}
@@ -308,7 +329,7 @@ export function DetailView({ id, onClose }: { id: number; onClose: () => void })
                 <p>{overview}</p>
               </div>
             )}
-            {!overview && d.m !== 'matched' && d.m !== 'manual' && (
+            {!overview && !kid && d.m !== 'matched' && d.m !== 'manual' && (
               <div className="callout">
                 <p>
                   {d.m === 'none'
@@ -328,62 +349,64 @@ export function DetailView({ id, onClose }: { id: number; onClose: () => void })
                 itemId={d.id}
                 episodes={d.episodes}
                 kodiReady={kodiReady && episodesHere}
-                vlc={isIOS && episodesHere ? { show: t.main, onOpen: watchVlcLaunch } : null}
+                vlc={isIOS && episodesHere && !kid ? { show: t.main, onOpen: watchVlcLaunch } : null}
               />
             )}
 
-            {d.collection && <SetRow name={d.collection} itemId={d.id} />}
+            {d.collection && !kid && <SetRow name={d.collection} itemId={d.id} />}
 
-            <People directors={d.directors} cast={d.cast} tv={d.mediaType === 'tv'} />
+            {!kid && <People directors={d.directors} cast={d.cast} tv={d.mediaType === 'tv'} />}
 
             <Versions d={d} kodiReady={kodiReady} title={t.main} />
 
-            <section className="file-tools">
-              <h2 className="section-title">Library</h2>
-              <div className="tool-row">
-                <button className="btn small" onClick={() => setDialog('match')}>
-                  <IconLink size={18} /> {d.tmdbId ? 'Wrong title? Rematch' : 'Match to a title'}
-                </button>
-                <button className="btn small" onClick={() => setDialog('poster')}>
-                  <IconImage size={18} /> Change poster
-                </button>
-                <button
-                  className="btn small"
-                  onClick={async () => {
-                    const r = await api.patch<Detail>(`/api/items/${d.id}`, { hidden: !d.h });
-                    setD(r);
-                    toast(r.h ? 'Hidden from the library' : 'Back in the library');
-                  }}
-                >
-                  {d.h ? <IconEye size={18} /> : <IconEyeOff size={18} />} {d.h ? 'Show in library' : 'Hide from library'}
-                </button>
-              </div>
-              <dl className="meta-list">
-                <dt>Info from</dt>
-                <dd>{sourceLabel(d)}</dd>
-                {d.sheet && (
-                  <>
-                    <dt>In your sheet as</dt>
-                    <dd>{[d.sheet.fr, d.sheet.en !== d.sheet.fr ? d.sheet.en : null, d.sheet.year].filter(Boolean).join(' / ')}</dd>
-                  </>
-                )}
-                {d.tmdbId && (
-                  <>
-                    <dt>Links</dt>
-                    <dd className="links">
-                      <a href={`https://www.themoviedb.org/${d.mediaType}/${d.tmdbId}`} target="_blank" rel="noreferrer">
-                        TMDB
-                      </a>
-                      {d.imdbId && (
-                        <a href={`https://www.imdb.com/title/${d.imdbId}/`} target="_blank" rel="noreferrer">
-                          IMDb
+            {!kid && (
+              <section className="file-tools">
+                <h2 className="section-title">Library</h2>
+                <div className="tool-row">
+                  <button className="btn small" onClick={() => setDialog('match')}>
+                    <IconLink size={18} /> {d.tmdbId ? 'Wrong title? Rematch' : 'Match to a title'}
+                  </button>
+                  <button className="btn small" onClick={() => setDialog('poster')}>
+                    <IconImage size={18} /> Change poster
+                  </button>
+                  <button
+                    className="btn small"
+                    onClick={async () => {
+                      const r = await api.patch<Detail>(`/api/items/${d.id}`, { hidden: !d.h });
+                      setD(r);
+                      toast(r.h ? 'Hidden from the library' : 'Back in the library');
+                    }}
+                  >
+                    {d.h ? <IconEye size={18} /> : <IconEyeOff size={18} />} {d.h ? 'Show in library' : 'Hide from library'}
+                  </button>
+                </div>
+                <dl className="meta-list">
+                  <dt>Info from</dt>
+                  <dd>{sourceLabel(d)}</dd>
+                  {d.sheet && (
+                    <>
+                      <dt>In your sheet as</dt>
+                      <dd>{[d.sheet.fr, d.sheet.en !== d.sheet.fr ? d.sheet.en : null, d.sheet.year].filter(Boolean).join(' / ')}</dd>
+                    </>
+                  )}
+                  {d.tmdbId && (
+                    <>
+                      <dt>Links</dt>
+                      <dd className="links">
+                        <a href={`https://www.themoviedb.org/${d.mediaType}/${d.tmdbId}`} target="_blank" rel="noreferrer">
+                          TMDB
                         </a>
-                      )}
-                    </dd>
-                  </>
-                )}
-              </dl>
-            </section>
+                        {d.imdbId && (
+                          <a href={`https://www.imdb.com/title/${d.imdbId}/`} target="_blank" rel="noreferrer">
+                            IMDb
+                          </a>
+                        )}
+                      </dd>
+                    </>
+                  )}
+                </dl>
+              </section>
+            )}
           </div>
 
           {dialog === 'match' && (

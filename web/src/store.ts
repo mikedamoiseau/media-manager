@@ -2,6 +2,7 @@ import { useSyncExternalStore } from 'react';
 import { api, setKodiTv, setProfile } from './api.ts';
 import { chosenTv } from './tvs.ts';
 import { chosenProfile } from './profiles.ts';
+import { kidsLibrary } from './kids.ts';
 import type { Card, NowPlaying, Profile, Status, TitleLang, TvStatus } from './types.ts';
 
 type Listener = () => void;
@@ -68,6 +69,8 @@ export const library = createStore<{ items: Card[]; version: string | null; load
 });
 
 let loadingPromise: Promise<void> | null = null;
+// The cards as the server sends them; the library shows them with this profile's marks, and a kid's only.
+let cards: Card[] = [];
 
 /** What this device's profile watched and has in progress: the cards are the same for everyone. */
 const marks = createStore<{ w: Set<number>; rs: Set<number> }>({ w: new Set(), rs: new Set() });
@@ -75,6 +78,23 @@ const withMarks = (items: Card[]) => {
   const m = marks.get();
   return items.map((c) => ({ ...c, w: m.w.has(c.id), rs: m.rs.has(c.id) }));
 };
+
+/** A kids profile's titles; null: not a kids profile (everything); undefined: not known yet (nothing shown). */
+export const allowed = createStore<Set<number> | null | undefined>(undefined);
+const shown = () => kidsLibrary(withMarks(cards), allowed.get());
+
+export async function loadAllowed(): Promise<void> {
+  const who = profileChoice.get();
+  if (!who) return;
+  try {
+    const r = await api.get<{ ids: number[] | null }>('/api/kids/allowed');
+    if (profileChoice.get() !== who) return;
+    allowed.set(r.ids ? new Set(r.ids) : null);
+    library.set((s) => ({ ...s, items: shown() }));
+  } catch {
+    /* a kid's list stays as it was (nothing, at first); a grown-up's comes from the status below */
+  }
+}
 
 export async function loadMarks(): Promise<void> {
   const who = profileChoice.get();
@@ -84,7 +104,7 @@ export async function loadMarks(): Promise<void> {
     // Asked for the profile this device has left meanwhile.
     if (profileChoice.get() !== who) return;
     marks.set({ w: new Set(m.w), rs: new Set(m.rs) });
-    library.set((s) => ({ ...s, items: withMarks(s.items) }));
+    library.set((s) => ({ ...s, items: shown() }));
   } catch {
     /* the badges stay as they were */
   }
@@ -94,7 +114,8 @@ export function loadLibrary(): Promise<void> {
   loadingPromise ??= (async () => {
     try {
       const r = await api.get<{ version: string; items: Card[] }>('/api/library');
-      library.set({ items: withMarks(r.items), version: r.version, loading: false, error: null });
+      cards = r.items;
+      library.set({ items: shown(), version: r.version, loading: false, error: null });
     } catch (e) {
       library.set((s) => ({ ...s, loading: false, error: (e as Error).message }));
     } finally {
@@ -123,6 +144,8 @@ export function connectEvents(): void {
       if ((e as MessageEvent).data !== library.get().version) void loadLibrary();
       // A sync may have given this profile new progress even when the cards didn't change.
       void loadMarks();
+      // A parent's call on a title may have changed a kid's list.
+      void loadAllowed();
     });
     es.addEventListener('error', () => {
       online.set(false);
@@ -137,6 +160,7 @@ export function connectEvents(): void {
     if (document.visibilityState === 'visible') {
       void loadLibrary();
       void loadMarks();
+      void loadAllowed();
       void pollNowPlaying();
     }
   });
@@ -247,8 +271,14 @@ profileChoice.subscribe(() => {
     /* private mode */
   }
   marks.set({ w: new Set(), rs: new Set() });
-  library.set((s) => ({ ...s, items: withMarks(s.items) }));
-  if (id) void loadMarks();
+  // A grown-up's profile sees everything at once; a kid's sees nothing until its list comes.
+  const me = chosenProfile(status.get()?.profiles ?? [], id);
+  allowed.set(me && !me.kids ? null : undefined);
+  library.set((s) => ({ ...s, items: shown() }));
+  if (id) {
+    void loadMarks();
+    void loadAllowed();
+  }
 });
 // The profile picked was removed (on any device): ask again who's watching.
 status.subscribe(() => {
@@ -257,11 +287,33 @@ status.subscribe(() => {
   if (profiles && id && !profiles.some((p) => p.id === id)) profileChoice.set(null);
 });
 
+// This device's profile turned into a kids one or back, or its age limit changed (on any device): its list again.
+// A grown-up's profile shows everything even before the server answered.
+let kidsShape: string | undefined;
+status.subscribe(() => {
+  const me = chosenProfile(status.get()?.profiles ?? [], profileChoice.get());
+  if (!me) return;
+  const shape = `${me.id}:${me.kids}:${me.maxAge}`;
+  if (shape === kidsShape) return;
+  kidsShape = shape;
+  if (!me.kids && allowed.get() !== null) {
+    allowed.set(null);
+    library.set((s) => ({ ...s, items: shown() }));
+  }
+  void loadAllowed();
+});
+
 /** This device's profile; null until one is picked (or while the list is loading). */
 export function useProfile(): Profile | null {
   const st = useStore(status);
   const choice = useStore(profileChoice);
   return chosenProfile(st?.profiles ?? [], choice);
+}
+
+/** This device's profile when it is a kids one (kids mode), else null. */
+export function useKids(): Profile | null {
+  const me = useProfile();
+  return me?.kids ? me : null;
 }
 
 /** A name tapped on a title's page: the library shows the titles of that actor or director. */

@@ -190,3 +190,11 @@ test("the app's bedtime is the server's", async () => {
     assert.equal(web.isBedtime(b, at(hm)), isBedtime(b, at(hm)), `${b} at ${hm}`);
   assert.deepEqual(web.FSK_STEPS, [0, 6, 12, 16]);
 });
+
+test("the app's library for a kids profile: only its titles, nothing until it knows them", async () => {
+  const { kidsLibrary: filter } = await import('../web/src/kids.ts');
+  const cards = [{ id: 1 }, { id: 2 }, { id: 3 }];
+  assert.deepEqual(filter(cards, null), cards, 'not a kids profile');
+  assert.deepEqual(filter(cards, new Set([2])), [{ id: 2 }]);
+  assert.deepEqual(filter(cards, undefined), [], 'a kids list not loaded yet');
+});

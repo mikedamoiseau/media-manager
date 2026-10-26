@@ -214,6 +214,16 @@ export const IconVolume = (p: P) => (
     <path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11" />
   </svg>
 );
+export const IconMinus = (p: P) => (
+  <svg {...base(p)}>
+    <path d="M5 12h14" />
+  </svg>
+);
+export const IconPlus = (p: P) => (
+  <svg {...base(p)}>
+    <path d="M12 5v14M5 12h14" />
+  </svg>
+);
 export const IconMute = (p: P) => (
   <svg {...base(p)}>
     <path d="M4 9.5h3.5L12 6v12l-4.5-3.5H4Z" />

@@ -1,10 +1,11 @@
 import { useEffect, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
-import { api } from '../api.ts';
+import { api, ApiError } from '../api.ts';
 import { PROFILE_COLORS, initial } from '../profiles.ts';
-import { useStore, status, profileChoice, useProfile, toast } from '../store.ts';
+import { useStore, status, profileChoice, useProfile, useKids, toast } from '../store.ts';
 import type { Profile } from '../types.ts';
 import { IconClose } from './icons.tsx';
+import { CodePad } from './Kids.tsx';
 
 const tint = (color: string) => ({ '--c': color }) as CSSProperties;
 
@@ -31,6 +32,9 @@ export function WhosWatching({ onClose }: { onClose?: () => void }) {
   const st = useStore(status);
   const current = useStore(profileChoice);
   const [adding, setAdding] = useState(false);
+  // Kids mode: leaving for another profile asks the parents' code.
+  const kid = useKids();
+  const [unlocking, setUnlocking] = useState<number | null>(null);
   const profiles = st?.profiles;
 
   useEffect(() => {
@@ -41,9 +45,30 @@ export function WhosWatching({ onClose }: { onClose?: () => void }) {
   }, [onClose]);
 
   const pick = (id: number) => {
+    if (kid && id !== kid.id) return setUnlocking(id);
     profileChoice.set(id);
     onClose?.();
   };
+
+  if (unlocking !== null) {
+    return (
+      <CodePad
+        title="Parents' code"
+        onCancel={() => setUnlocking(null)}
+        onCode={async (code) => {
+          try {
+            await api.post('/api/kids/unlock', { code });
+          } catch (e) {
+            if (!(e instanceof ApiError && e.status === 403)) toast((e as Error).message, 'error');
+            return false;
+          }
+          profileChoice.set(unlocking);
+          onClose?.();
+          return true;
+        }}
+      />
+    );
+  }
 
   return (
     <div className="whos" role="dialog" aria-modal="true" aria-labelledby="whos-title">
@@ -66,7 +91,7 @@ export function WhosWatching({ onClose }: { onClose?: () => void }) {
               </button>
             </li>
           ))}
-          {!adding && (
+          {!adding && !kid && (
             <li>
               <button className="whos-tile" onClick={() => setAdding(true)}>
                 <span className="avatar big add" aria-hidden="true">+</span>

@@ -16,3 +16,13 @@ export function isBedtime(bedtime: string | null, now: Date): boolean {
   const m = now.getHours() * 60 + now.getMinutes();
   return b >= MORNING ? m >= b || m < MORNING : m >= b && m < MORNING;
 }
+
+/**
+ * What the library shows: everything (not a kids profile: null), a kid's own titles, or nothing while the
+ * kid's list is loading (undefined), so nothing else ever flashes by.
+ */
+export function kidsLibrary<T extends { id: number }>(cards: T[], allowed: Set<number> | null | undefined): T[] {
+  if (allowed === null) return cards;
+  if (!allowed) return [];
+  return cards.filter((c) => allowed.has(c.id));
+}

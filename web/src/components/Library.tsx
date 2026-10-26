@@ -1,7 +1,7 @@
 import { useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useLocation, useRoute } from 'wouter';
-import { useStore, library, prefs, toast, loadLibrary, personRequest, profileChoice } from '../store.ts';
+import { useStore, library, prefs, toast, loadLibrary, personRequest, profileChoice, useKids } from '../store.ts';
 import { ProfileBadge } from './WhosWatching.tsx';
 import {
   applyFilters, allGenres, groupCards, groupSets, isSet, setName, splitSet, displayTitle, formatDay, CATEGORIES, DECADES, DEFAULT_FILTERS,
@@ -40,6 +40,8 @@ const STATUSES: Array<{ key: StatusKey; label: string }> = [
   { key: 'missing', label: 'Only in the sheet' },
   { key: 'hidden', label: 'Hidden' },
 ];
+// A kid's titles are all on the NAS, matched or not, never hidden: the other choices would show nothing.
+const KIDS_STATUSES = new Set<StatusKey>(['all', 'unwatched', 'progress']);
 
 const QUALITIES = ['4K', 'HDR', '1080p', 'MULTI', 'VF', 'VOSTFR'];
 
@@ -65,8 +67,18 @@ export function Library({ active }: { active: boolean }) {
   // Someone else watching on this device: their rows.
   const who = useStore(profileChoice);
   const p = useStore(prefs);
-  const { titleLang, groupSets: setsOn, showContinue, showSuggested, showElsewhere, showCinema } = p;
-  const [filters, setFilters] = useState<Filters>(loadFilters);
+  // Kids mode: nothing that leads past the kid's titles (films elsewhere or at the cinema, people, a set's other films).
+  const kid = useKids();
+  const { titleLang, showContinue, showSuggested } = p;
+  const setsOn = p.groupSets && !kid;
+  const showElsewhere = p.showElsewhere && !kid;
+  const showCinema = p.showCinema && !kid;
+  const [chosen, setFilters] = useState<Filters>(loadFilters);
+  // A grown-up's people and status filters wait for them, out of kids mode.
+  const filters = useMemo(
+    () => (kid ? { ...chosen, people: [], status: KIDS_STATUSES.has(chosen.status) ? chosen.status : 'all' } : chosen),
+    [kid, chosen],
+  );
   const [, setParams] = useRoute('/set/:key');
   const openSet = setParams ? decodeKey(setParams.key) : null;
   const [showFilters, setShowFilters] = useState(false);
@@ -79,8 +91,8 @@ export function Library({ active }: { active: boolean }) {
   const person = useStore(personRequest);
 
   useEffect(() => {
-    sessionStorage.setItem('mm.filters', JSON.stringify(filters));
-  }, [filters]);
+    sessionStorage.setItem('mm.filters', JSON.stringify(chosen));
+  }, [chosen]);
 
   useEffect(() => people.want(filters.people, version ?? ''), [people, filters.people, version, peopleError]);
   // A name tapped on a title's page: only their titles, whatever was filtered before.
@@ -320,16 +332,18 @@ export function Library({ active }: { active: boolean }) {
               <span>
                 {results.length.toLocaleString()} {results.length === 1 ? 'title' : 'titles'}
               </span>
-              <button
-                className="chip sets-toggle"
-                aria-pressed={setsOn}
-                onClick={() => {
-                  prefs.set({ ...p, groupSets: !setsOn });
-                  scroller.current?.scrollTo({ top: 0 });
-                }}
-              >
-                <IconSets size={16} /> Group sets
-              </button>
+              {!kid && (
+                <button
+                  className="chip sets-toggle"
+                  aria-pressed={setsOn}
+                  onClick={() => {
+                    prefs.set({ ...p, groupSets: !setsOn });
+                    scroller.current?.scrollTo({ top: 0 });
+                  }}
+                >
+                  <IconSets size={16} /> Group sets
+                </button>
+              )}
               <label className="sort">
                 <span className="sr-only">Sort by</span>
                 <select value={filters.sort} onChange={(e) => set({ sort: e.target.value as SortKey })}>
@@ -349,7 +363,7 @@ export function Library({ active }: { active: boolean }) {
           <Sheet title="Filters" onClose={() => setShowFilters(false)}>
             <h3 className="field-label">Show</h3>
             <div className="chips wrap">
-              {STATUSES.map((s) => (
+              {STATUSES.filter((s) => !kid || KIDS_STATUSES.has(s.key)).map((s) => (
                 <button key={s.key} className="chip" aria-pressed={filters.status === s.key} onClick={() => set({ status: s.key })}>
                   {s.label}
                 </button>
@@ -389,7 +403,7 @@ export function Library({ active }: { active: boolean }) {
                 </button>
               ))}
             </div>
-            <PeoplePicker chosen={filters.people} onToggle={togglePerson} version={version} />
+            {!kid && <PeoplePicker chosen={filters.people} onToggle={togglePerson} version={version} />}
             <div className="sheet-actions">
               <button className="btn ghost" onClick={() => set({ genres: [], decade: null, quality: [], status: 'all', people: [] })}>
                 Reset filters
