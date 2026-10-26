@@ -393,7 +393,8 @@ export async function power(cfg: KodiConfig, action: PowerAction): Promise<void>
   await kodiCall(cfg, action === 'shutdown' ? 'System.Shutdown' : 'System.Reboot');
 }
 
-export async function play(cfg: KodiConfig, target: { file: string } | { movieid: number } | { episodeid: number }, resume = true): Promise<void> {
+/** resume: true for Kodi's own resume point, false for the start, or a percentage to start from. */
+export async function play(cfg: KodiConfig, target: { file: string } | { movieid: number } | { episodeid: number }, resume: boolean | number = true): Promise<void> {
   await kodiCall(cfg, 'Player.Open', { item: target, options: { resume } }, 10000);
 }
 

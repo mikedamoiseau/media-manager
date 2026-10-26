@@ -13,7 +13,7 @@ import { pool } from './scanner.ts';
 import { parseRange, videoType, vlcPlaylist, kodiMedia, parseHandoff } from './media.ts';
 import { suggestions, recordActivity, rate } from './suggestions.ts';
 import { elsewhere, cinema, inCinemas, filmDetails, asFilm, getPick, setPick, wantedFilms } from './films.ts';
-import { continueWatching, dismissWatching, noteStreamed, noteEpisodeStreamed, nextEpisode } from './watching.ts';
+import { continueWatching, dismissWatching, noteStreamed, noteEpisodeStreamed, nextEpisode, startPoint } from './watching.ts';
 import { sheetIdFrom } from './sheet.ts';
 import { cachedImage, isAllowedImage, storeUpload, videoThumb } from './images.ts';
 import {
@@ -224,7 +224,7 @@ export function createApi(svc: Service): Hono {
     return { cfg: svc.kodiConfig(tv.id)!, prefix: tv.pathPrefix, tv: tv.id };
   }
 
-  type Episode = { path: string; kodi_id: number | null };
+  type Episode = { id: number; path: string; kodi_id: number | null };
 
   /**
    * The original video file with byte ranges, so a player on the phone (VLC) can seek. kind "item": a film,
@@ -330,16 +330,17 @@ export function createApi(svc: Service): Hono {
     svc.owners.touch(tv, p, now);
     if (it.is_dir) {
       const ep = body.episodeId
-        ? (db.prepare('SELECT path, kodi_id FROM episodes WHERE id = ? AND item_id = ?').get(body.episodeId, id) as Episode | undefined)
+        ? (db.prepare('SELECT id, path, kodi_id FROM episodes WHERE id = ? AND item_id = ?').get(body.episodeId, id) as Episode | undefined)
         : nextEpisode(db, id, p);
       if (!ep) return c.json({ error: 'No episode found' }, 404);
       if (ep.kodi_id) notePlay(db, 'episode', ep.kodi_id, p, now);
-      await play(cfg, ep.kodi_id ? { episodeid: ep.kodi_id } : { file: toKodiPath(prefix, ep.path) });
+      // Where this profile stopped, not where someone else did.
+      await play(cfg, ep.kodi_id ? { episodeid: ep.kodi_id } : { file: toKodiPath(prefix, ep.path) }, startPoint(db, p, { episodeId: ep.id }));
     } else if (it.kodi_id && it.kodi_type === 'movie') {
       notePlay(db, 'movie', it.kodi_id, p, now);
-      await play(cfg, { movieid: it.kodi_id });
+      await play(cfg, { movieid: it.kodi_id }, startPoint(db, p, { itemId: id }));
     } else {
-      await play(cfg, { file: toKodiPath(prefix, it.path) });
+      await play(cfg, { file: toKodiPath(prefix, it.path) }, startPoint(db, p, { itemId: id }));
     }
     recordActivity(db, p, id, 'play');
     return c.json({ ok: true });

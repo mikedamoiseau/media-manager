@@ -243,3 +243,21 @@ test('only a film this profile watched can be rated', () => {
   assert.equal(itemDetail(db, ids.mufasa, a)?.canRate, true);
   assert.equal(itemDetail(db, ids.hp, a)?.versions.find((v) => v.id === ids.hp)?.resume, null, "the main profile's resume point is not Anna's");
 });
+
+test("Play on TV starts at this profile's point, not someone else's", () => {
+  const { db, ids } = seed();
+  const a = anna(db);
+  w.noteStreamed(db, a, ids.hp, 0, 700 * MB, 1000 * MB, NOW - 60_000);
+  assert.equal(w.startPoint(db, MAIN_PROFILE, { itemId: ids.hp }), 64, 'its TV resume point');
+  assert.equal(w.startPoint(db, a, { itemId: ids.hp }), 70, 'her VLC progress');
+  assert.equal(w.startPoint(db, a, { itemId: ids.mufasa }), false, 'nothing played: from the start');
+  assert.equal(w.startPoint(db, MAIN_PROFILE, { itemId: ids.credits }), false, 'finished: from the start');
+  w.noteStreamed(db, MAIN_PROFILE, ids.hp, 0, 300 * MB, 1000 * MB, NOW);
+  assert.equal(w.startPoint(db, MAIN_PROFILE, { itemId: ids.hp }), 30, 'the latest of TV and VLC');
+
+  const show = addShow(db, 'Dark', [{ s: 1, e: 1, plays: 1, ago: 2 * DAY }, { s: 1, e: 2, resume: 0.4, ago: DAY }]);
+  w.noteEpisodeStreamed(db, a, show.ep[1]!, 0, 700 * MB, 1000 * MB, NOW);
+  assert.equal(w.startPoint(db, MAIN_PROFILE, { episodeId: show.ep[1]! }), 40);
+  assert.equal(w.startPoint(db, a, { episodeId: show.ep[1]! }), 70);
+  assert.equal(w.startPoint(db, a, { episodeId: show.ep[0]! }), false);
+});

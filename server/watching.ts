@@ -85,6 +85,29 @@ export function nextEpisode(db: DB, itemId: number, profileId: number): EpisodeR
   return seriesState(eps).next ?? eps.find((e) => !watchedEpisode(e)) ?? eps[0];
 }
 
+/**
+ * Where this profile's Play on TV starts, as Kodi's percentage: its latest progress (on a TV or in VLC)
+ * when started and not finished; else from the start (false). Not Kodi's own resume point, which may be
+ * someone else's.
+ */
+export function startPoint(db: DB, profileId: number, target: { itemId: number } | { episodeId: number }): false | number {
+  let latest: Progress | null;
+  if ('itemId' in target) {
+    const r = db.prepare(`SELECT f.resume, f.last_played, w.fraction, w.played_at FROM items i
+      LEFT JOIN film_states f ON f.item_id = i.id AND f.profile_id = ?1 LEFT JOIN watching w ON w.item_id = i.id AND w.profile_id = ?1
+      WHERE i.id = ?2`).get(profileId, target.itemId) as { resume: number | null; last_played: string | null; fraction: number | null; played_at: number | null } | undefined;
+    if (!r) return false;
+    const tv: Progress | null = r.last_played || r.resume ? { fraction: r.resume ?? 0, where: 'tv', at: r.last_played ? kodiTime(r.last_played) : 0 } : null;
+    const phone: Progress | null = r.played_at ? { fraction: r.fraction ?? 0, where: 'phone', at: r.played_at } : null;
+    latest = tv && phone ? (phone.at > tv.at ? phone : tv) : (tv ?? phone);
+  } else {
+    const e = db.prepare(`SELECT e.id, e.path, e.kodi_id, e.season, e.episode, e.title, s.playcount, s.resume, s.last_played, s.streamed, s.streamed_at
+      FROM episodes e LEFT JOIN episode_states s ON s.episode_id = e.id AND s.profile_id = ? WHERE e.id = ?`).get(profileId, target.episodeId) as unknown as EpisodeRow | undefined;
+    latest = e ? progressOf(e) : null;
+  }
+  return inProgress(latest) ? Math.round(latest.fraction * 1000) / 10 : false;
+}
+
 /** How far VLC got into an episode, as for films (see noteStreamed). */
 export function noteEpisodeStreamed(db: DB, profileId: number, episodeId: number, start: number, sent: number, size: number, now = Date.now()): void {
   if (sent < MIN_STREAM || !size) return;
