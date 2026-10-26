@@ -24,7 +24,8 @@ import { ensureTitle, slimCandidates } from './metadata.ts';
 import type { Settings } from './db.ts';
 import { TvError, addTv, editTv, removeTv, publicTvs, handoffTv, type TvInput } from './tvs.ts';
 import type { MediaType } from './scanner.ts';
-import { ProfileError, listProfiles, addProfile, editProfile, removeProfile, profileOf } from './profiles.ts';
+import { ProfileError, listProfiles, addProfile, editProfile, removeProfile, profileOf, type ProfileInput } from './profiles.ts';
+import { KidsError, setParentsCode, checkParentsCode } from './kids.ts';
 import { notePlay } from './owners.ts';
 
 function sendFile(file: string, maxAge = 31536000): Response {
@@ -567,23 +568,30 @@ export function createApi(svc: Service): Hono {
     try {
       change();
     } catch (e) {
-      if (e instanceof ProfileError) return c.json({ error: e.message }, 400);
+      if (e instanceof ProfileError || e instanceof KidsError) return c.json({ error: e.message }, 400);
       throw e;
     }
     svc.profilesChanged();
     return c.json({ profiles: listProfiles(db) });
   };
 
+  /** A profile as typed in its form: only its own fields (bedtime null or '': none). */
+  const profileInput = (b: Record<string, unknown>): ProfileInput => ({
+    name: str(b.name), color: str(b.color), kids: b.kids === undefined ? undefined : b.kids === true,
+    maxAge: b.maxAge === undefined ? undefined : Number(b.maxAge),
+    bedtime: b.bedtime === undefined ? undefined : b.bedtime === null || b.bedtime === '' ? null : String(b.bedtime),
+  });
+
   api.get('/profiles', (c) => c.json({ profiles: listProfiles(db) }));
 
   api.post('/profiles', async (c) => {
     const b = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
-    return saveProfiles(c, () => addProfile(db, { name: str(b.name), color: str(b.color) }));
+    return saveProfiles(c, () => addProfile(db, profileInput(b)));
   });
 
   api.put('/profiles/:id', async (c) => {
     const b = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
-    return saveProfiles(c, () => editProfile(db, Number(c.req.param('id')), { name: str(b.name), color: str(b.color) }));
+    return saveProfiles(c, () => editProfile(db, Number(c.req.param('id')), profileInput(b)));
   });
 
   api.delete('/profiles/:id', (c) => {
@@ -592,6 +600,20 @@ export function createApi(svc: Service): Hono {
       removeProfile(db, id);
       svc.owners.forget(id);
     });
+  });
+
+  // ---------- kids mode ----------
+
+  /** The household's code to leave kids mode; set again without the old one (from a device not in kids mode). */
+  api.put('/kids/code', async (c) => {
+    const { code } = (await c.req.json().catch(() => ({}))) as { code?: unknown };
+    return saveProfiles(c, () => setParentsCode(db, String(code ?? '')));
+  });
+
+  /** Leaving kids mode: the device asks before it switches profile. */
+  api.post('/kids/unlock', async (c) => {
+    const { code } = (await c.req.json().catch(() => ({}))) as { code?: unknown };
+    return checkParentsCode(db, String(code ?? '')) ? c.json({ ok: true }) : c.json({ error: 'Wrong code' }, 403);
   });
 
   // ---------- settings & jobs ----------

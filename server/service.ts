@@ -8,6 +8,7 @@ import { reconcile, applySheetHints, syncSheetOnlyItems, importSheetRows } from 
 import { fetchSheet } from './sheet.ts';
 import { type KodiConfig, kodiCall, discoverKodi, detectPathPrefix } from './kodi.ts';
 import { listProfiles, type Profile } from './profiles.ts';
+import { hasParentsCode } from './kids.ts';
 import { syncFromKodi, matchPending, enrichTitles } from './metadata.ts';
 import { Tmdb } from './tmdb.ts';
 import { lanTransport } from './net.ts';
@@ -32,6 +33,8 @@ export interface Status {
   tvs: TvStatus[];
   /** Who's watching: the people who can be picked on a device */
   profiles: Profile[];
+  /** A parents' code is set (needed before a kids profile; asked to leave kids mode) */
+  kidsCode: boolean;
   metadata: TaskStatus;
   tmdbConfigured: boolean;
   counts: Record<string, number>;
@@ -92,6 +95,7 @@ export class Service extends EventEmitter {
       kodi: { running: false, connected: false, transport: lanTransport() },
       tvs: s.kodiTvs.map((t) => ({ id: t.id, name: t.name, keyboard: false, input: null })),
       profiles: listProfiles(db),
+      kidsCode: hasParentsCode(db),
       metadata: { running: false },
       tmdbConfigured: !!s.tmdbKey,
       counts: {},
@@ -102,6 +106,7 @@ export class Service extends EventEmitter {
   /** Profiles added, changed or removed: every device hears it (one whose profile went asks again who's watching). */
   profilesChanged(): void {
     this.status.profiles = listProfiles(this.db);
+    this.status.kidsCode = hasParentsCode(this.db);
     this.emitStatus();
   }
 

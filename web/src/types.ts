@@ -212,6 +212,8 @@ export interface Status {
   tvs: TvStatus[];
   /** Who's watching: the people a device can pick */
   profiles: Profile[];
+  /** a parents' code is set */
+  kidsCode: boolean;
   metadata: TaskStatus;
   tmdbConfigured: boolean;
   counts: Record<string, number>;
@@ -224,6 +226,12 @@ export interface Profile {
   color: string;
   /** gets what is played on a TV without the app; can't be removed */
   main: boolean;
+  /** a kids profile: only titles fit for it, the parents' code to leave it */
+  kids: boolean;
+  /** a kids profile's age limit (Germany's FSK steps) */
+  maxAge: number;
+  /** a kids profile's bedtime, "HH:MM"; none: null */
+  bedtime: string | null;
 }
 
 export interface TvStatus {

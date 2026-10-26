@@ -31,7 +31,7 @@ test('migration gives everything recorded so far to the main profile', () => {
   old.close();
 
   const db = openDb(file);
-  assert.deepEqual(listProfiles(db), [{ id: 1, name: 'Me', color: PROFILE_COLORS[0], main: true }]);
+  assert.deepEqual(listProfiles(db), [{ id: 1, name: 'Me', color: PROFILE_COLORS[0], main: true, kids: false, maxAge: 12, bedtime: null }]);
   assert.deepEqual(rows(db, 'SELECT profile_id, item_id, playcount, resume, last_played FROM film_states ORDER BY item_id'), [
     { profile_id: 1, item_id: watched, playcount: 1, resume: null, last_played: '2026-10-20 20:00:00' },
     { profile_id: 1, item_id: started, playcount: 0, resume: 0.4, last_played: '2026-10-21 20:00:00' },
@@ -52,11 +52,11 @@ test('migration gives everything recorded so far to the main profile', () => {
 test('profiles: add, rename, recolour, remove; the main one stays', () => {
   const db = openDb(':memory:');
   const anna = addProfile(db, { name: ' Anna ', color: PROFILE_COLORS[2] });
-  assert.deepEqual(anna, { id: 2, name: 'Anna', color: PROFILE_COLORS[2], main: false });
+  assert.deepEqual(anna, { id: 2, name: 'Anna', color: PROFILE_COLORS[2], main: false, kids: false, maxAge: 12, bedtime: null });
   assert.throws(() => addProfile(db, { name: '  ', color: PROFILE_COLORS[1] }), (e: Error) => e instanceof ProfileError && e.message === 'Give the profile a name');
   assert.throws(() => addProfile(db, { name: 'anna', color: PROFILE_COLORS[1] }), { message: 'Anna is already a profile' });
   assert.throws(() => addProfile(db, { name: 'Bob', color: '#123456' }), { message: 'Pick a colour' });
-  assert.deepEqual(editProfile(db, 2, { name: 'Ann' }), { id: 2, name: 'Ann', color: PROFILE_COLORS[2], main: false });
+  assert.deepEqual(editProfile(db, 2, { name: 'Ann' }), { id: 2, name: 'Ann', color: PROFILE_COLORS[2], main: false, kids: false, maxAge: 12, bedtime: null });
   assert.deepEqual(editProfile(db, 2, { color: PROFILE_COLORS[3] }).color, PROFILE_COLORS[3]);
   assert.throws(() => editProfile(db, 9, { name: 'X' }), { message: 'Profile not found' });
   assert.throws(() => removeProfile(db, MAIN_PROFILE), { message: "The main profile can't be removed" });
@@ -92,7 +92,7 @@ test('profileOf: an unknown, removed or missing id is the main profile', () => {
 test("the app: this device's profile, none when unset or removed (then it asks who's watching)", async () => {
   const { chosenProfile, PROFILE_COLORS: webColors } = await import('../web/src/profiles.ts');
   assert.deepEqual(webColors, PROFILE_COLORS, 'the same colours as the server');
-  const list = [{ id: 1, name: 'Me', color: PROFILE_COLORS[0]!, main: true }, { id: 2, name: 'Anna', color: PROFILE_COLORS[1]!, main: false }];
+  const list = [{ id: 1, name: 'Me', color: PROFILE_COLORS[0]!, main: true, kids: false, maxAge: 12, bedtime: null }, { id: 2, name: 'Anna', color: PROFILE_COLORS[1]!, main: false, kids: false, maxAge: 12, bedtime: null }];
   assert.equal(chosenProfile(list, null), null);
   assert.equal(chosenProfile(list, 3), null);
   assert.equal(chosenProfile(list, 2)?.name, 'Anna');

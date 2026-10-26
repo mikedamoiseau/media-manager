@@ -1,4 +1,12 @@
 // Kids mode: which titles a kids profile sees, and what it may do.
+import { createHash, randomBytes } from 'node:crypto';
+import type { DB } from './db.ts';
+
+/** Asked as it is: the message says why (shown in the app). */
+export class KidsError extends Error {}
+
+/** A kids profile's age limit, on Germany's FSK steps. */
+export const FSK_STEPS = [0, 6, 12, 16];
 
 /** Age ratings from TMDB, for the countries the rule reads. */
 export type Certs = Partial<Record<'DE' | 'FR' | 'US', string>>;
@@ -21,4 +29,29 @@ export function ageOf(certs: Certs | null | undefined): number | undefined {
   if (de !== undefined) return de;
   const others = [FR[(certs.FR ?? '').replace(/^-/, '')], US[certs.US ?? '']].filter((a) => a !== undefined);
   return others.length ? Math.max(...others) : undefined;
+}
+
+// ---------- the parents' code ----------
+
+// In the settings table but not among the app's settings (never sent to a phone): a salted hash.
+const CODE_KEY = 'parentsCode';
+const hashed = (salt: string, code: string) => createHash('sha256').update(`${salt}:${code}`).digest('hex');
+
+/** The household's code to leave kids mode: 4 digits. Set again from any device not in kids mode. */
+export function setParentsCode(db: DB, code: string): void {
+  if (!/^\d{4}$/.test(code)) throw new KidsError('The code is 4 digits');
+  const salt = randomBytes(8).toString('hex');
+  db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
+    .run(CODE_KEY, JSON.stringify({ salt, hash: hashed(salt, code) }));
+}
+
+export function hasParentsCode(db: DB): boolean {
+  return !!db.prepare('SELECT 1 FROM settings WHERE key = ?').get(CODE_KEY);
+}
+
+export function checkParentsCode(db: DB, code: string): boolean {
+  const r = db.prepare('SELECT value FROM settings WHERE key = ?').get(CODE_KEY) as { value: string } | undefined;
+  if (!r) return false;
+  const { salt, hash } = JSON.parse(r.value) as { salt: string; hash: string };
+  return hashed(salt, code) === hash;
 }
