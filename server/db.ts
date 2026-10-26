@@ -4,7 +4,7 @@ import { dirname } from 'node:path';
 
 export type DB = DatabaseSync;
 
-const MIGRATIONS: string[] = [
+export const MIGRATIONS: string[] = [
   `
   CREATE TABLE items (
     id INTEGER PRIMARY KEY,
@@ -167,6 +167,87 @@ const MIGRATIONS: string[] = [
   ALTER TABLE episodes ADD COLUMN last_played TEXT;
   ALTER TABLE episodes ADD COLUMN streamed REAL;
   ALTER TABLE episodes ADD COLUMN streamed_at INTEGER;
+  `,
+  `
+  -- Who's watching: each person's likes, activity and progress. Profile 1 is the main one: it gets
+  -- everything recorded before profiles, and whatever is played on a TV without the app.
+  CREATE TABLE profiles (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    color TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+  );
+  INSERT INTO profiles (id, name, color, created_at) VALUES (1, 'Me', '#e8a33d', 0);
+
+  -- Kodi's progress per profile. items and episodes keep Kodi's own view, shared by everyone.
+  CREATE TABLE film_states (
+    profile_id INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+    item_id INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+    playcount INTEGER,
+    resume REAL,
+    last_played TEXT,
+    PRIMARY KEY (profile_id, item_id)
+  );
+  INSERT INTO film_states SELECT 1, id, playcount, resume, last_played FROM items
+    WHERE kodi_type = 'movie' AND (COALESCE(playcount, 0) > 0 OR resume IS NOT NULL OR last_played IS NOT NULL);
+
+  CREATE TABLE episode_states (
+    profile_id INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+    episode_id INTEGER NOT NULL REFERENCES episodes(id) ON DELETE CASCADE,
+    playcount INTEGER,
+    resume REAL,
+    last_played TEXT,
+    streamed REAL,                      -- how far VLC got
+    streamed_at INTEGER,
+    PRIMARY KEY (profile_id, episode_id)
+  );
+  INSERT INTO episode_states SELECT 1, id, playcount, resume, last_played, streamed, streamed_at FROM episodes
+    WHERE COALESCE(playcount, 0) > 0 OR resume IS NOT NULL OR last_played IS NOT NULL OR streamed_at IS NOT NULL;
+
+  CREATE TABLE watching_new (
+    profile_id INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+    item_id INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+    fraction REAL,
+    played_at INTEGER,
+    dismissed_at INTEGER,
+    PRIMARY KEY (profile_id, item_id)
+  );
+  INSERT INTO watching_new SELECT 1, item_id, fraction, played_at, dismissed_at FROM watching;
+  DROP TABLE watching;
+  ALTER TABLE watching_new RENAME TO watching;
+
+  CREATE TABLE ratings_new (
+    profile_id INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+    media_type TEXT NOT NULL,
+    tmdb_id INTEGER NOT NULL,
+    value INTEGER NOT NULL,
+    at INTEGER NOT NULL,
+    PRIMARY KEY (profile_id, media_type, tmdb_id)
+  );
+  INSERT INTO ratings_new SELECT 1, media_type, tmdb_id, value, at FROM ratings;
+  DROP TABLE ratings;
+  ALTER TABLE ratings_new RENAME TO ratings;
+
+  CREATE TABLE activity_new (
+    id INTEGER PRIMARY KEY,
+    profile_id INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+    item_id INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL,
+    at INTEGER NOT NULL
+  );
+  INSERT INTO activity_new SELECT id, 1, item_id, kind, at FROM activity;
+  DROP TABLE activity;
+  ALTER TABLE activity_new RENAME TO activity;
+  CREATE INDEX activity_item ON activity(profile_id, item_id, kind, at);
+
+  -- Who started a film or episode on a TV last: Kodi's next changes to it are that profile's.
+  CREATE TABLE tv_plays (
+    kodi_type TEXT NOT NULL,            -- movie|episode
+    kodi_id INTEGER NOT NULL,
+    profile_id INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+    at INTEGER NOT NULL,
+    PRIMARY KEY (kodi_type, kodi_id)
+  );
   `,
 ];
 

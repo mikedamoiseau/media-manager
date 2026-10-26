@@ -1,4 +1,5 @@
 import type { DB } from './db.ts';
+import { MAIN_PROFILE } from './profiles.ts';
 import type { Tmdb } from './tmdb.ts';
 
 export interface Suggestion {
@@ -30,7 +31,7 @@ const DISLIKE = 1;
 export type ActivityKind = keyof typeof WEIGHT;
 
 export function rate(db: DB, type: string, tmdbId: number, value: 1 | -1 | null, now = Date.now()): void {
-  if (value) db.prepare('INSERT INTO ratings (media_type, tmdb_id, value, at) VALUES (?, ?, ?, ?) ON CONFLICT(media_type, tmdb_id) DO UPDATE SET value = excluded.value, at = excluded.at').run(type, tmdbId, value, now);
+  if (value) db.prepare('INSERT INTO ratings (profile_id, media_type, tmdb_id, value, at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(profile_id, media_type, tmdb_id) DO UPDATE SET value = excluded.value, at = excluded.at').run(MAIN_PROFILE, type, tmdbId, value, now);
   else db.prepare('DELETE FROM ratings WHERE media_type = ? AND tmdb_id = ?').run(type, tmdbId);
 }
 
@@ -54,7 +55,7 @@ export async function dislikePenalties(db: DB, tmdb: Tmdb | null, now = Date.now
 
 export function recordActivity(db: DB, itemId: number, kind: ActivityKind, now = Date.now()): void {
   const recent = db.prepare('SELECT 1 FROM activity WHERE item_id = ? AND kind = ? AND at > ? AND at <= ?').get(itemId, kind, now - REPEAT[kind] * 60_000, now);
-  if (!recent) db.prepare('INSERT INTO activity (item_id, kind, at) VALUES (?, ?, ?)').run(itemId, kind, now);
+  if (!recent) db.prepare('INSERT INTO activity (profile_id, item_id, kind, at) VALUES (?, ?, ?, ?)').run(MAIN_PROFILE, itemId, kind, now);
 }
 
 export interface Row {

@@ -1,4 +1,5 @@
 import type { DB } from './db.ts';
+import { MAIN_PROFILE } from './profiles.ts';
 
 // Past this the end credits are rolling: watched (Kodi's own default is 90%).
 export const FINISHED = 0.9;
@@ -96,14 +97,14 @@ export function noteEpisodeStreamed(db: DB, episodeId: number, start: number, se
  */
 export function noteStreamed(db: DB, itemId: number, start: number, sent: number, size: number, now = Date.now()): void {
   if (sent < MIN_STREAM || !size) return;
-  db.prepare(`INSERT INTO watching (item_id, fraction, played_at) VALUES (?, ?, ?)
-    ON CONFLICT(item_id) DO UPDATE SET fraction = excluded.fraction, played_at = excluded.played_at`).run(itemId, Math.min(1, (start + sent) / size), now);
+  db.prepare(`INSERT INTO watching (profile_id, item_id, fraction, played_at) VALUES (?, ?, ?, ?)
+    ON CONFLICT(profile_id, item_id) DO UPDATE SET fraction = excluded.fraction, played_at = excluded.played_at`).run(MAIN_PROFILE, itemId, Math.min(1, (start + sent) / size), now);
 }
 
 /** Removed by hand; it comes back once played again. Kodi's own resume point is left alone. */
 export function dismissWatching(db: DB, itemId: number, now = Date.now()): void {
-  db.prepare(`INSERT INTO watching (item_id, dismissed_at) VALUES (?, ?)
-    ON CONFLICT(item_id) DO UPDATE SET dismissed_at = excluded.dismissed_at`).run(itemId, now);
+  db.prepare(`INSERT INTO watching (profile_id, item_id, dismissed_at) VALUES (?, ?, ?)
+    ON CONFLICT(profile_id, item_id) DO UPDATE SET dismissed_at = excluded.dismissed_at`).run(MAIN_PROFILE, itemId, now);
 }
 
 /**

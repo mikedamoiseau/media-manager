@@ -7,6 +7,7 @@ import { cachedImage, isAllowedImage } from './images.ts';
 import { reconcile, applySheetHints, syncSheetOnlyItems, importSheetRows } from './library.ts';
 import { fetchSheet } from './sheet.ts';
 import { type KodiConfig, kodiCall, discoverKodi, detectPathPrefix } from './kodi.ts';
+import { listProfiles, type Profile } from './profiles.ts';
 import { syncFromKodi, matchPending, enrichTitles } from './metadata.ts';
 import { Tmdb } from './tmdb.ts';
 import { lanTransport } from './net.ts';
@@ -28,6 +29,8 @@ export interface Status {
   /** The library sync, from the first TV */
   kodi: TaskStatus & { connected: boolean; transport: string };
   tvs: TvStatus[];
+  /** Who's watching: the people who can be picked on a device */
+  profiles: Profile[];
   metadata: TaskStatus;
   tmdbConfigured: boolean;
   counts: Record<string, number>;
@@ -85,11 +88,18 @@ export class Service extends EventEmitter {
       sheet: { running: false, lastAt: s.sheetImportedAt || undefined },
       kodi: { running: false, connected: false, transport: lanTransport() },
       tvs: s.kodiTvs.map((t) => ({ id: t.id, name: t.name, keyboard: false, input: null })),
+      profiles: listProfiles(db),
       metadata: { running: false },
       tmdbConfigured: !!s.tmdbKey,
       counts: {},
     };
     this.refreshCounts();
+  }
+
+  /** Profiles added, changed or removed: every device hears it (one whose profile went asks again who's watching). */
+  profilesChanged(): void {
+    this.status.profiles = listProfiles(this.db);
+    this.emitStatus();
   }
 
   settings(): Settings {

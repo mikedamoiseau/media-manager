@@ -24,6 +24,7 @@ import { ensureTitle, slimCandidates } from './metadata.ts';
 import type { Settings } from './db.ts';
 import { TvError, addTv, editTv, removeTv, publicTvs, handoffTv, type TvInput } from './tvs.ts';
 import type { MediaType } from './scanner.ts';
+import { ProfileError, listProfiles, addProfile, editProfile, removeProfile } from './profiles.ts';
 
 function sendFile(file: string, maxAge = 31536000): Response {
   const st = statSync(file);
@@ -539,6 +540,33 @@ export function createApi(svc: Service): Hono {
     const id = c.req.param('id');
     return saveTvs(c, () => removeTv(svc.tvs(), id), id);
   });
+
+  // ---------- profiles ----------
+
+  const saveProfiles = (c: Context, change: () => unknown) => {
+    try {
+      change();
+    } catch (e) {
+      if (e instanceof ProfileError) return c.json({ error: e.message }, 400);
+      throw e;
+    }
+    svc.profilesChanged();
+    return c.json({ profiles: listProfiles(db) });
+  };
+
+  api.get('/profiles', (c) => c.json({ profiles: listProfiles(db) }));
+
+  api.post('/profiles', async (c) => {
+    const b = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+    return saveProfiles(c, () => addProfile(db, { name: str(b.name), color: str(b.color) }));
+  });
+
+  api.put('/profiles/:id', async (c) => {
+    const b = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+    return saveProfiles(c, () => editProfile(db, Number(c.req.param('id')), { name: str(b.name), color: str(b.color) }));
+  });
+
+  api.delete('/profiles/:id', (c) => saveProfiles(c, () => removeProfile(db, Number(c.req.param('id')))));
 
   // ---------- settings & jobs ----------
 
