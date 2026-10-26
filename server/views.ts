@@ -143,7 +143,8 @@ export function libraryVersion(db: DB): string {
   return `c2-${r.a}-${r.n}-${r.t}-${r.tn}`;
 }
 
-export function itemDetail(db: DB, id: number) {
+/** A title's page, with the likes and progress of this profile. */
+export function itemDetail(db: DB, id: number, profileId: number) {
   const r = db.prepare(`${SELECT} WHERE i.id = ?`).get(id) as unknown as Row | undefined;
   if (!r) return undefined;
   const t = r.tmdb_id
@@ -214,6 +215,6 @@ export function itemDetail(db: DB, id: number) {
     versions,
     episodes,
     canRate: watchedFilm,
-    rating: r.tmdb_id && r.media_type ? ratingOf(db, r.media_type, r.tmdb_id) : null,
+    rating: r.tmdb_id && r.media_type ? ratingOf(db, profileId, r.media_type, r.tmdb_id) : null,
   };
 }

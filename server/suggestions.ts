@@ -1,5 +1,4 @@
 import type { DB } from './db.ts';
-import { MAIN_PROFILE } from './profiles.ts';
 import type { Tmdb } from './tmdb.ts';
 
 export interface Suggestion {
@@ -30,18 +29,18 @@ const DISLIKE = 1;
 
 export type ActivityKind = keyof typeof WEIGHT;
 
-export function rate(db: DB, type: string, tmdbId: number, value: 1 | -1 | null, now = Date.now()): void {
-  if (value) db.prepare('INSERT INTO ratings (profile_id, media_type, tmdb_id, value, at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(profile_id, media_type, tmdb_id) DO UPDATE SET value = excluded.value, at = excluded.at').run(MAIN_PROFILE, type, tmdbId, value, now);
-  else db.prepare('DELETE FROM ratings WHERE media_type = ? AND tmdb_id = ?').run(type, tmdbId);
+export function rate(db: DB, profileId: number, type: string, tmdbId: number, value: 1 | -1 | null, now = Date.now()): void {
+  if (value) db.prepare('INSERT INTO ratings (profile_id, media_type, tmdb_id, value, at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(profile_id, media_type, tmdb_id) DO UPDATE SET value = excluded.value, at = excluded.at').run(profileId, type, tmdbId, value, now);
+  else db.prepare('DELETE FROM ratings WHERE profile_id = ? AND media_type = ? AND tmdb_id = ?').run(profileId, type, tmdbId);
 }
 
-export function ratingOf(db: DB, type: string, tmdbId: number): 1 | -1 | null {
-  return ((db.prepare('SELECT value FROM ratings WHERE media_type = ? AND tmdb_id = ?').get(type, tmdbId) as { value: 1 | -1 } | undefined)?.value) ?? null;
+export function ratingOf(db: DB, profileId: number, type: string, tmdbId: number): 1 | -1 | null {
+  return ((db.prepare('SELECT value FROM ratings WHERE profile_id = ? AND media_type = ? AND tmdb_id = ?').get(profileId, type, tmdbId) as { value: 1 | -1 } | undefined)?.value) ?? null;
 }
 
-/** Points off, by "type:id", for what TMDB recommends alongside the films you didn't like (the latest ones). */
-export async function dislikePenalties(db: DB, tmdb: Tmdb | null, now = Date.now()): Promise<Map<string, number>> {
-  const rows = db.prepare(`SELECT media_type type, tmdb_id tmdb FROM ratings WHERE value = -1 ORDER BY at DESC LIMIT ${SEEDS}`).all() as Array<{ type: string; tmdb: number }>;
+/** Points off, by "type:id", for what TMDB recommends alongside the films this profile didn't like (the latest ones). */
+export async function dislikePenalties(db: DB, profileId: number, tmdb: Tmdb | null, now = Date.now()): Promise<Map<string, number>> {
+  const rows = db.prepare(`SELECT media_type type, tmdb_id tmdb FROM ratings WHERE profile_id = ? AND value = -1 ORDER BY at DESC LIMIT ${SEEDS}`).all(profileId) as Array<{ type: string; tmdb: number }>;
   const lists = await Promise.all(rows.map((r) => recommended(db, tmdb, r.type, r.tmdb, now)));
   const off = new Map<string, number>();
   rows.forEach((r, i) =>
@@ -53,9 +52,9 @@ export async function dislikePenalties(db: DB, tmdb: Tmdb | null, now = Date.now
   return off;
 }
 
-export function recordActivity(db: DB, itemId: number, kind: ActivityKind, now = Date.now()): void {
-  const recent = db.prepare('SELECT 1 FROM activity WHERE item_id = ? AND kind = ? AND at > ? AND at <= ?').get(itemId, kind, now - REPEAT[kind] * 60_000, now);
-  if (!recent) db.prepare('INSERT INTO activity (profile_id, item_id, kind, at) VALUES (?, ?, ?, ?)').run(MAIN_PROFILE, itemId, kind, now);
+export function recordActivity(db: DB, profileId: number, itemId: number, kind: ActivityKind, now = Date.now()): void {
+  const recent = db.prepare('SELECT 1 FROM activity WHERE profile_id = ? AND item_id = ? AND kind = ? AND at > ? AND at <= ?').get(profileId, itemId, kind, now - REPEAT[kind] * 60_000, now);
+  if (!recent) db.prepare('INSERT INTO activity (profile_id, item_id, kind, at) VALUES (?, ?, ?, ?)').run(profileId, itemId, kind, now);
 }
 
 export interface Row {
@@ -69,9 +68,16 @@ export interface Row {
 const SELECT = `SELECT i.id, i.media_type type, i.tmdb_id tmdb, t.collection, t.year
   FROM items i LEFT JOIN titles t ON t.media_type = i.media_type AND t.tmdb_id = i.tmdb_id`;
 
-// Watched, started, or played from the app.
-export const SEEN = `(i.last_played IS NOT NULL OR COALESCE(i.playcount, 0) > 0 OR COALESCE(i.resume, 0) > 0.02
-  OR i.id IN (SELECT item_id FROM activity WHERE kind = 'play'))`;
+/** SQL true for an item `i` this profile watched, started, or played from the app (a film, or an episode of a series). */
+export function seenSql(profileId: number): string {
+  if (!Number.isInteger(profileId)) throw new Error(`Not a profile id: ${profileId}`);
+  const p = profileId;
+  return `(i.id IN (SELECT item_id FROM film_states WHERE profile_id = ${p}
+      AND (last_played IS NOT NULL OR COALESCE(playcount, 0) > 0 OR COALESCE(resume, 0) > 0.02))
+    OR i.id IN (SELECT e.item_id FROM episode_states es JOIN episodes e ON e.id = es.episode_id WHERE es.profile_id = ${p}
+      AND (es.last_played IS NOT NULL OR COALESCE(es.playcount, 0) > 0 OR es.streamed_at IS NOT NULL))
+    OR i.id IN (SELECT item_id FROM activity WHERE kind = 'play' AND profile_id = ${p}))`;
+}
 
 export async function recommended(db: DB, tmdb: Tmdb | null, type: string, id: number, now: number): Promise<number[]> {
   const row = db.prepare('SELECT ids, fetched_at FROM recommendations WHERE media_type = ? AND tmdb_id = ?').get(type, id) as
@@ -90,10 +96,10 @@ export async function recommended(db: DB, tmdb: Tmdb | null, type: string, id: n
 }
 
 /**
- * What interests you lately, strongest first: Kodi's history, what you do in the app and the films
- * you liked, fading with time. Films you didn't like are left out. Weights 0..1.
+ * What interests this profile lately, strongest first: its plays on the TVs, what it does in the app
+ * and the films it liked, fading with time. Films it didn't like are left out. Weights 0..1.
  */
-export function tastes(db: DB, now = Date.now()): Array<{ row: Row; weight: number }> {
+export function tastes(db: DB, profileId: number, now = Date.now()): Array<{ row: Row; weight: number }> {
   const key = (r: { type: string; tmdb: number }) => `${r.type}:${r.tmdb}`;
   const interest = new Map<string, { row: Row; score: number }>();
   const note = (row: Row, weight: number, at: number, halfLife = HALF_LIFE) => {
@@ -103,20 +109,27 @@ export function tastes(db: DB, now = Date.now()): Array<{ row: Row; weight: numb
     else interest.set(key(row), { row, score: points });
   };
   // Kodi's last_played is local time, "YYYY-MM-DD HH:MM:SS".
-  for (const r of db.prepare(`SELECT i.id, i.media_type type, i.tmdb_id tmdb, t.collection, t.year, i.last_played at
-      FROM items i LEFT JOIN titles t ON t.media_type = i.media_type AND t.tmdb_id = i.tmdb_id
-      WHERE i.last_played IS NOT NULL AND i.tmdb_id IS NOT NULL`).all() as unknown as Array<Row & { at: string }>) {
+  // Films, then series (the latest episode played).
+  for (const r of db.prepare(`SELECT i.id, i.media_type type, i.tmdb_id tmdb, t.collection, t.year, fs.last_played at
+      FROM film_states fs JOIN items i ON i.id = fs.item_id LEFT JOIN titles t ON t.media_type = i.media_type AND t.tmdb_id = i.tmdb_id
+      WHERE fs.profile_id = ? AND fs.last_played IS NOT NULL AND i.tmdb_id IS NOT NULL
+    UNION ALL
+    SELECT i.id, i.media_type, i.tmdb_id, t.collection, t.year, max(es.last_played)
+      FROM episode_states es JOIN episodes e ON e.id = es.episode_id JOIN items i ON i.id = e.item_id
+      LEFT JOIN titles t ON t.media_type = i.media_type AND t.tmdb_id = i.tmdb_id
+      WHERE es.profile_id = ? AND es.last_played IS NOT NULL AND i.tmdb_id IS NOT NULL GROUP BY i.id`).all(profileId, profileId) as unknown as Array<Row & { at: string }>) {
     note(r, WEIGHT.play, Date.parse(r.at.replace(' ', 'T')) || 0);
   }
   for (const r of db.prepare(`SELECT i.id, i.media_type type, i.tmdb_id tmdb, t.collection, t.year, a.kind, a.at
       FROM activity a JOIN items i ON i.id = a.item_id LEFT JOIN titles t ON t.media_type = i.media_type AND t.tmdb_id = i.tmdb_id
-      WHERE i.tmdb_id IS NOT NULL`).all() as unknown as Array<Row & { kind: ActivityKind; at: number }>) {
+      WHERE a.profile_id = ? AND i.tmdb_id IS NOT NULL`).all(profileId) as unknown as Array<Row & { kind: ActivityKind; at: number }>) {
     note(r, WEIGHT[r.kind] ?? 0, r.at);
   }
   for (const r of db.prepare(`SELECT min(i.id) id, r.media_type type, r.tmdb_id tmdb, t.collection, t.year, r.value, r.at
       FROM ratings r JOIN items i ON i.media_type = r.media_type AND i.tmdb_id = r.tmdb_id
       LEFT JOIN titles t ON t.media_type = r.media_type AND t.tmdb_id = r.tmdb_id
-      GROUP BY r.media_type, r.tmdb_id`).all() as unknown as Array<Row & { value: number; at: number }>) {
+      WHERE r.profile_id = ?
+      GROUP BY r.media_type, r.tmdb_id`).all(profileId) as unknown as Array<Row & { value: number; at: number }>) {
     if (r.value > 0) note(r, LIKE, r.at, LIKE_HALF_LIFE);
     else interest.delete(key(r));
   }
@@ -125,12 +138,13 @@ export function tastes(db: DB, now = Date.now()): Array<{ row: Row; weight: numb
 }
 
 /**
- * Titles on the NAS you haven't watched or started, from what interests you lately. For each of
+ * Titles on the NAS this profile hasn't watched or started, from what interests it lately. For each of
  * those: the next film of its set, and what TMDB recommends for it.
  */
-export async function suggestions(db: DB, tmdb: Tmdb | null, now = Date.now()): Promise<Suggestion[]> {
+export async function suggestions(db: DB, profileId: number, tmdb: Tmdb | null, now = Date.now()): Promise<Suggestion[]> {
   const key = (r: { type: string; tmdb: number }) => `${r.type}:${r.tmdb}`;
-  const top = tastes(db, now);
+  const top = tastes(db, profileId, now);
+  const SEEN = seenSql(profileId);
   const seeds = top.map((s) => s.row);
   const weights = top.map((s) => s.weight);
 
@@ -179,7 +193,7 @@ export async function suggestions(db: DB, tmdb: Tmdb | null, now = Date.now()): 
       if (c) add(key(stand(c)), w * (1 - rank / 20), seed.id, 'like');
     });
   });
-  const off = await dislikePenalties(db, tmdb, now);
+  const off = await dislikePenalties(db, profileId, tmdb, now);
   for (const [k, s] of scores) s.score -= off.get(k) ?? 0;
   return [...scores.entries()]
     .filter(([, s]) => s.score > 0)

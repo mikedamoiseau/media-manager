@@ -1,6 +1,6 @@
 import type { DB } from './db.ts';
 import { isLatin, type Tmdb, type TitleDetails, type CollectionPart } from './tmdb.ts';
-import { tastes, recommended, dislikePenalties, SEEN } from './suggestions.ts';
+import { tastes, recommended, dislikePenalties, seenSql } from './suggestions.ts';
 
 /** A film that isn't on the NAS, as a tile shows it. */
 export type Film = CollectionPart;
@@ -57,14 +57,14 @@ const picked = (db: DB, choice: Pick) => ids(db, 'SELECT tmdb_id id FROM picks W
 
 /**
  * Released films that aren't on the NAS, from TMDB's recommendations for what interests you lately
- * (the same tastes as the suggestions on the NAS). Films only in the sheet count as not on the NAS;
- * films you watched, and films you said you're not interested in, are left out.
+ * (the same tastes as this profile's suggestions on the NAS). Films only in the sheet count as not on the
+ * NAS; films it watched, and films the household said it's not interested in, are left out.
  */
-export async function elsewhere(db: DB, tmdb: Tmdb | null, now = Date.now()): Promise<Array<{ film: Film; because: number }>> {
+export async function elsewhere(db: DB, profileId: number, tmdb: Tmdb | null, now = Date.now()): Promise<Array<{ film: Film; because: number }>> {
   const nas = onNas(db);
-  const seen = ids(db, `SELECT DISTINCT i.tmdb_id id FROM items i WHERE i.media_type = 'movie' AND i.tmdb_id IS NOT NULL AND ${SEEN}`);
+  const seen = ids(db, `SELECT DISTINCT i.tmdb_id id FROM items i WHERE i.media_type = 'movie' AND i.tmdb_id IS NOT NULL AND ${seenSql(profileId)}`);
   const skipped = picked(db, 'skip');
-  const seeds = tastes(db, now).filter((t) => t.row.type === 'movie');
+  const seeds = tastes(db, profileId, now).filter((t) => t.row.type === 'movie');
   const lists = await Promise.all(seeds.map((t) => recommended(db, tmdb, 'movie', t.row.tmdb, now)));
   const scores = new Map<number, { score: number; best: number; because: number }>();
   seeds.forEach((t, i) => {
@@ -77,7 +77,7 @@ export async function elsewhere(db: DB, tmdb: Tmdb | null, now = Date.now()): Pr
       scores.set(id, s);
     });
   });
-  const off = await dislikePenalties(db, tmdb, now);
+  const off = await dislikePenalties(db, profileId, tmdb, now);
   for (const [id, s] of scores) s.score -= off.get(`movie:${id}`) ?? 0;
   // Details for the best ones, a few at a time: titles in each language, and the release date to leave out films not out yet.
   const ranked = [...scores.entries()].filter(([, s]) => s.score > 0).sort((a, b) => b[1].score - a[1].score);

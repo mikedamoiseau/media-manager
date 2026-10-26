@@ -1,9 +1,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { openDb } from '../server/db.ts';
-import { elsewhere, cinema, setPick, wantedFilms, type CinemaCache } from '../server/films.ts';
+import { elsewhere as forProfile, cinema, setPick, wantedFilms, type CinemaCache } from '../server/films.ts';
 import { Tmdb } from '../server/tmdb.ts';
-import { rate } from '../server/suggestions.ts';
+import { rate as rateFor } from '../server/suggestions.ts';
+import { MAIN_PROFILE } from '../server/profiles.ts';
+import type { DB } from '../server/db.ts';
+
+// The main profile's, as these tests were before profiles.
+const elsewhere = (db: DB, tmdb: Tmdb | null, now: number) => forProfile(db, MAIN_PROFILE, tmdb, now);
+const rate = (db: DB, type: string, tmdbId: number, value: 1 | -1 | null, now: number) => rateFor(db, MAIN_PROFILE, type, tmdbId, value, now);
 
 const NOW = Date.parse('2026-10-25T12:00:00');
 const HOUR = 3600 * 1000;
@@ -15,7 +21,10 @@ function seed() {
     VALUES (?, 'MOVIES', 'movies', 0, 'movie', ?, 'matched', ?, ?, ?, ?, 1, 1)`);
   const add = (tmdbId: number, name: string, o: { present?: number; hidden?: number; plays?: number; last?: string } = {}) => {
     title.run(tmdbId, name);
-    return Number(item.run(`MOVIES/${name}.mkv`, tmdbId, o.present ?? 1, o.hidden ?? 0, o.plays ?? 0, o.last ?? null).lastInsertRowid);
+    const id = Number(item.run(`MOVIES/${name}.mkv`, tmdbId, o.present ?? 1, o.hidden ?? 0, o.plays ?? 0, o.last ?? null).lastInsertRowid);
+    // Played on a TV: the main profile's progress.
+    if (o.plays || o.last) db.prepare('INSERT INTO film_states (profile_id, item_id, playcount, last_played) VALUES (1, ?, ?, ?)').run(id, o.plays ?? 0, o.last ?? null);
+    return id;
   };
   return { db, add };
 }

@@ -24,7 +24,7 @@ import { ensureTitle, slimCandidates } from './metadata.ts';
 import type { Settings } from './db.ts';
 import { TvError, addTv, editTv, removeTv, publicTvs, handoffTv, type TvInput } from './tvs.ts';
 import type { MediaType } from './scanner.ts';
-import { ProfileError, listProfiles, addProfile, editProfile, removeProfile } from './profiles.ts';
+import { ProfileError, listProfiles, addProfile, editProfile, removeProfile, profileOf } from './profiles.ts';
 
 function sendFile(file: string, maxAge = 31536000): Response {
   const st = statSync(file);
@@ -59,6 +59,9 @@ export function createApi(svc: Service): Hono {
 
   api.use('*', compress());
 
+  /** Who's watching on the device that asks: its likes, activity and progress. VLC's links carry it as ?p=. */
+  const who = (c: Context) => profileOf(db, c.req.header('x-profile') ?? c.req.query('p'));
+
   api.onError((err, c) => {
     if (err instanceof KodiError) return c.json({ error: err.message, code: `kodi_${err.code}` }, 502);
     console.error(err);
@@ -91,7 +94,7 @@ export function createApi(svc: Service): Hono {
   api.get('/person', (c) => c.json({ g: [...(peopleNow().get(c.req.query('name') ?? '')?.g ?? [])] }));
 
   api.get('/items/:id', (c) => {
-    const d = itemDetail(db, Number(c.req.param('id')));
+    const d = itemDetail(db, Number(c.req.param('id')), who(c));
     return d ? c.json(d) : c.json({ error: 'Not found' }, 404);
   });
 
@@ -100,7 +103,7 @@ export function createApi(svc: Service): Hono {
     const body = (await c.req.json()) as { hidden?: boolean; watched?: boolean };
     if (body.hidden !== undefined) db.prepare('UPDATE items SET hidden = ?, updated_at = ? WHERE id = ?').run(body.hidden ? 1 : 0, Date.now(), id);
     svc.libraryChanged(true);
-    return c.json(itemDetail(db, id));
+    return c.json(itemDetail(db, id, who(c)));
   });
 
   /** Manual match: {type, tmdbId} | {none: true} (not on TMDB) | {reset: true} (match again automatically) */
@@ -120,7 +123,7 @@ export function createApi(svc: Service): Hono {
       db.prepare("UPDATE items SET tmdb_id = ?, media_type = ?, match_state = 'manual', match_source = 'manual', candidates = NULL, updated_at = ? WHERE id = ?").run(body.tmdbId, body.type, now, id);
     } else return c.json({ error: 'Nothing to do' }, 400);
     svc.libraryChanged(true);
-    return c.json(itemDetail(db, id));
+    return c.json(itemDetail(db, id, who(c)));
   });
 
   /** TMDB search for the manual match dialog (movies and shows together). */
@@ -205,7 +208,7 @@ export function createApi(svc: Service): Hono {
     }
     db.prepare('UPDATE items SET custom_poster = ?, updated_at = ? WHERE id = ?').run(value, Date.now(), id);
     svc.libraryChanged(true);
-    return c.json(itemDetail(db, id));
+    return c.json(itemDetail(db, id, who(c)));
   });
 
   // ---------- Kodi ----------
@@ -261,7 +264,7 @@ export function createApi(svc: Service): Hono {
     const status = range ? 206 : 200;
     if (c.req.method === 'HEAD') return c.body(null, status, headers);
     // VLC asks again on every seek; recordActivity counts one play per half hour.
-    recordActivity(db, itemId, 'play');
+    recordActivity(db, who(c), itemId, 'play');
     const source = createReadStream(file, { start, end });
     if (!progress) return c.body(Readable.toWeb(source) as ReadableStream, status, headers);
     // Count what VLC actually takes, for Continue watching. pipeline keeps the backpressure and
@@ -327,7 +330,7 @@ export function createApi(svc: Service): Hono {
     } else {
       await play(cfg, { file: toKodiPath(prefix, it.path) });
     }
-    recordActivity(db, id, 'play');
+    recordActivity(db, who(c), id, 'play');
     return c.json({ ok: true });
   });
 
@@ -337,26 +340,26 @@ export function createApi(svc: Service): Hono {
     const { kind } = (await c.req.json().catch(() => ({}))) as { kind?: string };
     if (kind !== 'open' && kind !== 'trailer') return c.json({ error: 'Unknown activity' }, 400);
     if (!db.prepare('SELECT 1 FROM items WHERE id = ?').get(id)) return c.json({ error: 'Not found' }, 404);
-    recordActivity(db, id, kind);
+    recordActivity(db, who(c), id, kind);
     return c.json({ ok: true });
   });
 
   /** Like (1) or not (-1) a film you watched; null clears it. */
   api.put('/items/:id/rating', async (c) => {
-    const d = itemDetail(db, Number(c.req.param('id')));
+    const d = itemDetail(db, Number(c.req.param('id')), who(c));
     if (!d) return c.json({ error: 'Not found' }, 404);
     const { value } = (await c.req.json().catch(() => ({}))) as { value?: unknown };
     if (value !== 1 && value !== -1 && value !== null) return c.json({ error: 'Unknown rating' }, 400);
     if (!d.canRate) return c.json({ error: 'Only films you watched can be rated' }, 409);
-    rate(db, d.mediaType!, d.tmdbId!, value);
+    rate(db, who(c), d.mediaType!, d.tmdbId!, value);
     return c.json({ rating: value });
   });
 
   api.post('/items/:id/trailer', async (c) => {
-    const d = itemDetail(db, Number(c.req.param('id')));
+    const d = itemDetail(db, Number(c.req.param('id')), who(c));
     if (!d?.trailer) return c.json({ error: 'No trailer' }, 404);
     await playTrailer(kodi(c).cfg, d.trailer);
-    recordActivity(db, d.id, 'trailer');
+    recordActivity(db, who(c), d.id, 'trailer');
     return c.json({ ok: true });
   });
 
@@ -369,11 +372,11 @@ export function createApi(svc: Service): Hono {
     return c.json({ ok: true });
   });
 
-  api.get('/suggestions', async (c) => c.json({ suggestions: await suggestions(db, svc.tmdb() ?? null) }));
+  api.get('/suggestions', async (c) => c.json({ suggestions: await suggestions(db, who(c), svc.tmdb() ?? null) }));
 
   // Films not on the NAS: picked from your tastes, in cinemas, and the page of each.
   api.get('/elsewhere', async (c) =>
-    c.json({ films: (await elsewhere(db, svc.tmdb() ?? null)).map(({ film, because }) => ({ ...film, poster: img(film.poster, 342), because })) }),
+    c.json({ films: (await elsewhere(db, who(c), svc.tmdb() ?? null)).map(({ film, because }) => ({ ...film, poster: img(film.poster, 342), because })) }),
   );
 
   api.get('/cinema', async (c) => {

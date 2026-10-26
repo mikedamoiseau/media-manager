@@ -1,12 +1,18 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { openDb, type DB } from '../server/db.ts';
-import { suggestions, recordActivity, rate } from '../server/suggestions.ts';
+import { suggestions as forProfile, recordActivity as noteFor, rate as rateFor } from '../server/suggestions.ts';
+import { MAIN_PROFILE, PROFILE_COLORS, addProfile } from '../server/profiles.ts';
 
 // Fixed clock: interest fades with time (half-life 14 days).
 const NOW = Date.parse('2026-10-24T12:00:00');
 const DAY = 24 * 3600 * 1000;
 import { Tmdb } from '../server/tmdb.ts';
+
+// The main profile's, as these tests were before profiles.
+const suggestions = (db: DB, tmdb: Tmdb | null, now: number) => forProfile(db, MAIN_PROFILE, tmdb, now);
+const recordActivity = (db: DB, id: number, kind: 'open' | 'trailer' | 'play', now: number) => noteFor(db, MAIN_PROFILE, id, kind, now);
+const rate = (db: DB, type: string, tmdbId: number, value: 1 | -1 | null, now: number) => rateFor(db, MAIN_PROFILE, type, tmdbId, value, now);
 
 function seed() {
   const db = openDb(':memory:');
@@ -15,7 +21,10 @@ function seed() {
     VALUES (?, 'MOVIES', 'movies', 0, 'movie', ?, 'matched', ?, ?, ?, ?, ?, 1, 1)`);
   const add = (tmdbId: number, name: string, year: number, o: { set?: string; present?: number; hidden?: number; plays?: number; resume?: number; last?: string } = {}) => {
     title.run(tmdbId, name, year, o.set ?? null);
-    return Number(item.run(`MOVIES/${name}.mkv`, tmdbId, o.present ?? 1, o.hidden ?? 0, o.plays ?? 0, o.resume ?? 0, o.last ?? null).lastInsertRowid);
+    const id = Number(item.run(`MOVIES/${name}.mkv`, tmdbId, o.present ?? 1, o.hidden ?? 0, o.plays ?? 0, o.resume ?? 0, o.last ?? null).lastInsertRowid);
+    // Played on a TV: the main profile's progress.
+    if (o.plays || o.resume || o.last) db.prepare('INSERT INTO film_states (profile_id, item_id, playcount, resume, last_played) VALUES (1, ?, ?, ?, ?)').run(id, o.plays ?? 0, o.resume ?? null, o.last ?? null);
+    return id;
   };
   const ids = {
     hp1: add(671, 'HP 1', 2001, { set: 'Harry Potter Collection', plays: 1, last: '2026-10-21 23:00:00' }),
@@ -125,8 +134,8 @@ test('one film per set: the one after the latest you saw, else the earliest you 
   assert.deepEqual(show(db, out), ['HP 2 <next> HP 1']);
   assert.ok(!out.some((s) => s.id === ids.hp3));
   // Only the last film seen (like Le Gendarme et les Gendarmettes): start the set from the beginning.
-  db.prepare("UPDATE items SET playcount = 0, last_played = NULL WHERE id = ?").run(ids.hp1);
-  db.prepare("UPDATE items SET playcount = 1, last_played = '2026-10-23 21:00:00' WHERE id = ?").run(ids.hp3);
+  db.prepare('DELETE FROM film_states WHERE item_id = ?').run(ids.hp1);
+  db.prepare("INSERT INTO film_states (profile_id, item_id, playcount, last_played) VALUES (1, ?, 1, '2026-10-23 21:00:00')").run(ids.hp3);
   out = await suggestions(db, fakeTmdb({ 762509: [672] }), NOW + DAY * 31);
   assert.deepEqual(show(db, out), ['HP 1 <next> HP 3']);
 });
@@ -147,4 +156,25 @@ test('a film you did not like stops steering, and what TMDB pairs with it drops'
   assert.deepEqual(show(db, await suggestions(db, tmdb, NOW)), ['Narnia <like> Mufasa']);
   rate(db, 'movie', 671, null, NOW);
   assert.equal((await suggestions(db, tmdb, NOW)).length, 3, 'rating removed');
+});
+
+test('two profiles: each one\'s likes and plays steer only their own suggestions', async () => {
+  const { db, ids } = seed();
+  const anna = addProfile(db, { name: 'Anna', color: PROFILE_COLORS[1] }).id;
+  const tmdb = fakeTmdb({ 671: [411], 411: [879], 762509: [8587] }); // HP 1: Narnia; Narnia: Hook; Mufasa: The Lion King
+  rateFor(db, anna, 'movie', 411, 1, NOW);
+  noteFor(db, anna, ids.narnia, 'open', NOW - 60_000);
+  assert.deepEqual(show(db, await forProfile(db, anna, tmdb, NOW)), ['Hook <like> Narnia']);
+  const main = show(db, await suggestions(db, tmdb, NOW));
+  assert.ok(main.includes('Narnia <like> HP 1'), main.join());
+  assert.ok(!main.includes('Hook <like> Narnia'), 'Anna\'s like stays hers');
+});
+
+test('a film one profile watched can still be suggested to another', async () => {
+  const { db, ids } = seed();
+  const anna = addProfile(db, { name: 'Anna', color: PROFILE_COLORS[1] }).id;
+  const tmdb = fakeTmdb({ 411: [671] }); // Narnia: HP 1, which the main profile watched
+  noteFor(db, anna, ids.narnia, 'trailer', NOW - 60_000);
+  assert.deepEqual(show(db, await forProfile(db, anna, tmdb, NOW)), ['HP 1 <like> Narnia']);
+  assert.ok(!(await suggestions(db, tmdb, NOW)).some((s) => s.id === ids.hp1), 'the main profile saw it');
 });
