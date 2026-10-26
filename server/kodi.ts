@@ -159,10 +159,17 @@ export function prefixFromFiles(files: string[], paths: string[]): string | unde
   return [...votes.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
 }
 
-/** prefixFromFiles on the first films of Kodi's library. */
+/** prefixFromFiles on Kodi's library, a page at a time until a file matches: its films, then its episodes. */
 export async function libraryPathPrefix(cfg: KodiConfig, paths: string[]): Promise<string | undefined> {
-  const r = await kodiCall<{ movies?: Array<{ file: string }> }>(cfg, 'VideoLibrary.GetMovies', { properties: ['file'], limits: { start: 0, end: 200 } }, 30000);
-  return prefixFromFiles((r.movies ?? []).map((m) => m.file), paths);
+  for (const [method, key] of [['VideoLibrary.GetMovies', 'movies'], ['VideoLibrary.GetEpisodes', 'episodes']] as const) {
+    for (let start = 0; ; start += 500) {
+      const r = await kodiCall<Record<string, unknown> & { limits: { total: number } }>(cfg, method, { properties: ['file'], limits: { start, end: start + 500 } }, 30000);
+      const found = prefixFromFiles(((r[key] as Array<{ file: string }> | undefined) ?? []).map((x) => x.file), paths);
+      if (found) return found;
+      if (start + 500 >= r.limits.total) break;
+    }
+  }
+  return undefined;
 }
 
 /** Kodi reads the share with its own SMB client, which wants the names as stored (NFC), not macOS's NFD listing. */

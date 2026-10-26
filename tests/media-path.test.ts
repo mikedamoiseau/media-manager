@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Hono } from 'hono';
 import { openDb, saveSettings, getSettings } from '../server/db.ts';
-import { prefixFromFiles } from '../server/kodi.ts';
+import { prefixFromFiles, libraryPathPrefix } from '../server/kodi.ts';
 import { createApi } from '../server/api.ts';
 import { Service } from '../server/service.ts';
 
@@ -40,6 +40,39 @@ async function kodiWithoutSources() {
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
   return { calls, server, port: (server.address() as AddressInfo).port };
 }
+
+/** A stand-in Kodi answering library pages from these lists. */
+async function kodiLibrary(lists: { movies: Array<{ file: string }>; episodes: Array<{ file: string }> }) {
+  const server = createServer((req, res) => {
+    let body = '';
+    req.on('data', (d) => (body += d));
+    req.on('end', () => {
+      const m = JSON.parse(body) as { id: number; method: string; params: { limits: { start: number; end: number } } };
+      const key = m.method === 'VideoLibrary.GetMovies' ? 'movies' : 'episodes';
+      const list = lists[key];
+      const result = { [key]: list.slice(m.params.limits.start, m.params.limits.end), limits: { ...m.params.limits, total: list.length } };
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify({ id: m.id, jsonrpc: '2.0', result }));
+    });
+  });
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+  return { server, cfg: { host: '127.0.0.1', port: (server.address() as AddressInfo).port } };
+}
+
+test("the media path from Kodi's library: past its first page of films, and from episodes when it has only series", async () => {
+  const films = Array.from({ length: 600 }, (_, i) => ({ file: `smb://nas/video/MEDIA/MOVIES/Unknown ${i}.mkv` }));
+  films[550] = { file: 'smb://nas/video/MEDIA/MOVIES/Known.mkv' };
+  const big = await kodiLibrary({ movies: films, episodes: [] });
+  const seriesOnly = await kodiLibrary({ movies: [], episodes: [{ file: 'smb://nas/video/MEDIA/SERIES/Show/S01E01.mkv' }] });
+  try {
+    assert.equal(await libraryPathPrefix(big.cfg, ['MOVIES/Known.mkv']), 'smb://nas/video/MEDIA');
+    assert.equal(await libraryPathPrefix(seriesOnly.cfg, ['SERIES/Show/S01E01.mkv']), 'smb://nas/video/MEDIA');
+    assert.equal(await libraryPathPrefix(seriesOnly.cfg, ['MOVIES/Known.mkv']), undefined, 'nothing the app knows');
+  } finally {
+    big.server.close();
+    seriesOnly.server.close();
+  }
+});
 
 test('Play on a TV whose media path is unknown: by Kodi id without it, by file once worked out', async () => {
   const kodi = await kodiWithoutSources();

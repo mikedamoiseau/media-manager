@@ -391,7 +391,8 @@ export class Service extends EventEmitter {
     if (!tv || tv.pathPrefix || !existsSync(s.mediaRoot)) return tv?.pathPrefix || undefined;
     const tops = readdirSync(s.mediaRoot, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name);
     const cfg = this.kodiConfig(id)!;
-    const known = () => (this.db.prepare('SELECT path FROM items WHERE present = 1 AND is_dir = 0').all() as Array<{ path: string }>).map((r) => r.path);
+    const known = () =>
+      (this.db.prepare('SELECT path FROM items WHERE present = 1 AND is_dir = 0 UNION ALL SELECT path FROM episodes WHERE present = 1').all() as Array<{ path: string }>).map((r) => r.path);
     const prefix = (await detectPathPrefix(cfg, tops, basename(s.mediaRoot))) ?? (await libraryPathPrefix(cfg, known()));
     // The TVs may have changed while Kodi answered.
     if (prefix && this.tvs().some((t) => t.id === id && t.host === tv.host && !t.pathPrefix)) {
