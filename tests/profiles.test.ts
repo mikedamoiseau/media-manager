@@ -75,6 +75,13 @@ test('profiles: add, rename, recolour, remove; the main one stays', () => {
   assert.throws(() => removeProfile(db, 2), { message: 'Profile not found' });
 });
 
+test("a removed profile's id is never given again (a phone still set to it must ask who's watching)", () => {
+  const db = openDb(':memory:');
+  const guest = addProfile(db, { name: 'Guest', color: PROFILE_COLORS[1] });
+  removeProfile(db, guest.id);
+  assert.notEqual(addProfile(db, { name: 'Ben', color: PROFILE_COLORS[2] }).id, guest.id);
+});
+
 test('profileOf: an unknown, removed or missing id is the main profile', () => {
   const db = openDb(':memory:');
   addProfile(db, { name: 'Anna', color: PROFILE_COLORS[1] });
@@ -90,4 +97,17 @@ test("the app: this device's profile, none when unset or removed (then it asks w
   assert.equal(chosenProfile(list, 3), null);
   assert.equal(chosenProfile(list, 2)?.name, 'Anna');
   assert.equal(chosenProfile([], 1), null, 'profiles not loaded yet');
+});
+
+test('the app: an answer asked for one profile is dropped once the device switched to another', async () => {
+  const { forProfile } = await import('../web/src/profiles.ts');
+  let current: number | null = 1;
+  const got: string[] = [];
+  const mine = forProfile(() => current, (x: string) => got.push(x));
+  const stale = forProfile(() => current, (x: string) => got.push(x));
+  mine('for 1');
+  current = 2;
+  stale('late, for 1');
+  forProfile(() => current, (x: string) => got.push(x))('for 2');
+  assert.deepEqual(got, ['for 1', 'for 2']);
 });

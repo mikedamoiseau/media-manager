@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { openDb, type DB } from '../server/db.ts';
 import { MAIN_PROFILE, PROFILE_COLORS, addProfile } from '../server/profiles.ts';
-import { TvOwners, TOUCH_WINDOW, CHAIN_WINDOW, notePlay, kodiStates, attributeKodiChanges } from '../server/owners.ts';
+import { TvOwners, TOUCH_WINDOW, CHAIN_WINDOW, CLAIM_WINDOW, notePlay, kodiStates, attributeKodiChanges } from '../server/owners.ts';
 
 const NOW = Date.parse('2026-10-26T20:00:00');
 const MIN = 60_000;
@@ -36,6 +36,19 @@ test('Kodi playing the next episode keeps the owner of the one that just ended',
   o.start('tv1', NOW + 200 * MIN);
   o.stop('tv1', false, NOW + 210 * MIN);
   assert.equal(o.start('tv1', NOW + 210 * MIN + 30_000 + TOUCH_WINDOW), MAIN_PROFILE, 'stopped by hand, then something else');
+});
+
+test('a removed profile is forgotten on every TV: what plays next is the main profile\'s', () => {
+  const o = new TvOwners();
+  o.touch('tv1', 2, NOW);
+  o.touch('tv2', 2, NOW);
+  o.start('tv2', NOW);
+  o.stop('tv2', true, NOW + 50 * MIN);
+  o.touch('tv3', 3, NOW);
+  o.forget(2);
+  assert.equal(o.start('tv1', NOW + MIN), MAIN_PROFILE);
+  assert.equal(o.start('tv2', NOW + 50 * MIN + 30_000), MAIN_PROFILE, 'nor the next episode');
+  assert.equal(o.start('tv3', NOW + MIN), 3, 'others stay');
 });
 
 function seed() {
@@ -94,4 +107,13 @@ test('a play noted by the Play button alone is enough (no events from the TV)', 
   db.prepare('UPDATE items SET resume = 0.2, last_played = ? WHERE id = ?').run(kodiDate(NOW + 20 * MIN), film);
   attributeKodiChanges(db, before);
   assert.equal(states(db, 'film_states', 'item_id', film).find((r) => r.profile_id === anna)?.resume, 0.2);
+});
+
+test('a play noted long before the change Kodi reports is not its owner (a Play that never started)', () => {
+  const { db, anna, film } = seed();
+  notePlay(db, 'movie', 12, anna, NOW);
+  const before = kodiStates(db);
+  db.prepare('UPDATE items SET resume = 0.3, last_played = ? WHERE id = ?').run(kodiDate(NOW + CLAIM_WINDOW + 60 * MIN), film);
+  attributeKodiChanges(db, before);
+  assert.deepEqual(states(db, 'film_states', 'item_id', film).map((r) => r.profile_id), [MAIN_PROFILE]);
 });

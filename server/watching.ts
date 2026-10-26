@@ -1,4 +1,5 @@
 import type { DB } from './db.ts';
+import { MAIN_PROFILE } from './profiles.ts';
 
 // Past this the end credits are rolling: watched (Kodi's own default is 90%).
 export const FINISHED = 0.9;
@@ -86,12 +87,13 @@ export function nextEpisode(db: DB, itemId: number, profileId: number): EpisodeR
 }
 
 /**
- * Where this profile's Play on TV starts, as Kodi's percentage: its latest progress (on a TV or in VLC)
- * when started and not finished; else from the start (false). Not Kodi's own resume point, which may be
- * someone else's.
+ * Where this profile's Play on TV starts: Kodi's own resume point (true) when it is theirs; else, as
+ * Kodi's percentage, their latest progress (on a TV or in VLC) when started and not finished; else from
+ * the start (false).
  */
-export function startPoint(db: DB, profileId: number, target: { itemId: number } | { episodeId: number }): false | number {
+export function startPoint(db: DB, profileId: number, target: { itemId: number } | { episodeId: number }): boolean | number {
   let latest: Progress | null;
+  let claim: { profile_id: number; at: number } | undefined;
   if ('itemId' in target) {
     const r = db.prepare(`SELECT f.resume, f.last_played, w.fraction, w.played_at FROM items i
       LEFT JOIN film_states f ON f.item_id = i.id AND f.profile_id = ?1 LEFT JOIN watching w ON w.item_id = i.id AND w.profile_id = ?1
@@ -100,11 +102,19 @@ export function startPoint(db: DB, profileId: number, target: { itemId: number }
     const tv: Progress | null = r.last_played || r.resume ? { fraction: r.resume ?? 0, where: 'tv', at: r.last_played ? kodiTime(r.last_played) : 0 } : null;
     const phone: Progress | null = r.played_at ? { fraction: r.fraction ?? 0, where: 'phone', at: r.played_at } : null;
     latest = tv && phone ? (phone.at > tv.at ? phone : tv) : (tv ?? phone);
+    claim = db.prepare(`SELECT p.profile_id, p.at FROM items i JOIN tv_plays p ON p.kodi_type = 'movie' AND p.kodi_id = i.kodi_id
+      WHERE i.id = ? AND i.kodi_type = 'movie'`).get(target.itemId) as typeof claim;
   } else {
     const e = db.prepare(`SELECT e.id, e.path, e.kodi_id, e.season, e.episode, e.title, s.playcount, s.resume, s.last_played, s.streamed, s.streamed_at
       FROM episodes e LEFT JOIN episode_states s ON s.episode_id = e.id AND s.profile_id = ? WHERE e.id = ?`).get(profileId, target.episodeId) as unknown as EpisodeRow | undefined;
     latest = e ? progressOf(e) : null;
+    claim = db.prepare(`SELECT p.profile_id, p.at FROM episodes e JOIN tv_plays p ON p.kodi_type = 'episode' AND p.kodi_id = e.kodi_id
+      WHERE e.id = ?`).get(target.episodeId) as typeof claim;
   }
+  // Kodi's own point is live (ours waits for the next sync): theirs when they were the last to start it
+  // on a TV (nobody noted: the TV remote, the main profile), unless they went further in VLC since.
+  const kodiIsTheirs = claim ? claim.profile_id === profileId : profileId === MAIN_PROFILE;
+  if (kodiIsTheirs && !(latest?.where === 'phone' && latest.at > (claim?.at ?? 0))) return true;
   return inProgress(latest) ? Math.round(latest.fraction * 1000) / 10 : false;
 }
 

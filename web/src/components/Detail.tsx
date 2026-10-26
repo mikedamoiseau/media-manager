@@ -6,6 +6,7 @@ import type { Detail, Episode, SetPart, TitleLang } from '../types.ts';
 import { Poster } from './Poster.tsx';
 import { MatchDialog } from './MatchDialog.tsx';
 import { PosterPicker } from './PosterPicker.tsx';
+import { ProfileBadge } from './WhosWatching.tsx';
 import { IconBack, IconPlay, IconYoutube, IconTv, IconCheck, IconImage, IconLink, IconEye, IconEyeOff, IconDevice, IconThumbUp, IconThumbDown } from './icons.tsx';
 import { isIOS, mediaUrl, vlcLink, vlcBack, episodeName, VLC_APP_STORE } from '../vlc.ts';
 import { TitleTile, MissingTile } from './Library.tsx';
@@ -216,7 +217,10 @@ export function DetailView({ id, onClose }: { id: number; onClose: () => void })
         <button className="icon-btn on-image" onClick={onClose} aria-label="Back">
           <IconBack />
         </button>
-        <LangSwitch />
+        <span className="bar-end">
+          <LangSwitch />
+          <ProfileBadge />
+        </span>
       </div>
 
       {err && (

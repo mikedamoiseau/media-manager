@@ -1024,6 +1024,12 @@ select option {
   pointer-events: auto;
 }
 
+.detail-bar .bar-end {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .detail-backdrop {
   position: absolute;
   top: 0;

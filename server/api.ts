@@ -333,12 +333,12 @@ export function createApi(svc: Service): Hono {
         ? (db.prepare('SELECT id, path, kodi_id FROM episodes WHERE id = ? AND item_id = ?').get(body.episodeId, id) as Episode | undefined)
         : nextEpisode(db, id, p);
       if (!ep) return c.json({ error: 'No episode found' }, 404);
-      if (ep.kodi_id) notePlay(db, 'episode', ep.kodi_id, p, now);
-      // Where this profile stopped, not where someone else did.
+      // Where this profile stopped, not where someone else did. Noted once Kodi started it: a Play that failed claims nothing.
       await play(cfg, ep.kodi_id ? { episodeid: ep.kodi_id } : { file: toKodiPath(prefix, ep.path) }, startPoint(db, p, { episodeId: ep.id }));
+      if (ep.kodi_id) notePlay(db, 'episode', ep.kodi_id, p, now);
     } else if (it.kodi_id && it.kodi_type === 'movie') {
-      notePlay(db, 'movie', it.kodi_id, p, now);
       await play(cfg, { movieid: it.kodi_id }, startPoint(db, p, { itemId: id }));
+      notePlay(db, 'movie', it.kodi_id, p, now);
     } else {
       await play(cfg, { file: toKodiPath(prefix, it.path) }, startPoint(db, p, { itemId: id }));
     }
@@ -586,7 +586,13 @@ export function createApi(svc: Service): Hono {
     return saveProfiles(c, () => editProfile(db, Number(c.req.param('id')), { name: str(b.name), color: str(b.color) }));
   });
 
-  api.delete('/profiles/:id', (c) => saveProfiles(c, () => removeProfile(db, Number(c.req.param('id')))));
+  api.delete('/profiles/:id', (c) => {
+    const id = Number(c.req.param('id'));
+    return saveProfiles(c, () => {
+      removeProfile(db, id);
+      svc.owners.forget(id);
+    });
+  });
 
   // ---------- settings & jobs ----------
 

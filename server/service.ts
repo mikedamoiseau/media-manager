@@ -176,7 +176,12 @@ export class Service extends EventEmitter {
     const now = Date.now();
     if (e.kind === 'stop') return this.owners.stop(tvId, !!e.ended, now);
     const owner = this.owners.start(tvId, now);
-    if (e.item?.type === 'movie' || e.item?.type === 'episode') notePlay(this.db, e.item.type, e.item.id, owner, now);
+    // Called from the TV's socket: an error here would stop the server.
+    try {
+      if (e.item?.type === 'movie' || e.item?.type === 'episode') notePlay(this.db, e.item.type, e.item.id, owner, now);
+    } catch (err) {
+      console.warn(`Kodi play not noted: ${(err as Error).message}`);
+    }
   }
 
   private tvsChanged(): void {

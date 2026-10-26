@@ -9,6 +9,8 @@ import { kodiTime } from './watching.ts';
 export const TOUCH_WINDOW = 3 * 60_000;
 /** Kodi going on to the next episode this soon after one reached its end: still the same person watching. */
 export const CHAIN_WINDOW = 2 * 60_000;
+/** A play noted this long before the change Kodi reports didn't make it (a Play that never started). */
+export const CLAIM_WINDOW = 12 * 3600_000;
 // Kodi's clock and ours may differ a little.
 const CLOCK_SLACK = 5 * 60_000;
 
@@ -29,6 +31,13 @@ export class TvOwners {
     const owner = t && now - t.at <= TOUCH_WINDOW ? t.profile : e && now - e.at <= CHAIN_WINDOW ? e.profile : MAIN_PROFILE;
     this.playing.set(tvId, owner);
     return owner;
+  }
+
+  /** A profile was removed: no TV is theirs any more. */
+  forget(profileId: number): void {
+    for (const [tv, t] of this.touched) if (t.profile === profileId) this.touched.delete(tv);
+    for (const [tv, p] of this.playing) if (p === profileId) this.playing.delete(tv);
+    for (const [tv, e] of this.ended) if (e.profile === profileId) this.ended.delete(tv);
   }
 
   /** It stopped: by hand, or at its end (then Kodi may go on with the next episode). */
@@ -72,7 +81,7 @@ export function kodiStates(db: DB): KodiStates {
 
 /**
  * After a sync: each film or episode whose state in Kodi changed gives the change to the profile that
- * started it on a TV (noted after its previous play), else to the main profile. That profile gets
+ * started it on a TV (noted after its previous play, and not long before this one), else to the main profile. That profile gets
  * Kodi's new resume point and last play, and the plays added (or none, when Kodi's count went to 0).
  * How many changes were given.
  */
@@ -93,7 +102,8 @@ export function attributeKodiChanges(db: DB, before: KodiStates): number {
       if (!b && !r.playcount && r.resume === null && r.last_played === null) continue;
       const play = owner.get(t.kind, r.kodi_id) as { profile_id: number; at: number } | undefined;
       const since = b?.lastPlayed ? kodiTime(b.lastPlayed) - CLOCK_SLACK : -Infinity;
-      const profile = play && play.at >= since ? play.profile_id : MAIN_PROFILE;
+      const claimed = play && play.at >= since && (!r.last_played || kodiTime(r.last_played) - play.at <= CLAIM_WINDOW);
+      const profile = claimed ? play.profile_id : MAIN_PROFILE;
       const had = ((current.get(profile, r.id) as { playcount: number | null } | undefined)?.playcount) ?? 0;
       const added = (r.playcount ?? 0) - (b?.playcount ?? 0);
       const playcount = (r.playcount ?? 0) === 0 ? 0 : had + Math.max(0, added);

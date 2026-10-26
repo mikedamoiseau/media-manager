@@ -171,8 +171,9 @@ export const MIGRATIONS: string[] = [
   `
   -- Who's watching: each person's likes, activity and progress. Profile 1 is the main one: it gets
   -- everything recorded before profiles, and whatever is played on a TV without the app.
+  -- AUTOINCREMENT: a removed profile's id is never given again (a phone still set to it asks again).
   CREATE TABLE profiles (
-    id INTEGER PRIMARY KEY,
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
     color TEXT NOT NULL,
     created_at INTEGER NOT NULL

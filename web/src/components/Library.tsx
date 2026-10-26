@@ -9,6 +9,7 @@ import {
 } from '../search.ts';
 import type { Entry, Film, Group, Person, SetGroup, SetPart, Suggestion, TitleLang, Watching } from '../types.ts';
 import { api } from '../api.ts';
+import { forProfile } from '../profiles.ts';
 import { peopleTitles } from '../peopleTitles.ts';
 import { Poster } from './Poster.tsx';
 import { Sheet } from './Sheet.tsx';
@@ -96,21 +97,22 @@ export function Library({ active }: { active: boolean }) {
   const entries = useMemo(() => (setsOn ? groupSets(results, deferred) : results), [setsOn, results, deferred]);
   const [suggested, setSuggested] = useState<Suggestion[]>([]);
   const [watching, setWatching] = useState<Watching[]>([]);
+  // These rows are the profile's: an answer that comes back after a switch is dropped.
   const loadWatching = () =>
     api.get<{ items: Watching[] }>('/api/continue').then(
-      (r) => setWatching(r.items),
+      forProfile(profileChoice.get, (r) => setWatching(r.items)),
       () => setWatching([]),
     );
   const loadSuggestions = () =>
     api.get<{ suggestions: Suggestion[] }>('/api/suggestions').then(
-      (r) => setSuggested(r.suggestions),
+      forProfile(profileChoice.get, (r) => setSuggested(r.suggestions)),
       () => setSuggested([]),
     );
   const [elsewhere, setElsewhere] = useState<Array<Film & { because: number }>>([]);
   const [cinema, setCinema] = useState<Array<Film & { soon: boolean }>>([]);
   const loadElsewhere = () =>
     api.get<{ films: typeof elsewhere }>('/api/elsewhere').then(
-      (r) => setElsewhere(r.films),
+      forProfile(profileChoice.get, (r) => setElsewhere(r.films)),
       () => setElsewhere([]),
     );
   const loadCinema = () =>

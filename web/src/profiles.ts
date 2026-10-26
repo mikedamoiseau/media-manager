@@ -10,3 +10,11 @@ export function chosenProfile(profiles: Profile[], id: number | null): Profile |
 
 /** What the round badge shows: the first letter of the name. */
 export const initial = (name: string) => ([...name.trim()][0] ?? '?').toUpperCase();
+
+/** An answer's handler that drops the answer when this device switched profile since asking. */
+export function forProfile<T>(current: () => number | null, use: (answer: T) => void): (answer: T) => void {
+  const asked = current();
+  return (answer) => {
+    if (current() === asked) use(answer);
+  };
+}

@@ -4,6 +4,7 @@ import { openDb, type DB } from '../server/db.ts';
 import * as w from '../server/watching.ts';
 import { marks, itemDetail } from '../server/views.ts';
 import { MAIN_PROFILE, PROFILE_COLORS, addProfile } from '../server/profiles.ts';
+import { notePlay } from '../server/owners.ts';
 
 // The main profile's, as these tests were before profiles.
 const continueWatching = (db: DB, now: number) => w.continueWatching(db, MAIN_PROFILE, now);
@@ -247,17 +248,36 @@ test('only a film this profile watched can be rated', () => {
 test("Play on TV starts at this profile's point, not someone else's", () => {
   const { db, ids } = seed();
   const a = anna(db);
+  // Last played on a TV by Anna (Kodi's point is hers now): the main profile starts at its own.
+  db.prepare("UPDATE items SET kodi_id = id + 100, kodi_type = 'movie' WHERE id IN (?, ?)").run(ids.hp, ids.credits);
+  notePlay(db, 'movie', ids.hp + 100, a, NOW - 2 * DAY);
+  notePlay(db, 'movie', ids.credits + 100, a, NOW - 2 * DAY);
   w.noteStreamed(db, a, ids.hp, 0, 700 * MB, 1000 * MB, NOW - 60_000);
   assert.equal(w.startPoint(db, MAIN_PROFILE, { itemId: ids.hp }), 64, 'its TV resume point');
-  assert.equal(w.startPoint(db, a, { itemId: ids.hp }), 70, 'her VLC progress');
+  assert.equal(w.startPoint(db, a, { itemId: ids.hp }), 70, 'her VLC progress, newer than her TV play');
   assert.equal(w.startPoint(db, a, { itemId: ids.mufasa }), false, 'nothing played: from the start');
   assert.equal(w.startPoint(db, MAIN_PROFILE, { itemId: ids.credits }), false, 'finished: from the start');
   w.noteStreamed(db, MAIN_PROFILE, ids.hp, 0, 300 * MB, 1000 * MB, NOW);
   assert.equal(w.startPoint(db, MAIN_PROFILE, { itemId: ids.hp }), 30, 'the latest of TV and VLC');
 
   const show = addShow(db, 'Dark', [{ s: 1, e: 1, plays: 1, ago: 2 * DAY }, { s: 1, e: 2, resume: 0.4, ago: DAY }]);
+  db.prepare('UPDATE episodes SET kodi_id = id + 500 WHERE item_id = ?').run(show.id);
+  notePlay(db, 'episode', show.ep[1]! + 500, a, NOW - 3 * DAY);
   w.noteEpisodeStreamed(db, a, show.ep[1]!, 0, 700 * MB, 1000 * MB, NOW);
   assert.equal(w.startPoint(db, MAIN_PROFILE, { episodeId: show.ep[1]! }), 40);
   assert.equal(w.startPoint(db, a, { episodeId: show.ep[1]! }), 70);
   assert.equal(w.startPoint(db, a, { episodeId: show.ep[0]! }), false);
+});
+
+test("Play on TV: Kodi's own, live point when this profile played it there last (the app may not have synced it yet)", () => {
+  const { db, ids } = seed();
+  const a = anna(db);
+  db.prepare("UPDATE items SET kodi_id = 12, kodi_type = 'movie' WHERE id = ?").run(ids.fresh);
+  assert.equal(w.startPoint(db, MAIN_PROFILE, { itemId: ids.fresh }), true, 'no play noted: the TV remote\'s, the main profile\'s');
+  assert.equal(w.startPoint(db, a, { itemId: ids.fresh }), false);
+  notePlay(db, 'movie', 12, a, NOW);
+  assert.equal(w.startPoint(db, a, { itemId: ids.fresh }), true, 'stopped a minute ago: not synced yet');
+  assert.equal(w.startPoint(db, MAIN_PROFILE, { itemId: ids.fresh }), false, 'Kodi\'s point is Anna\'s');
+  w.noteStreamed(db, a, ids.fresh, 0, 500 * MB, 1000 * MB, NOW + 60_000);
+  assert.equal(w.startPoint(db, a, { itemId: ids.fresh }), 50, 'then further in VLC');
 });

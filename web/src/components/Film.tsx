@@ -5,6 +5,7 @@ import { displayTitle, plotLang, formatRuntime, formatDay, countryName } from '.
 import type { FilmDetail } from '../types.ts';
 import { Poster } from './Poster.tsx';
 import { LangSwitch, Trailer, People } from './Detail.tsx';
+import { ProfileBadge } from './WhosWatching.tsx';
 import { IconBack, IconYoutube, IconCheck, IconEye, IconEyeOff, IconFilm } from './icons.tsx';
 import { useOpenTitle } from '../nav.ts';
 
@@ -78,7 +79,10 @@ export function FilmView({ id, onClose }: { id: number; onClose: () => void }) {
         <button className="icon-btn on-image" onClick={onClose} aria-label="Back">
           <IconBack />
         </button>
-        <LangSwitch />
+        <span className="bar-end">
+          <LangSwitch />
+          <ProfileBadge />
+        </span>
       </div>
 
       {err && (
