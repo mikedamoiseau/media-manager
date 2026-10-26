@@ -6,7 +6,7 @@ discussion before it is built.
 | # | Feature | Size | Status |
 |---|---------|------|--------|
 | 1 | Who's watching (profiles) | Medium | Done: [design](superpowers/specs/2026-10-26-profiles-design.md) |
-| 2 | Kids mode | Medium | Designed: [design](superpowers/specs/2026-10-26-kids-mode-design.md) |
+| 2 | Kids mode | Medium | Done in the app: [design](superpowers/specs/2026-10-26-kids-mode-design.md) |
 | 3 | What do we watch tonight? | Medium | Idea |
 | 4 | Series tracker | Medium | Idea |
 | 5 | Trailer on the TV | Small | Already in the app |
@@ -32,6 +32,14 @@ posters and one tap to play on the chosen TV. It hides settings and the power
 menu, and needs a PIN to leave. An optional bedtime stops playback at the end
 of the current film or episode after a set hour. It fits well with profiles:
 a kids' profile could open in this mode.
+
+Done: a profile can be a kids profile (an FSK age limit, an optional bedtime).
+On a phone in kids mode the app shows only that kid's titles (made for kids
+and within age, from TMDB's ratings, or a parent's "OK for kids"), a simple
+now playing card, and asks the parents' code to leave. After bedtime nothing
+new starts and Kodi doesn't go on to the next episode. The titles every kid
+may watch carry the tag `Cinematheque Kids` in Kodi's library; the kids view
+on the TV itself is the Lumen skin's to build.
 
 ## 3. What do we watch tonight?
 
