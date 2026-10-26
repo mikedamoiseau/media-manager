@@ -11,7 +11,8 @@ import { listProfiles, type Profile } from './profiles.ts';
 import { syncFromKodi, matchPending, enrichTitles } from './metadata.ts';
 import { Tmdb } from './tmdb.ts';
 import { lanTransport } from './net.ts';
-import { KodiEvents, type KodiInput } from './kodiEvents.ts';
+import { KodiEvents, type KodiInput, type PlayerEvent } from './kodiEvents.ts';
+import { TvOwners, notePlay, kodiStates, attributeKodiChanges } from './owners.ts';
 import { pickTv, addTv, editTv, tvNumber, firstTvChanged, firstRun } from './tvs.ts';
 
 export interface TaskStatus {
@@ -75,6 +76,8 @@ export class Service extends EventEmitter {
   private kodiResyncTimer?: NodeJS.Timeout;
   /** Each TV's event connection, and the address it is for */
   private events = new Map<string, { host: string; ev: KodiEvents }>();
+  /** Who is watching on each TV, for whose progress Kodi's changes are. */
+  readonly owners = new TvOwners();
 
   constructor(db: DB, dataDir: string) {
     super();
@@ -150,7 +153,7 @@ export class Service extends EventEmitter {
     this.connectTvs();
   }
 
-  /** One event connection per TV, for its keyboard: opened, moved or closed as the TVs change. */
+  /** One event connection per TV, for its keyboard and what it plays: opened, moved or closed as the TVs change. */
   private connectTvs(): void {
     const tvs = this.tvs();
     for (const [id, e] of this.events) {
@@ -160,12 +163,20 @@ export class Service extends EventEmitter {
     }
     for (const tv of tvs) {
       let e = this.events.get(tv.id);
-      if (!e) this.events.set(tv.id, (e = { host: '', ev: new KodiEvents(() => this.tvsChanged()) }));
+      if (!e) this.events.set(tv.id, (e = { host: '', ev: new KodiEvents(() => this.tvsChanged(), undefined, undefined, (p) => this.onPlayer(tv.id, p)) }));
       if (e.host === tv.host) continue;
       e.host = tv.host;
       e.ev.connect(tv.host);
     }
     this.tvsChanged();
+  }
+
+  /** A TV started a film or episode of Kodi's library: noted for whoever is watching there. */
+  private onPlayer(tvId: string, e: PlayerEvent): void {
+    const now = Date.now();
+    if (e.kind === 'stop') return this.owners.stop(tvId, !!e.ended, now);
+    const owner = this.owners.start(tvId, now);
+    if (e.item?.type === 'movie' || e.item?.type === 'episode') notePlay(this.db, e.item.type, e.item.id, owner, now);
   }
 
   private tvsChanged(): void {
@@ -346,7 +357,9 @@ export class Service extends EventEmitter {
       const tv = this.tv()!;
       if (!tv.pathPrefix) throw new Error(`Could not work out how Kodi sees the media folder: set the media path of ${tv.name} in Settings`);
       const prefix = tv.pathPrefix;
+      const before = kodiStates(this.db);
       const r = await syncFromKodi(this.db, cfg, prefix);
+      attributeKodiChanges(this.db, before);
       this.libraryChanged(true);
       return `${r.movies} films and ${r.shows} shows in Kodi, ${r.linked} linked to files`;
     }).catch(() => {});

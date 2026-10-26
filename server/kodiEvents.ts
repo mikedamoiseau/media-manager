@@ -15,6 +15,13 @@ export interface KodiInput {
   value: string;
 }
 
+/** Kodi started or stopped playing: the film or episode of its library (none for other videos), and whether it reached its end. */
+export interface PlayerEvent {
+  kind: 'play' | 'stop';
+  item?: { type: string; id: number };
+  ended?: boolean;
+}
+
 export interface Pipe {
   write(text: string): void;
   close(): void;
@@ -101,11 +108,13 @@ export class KodiEvents {
   private onChange: () => void;
   private open: { tcp: Opener; nc: Opener };
   private port: number;
+  private onPlayer: ((e: PlayerEvent) => void) | undefined;
 
-  constructor(onChange: () => void, open = { tcp: openTcp, nc: openNc }, port = 9090) {
+  constructor(onChange: () => void, open = { tcp: openTcp, nc: openNc }, port = 9090, onPlayer?: (e: PlayerEvent) => void) {
     this.onChange = onChange;
     this.open = open;
     this.port = port;
+    this.onPlayer = onPlayer;
   }
 
   /** (Re)connect to Kodi at this host; none: stay disconnected. */
@@ -170,7 +179,11 @@ export class KodiEvents {
   }
 
   private message(text: string): void {
-    let m: { result?: unknown; method?: string; params?: { data?: { type?: string; title?: string; value?: string } | null } };
+    let m: {
+      result?: unknown;
+      method?: string;
+      params?: { data?: { type?: string; title?: string; value?: string; item?: { type?: string; id?: number }; end?: boolean } | null };
+    };
     try {
       m = JSON.parse(text);
     } catch {
@@ -191,6 +204,11 @@ export class KodiEvents {
     } else if (m.method === 'Input.OnInputFinished' && this.input) {
       this.input = null;
       this.onChange();
+    } else if (m.method === 'Player.OnPlay' || m.method === 'Player.OnStop') {
+      const it = m.params?.data?.item;
+      const item = it?.type && Number.isInteger(it.id) && it.id! > 0 ? { type: it.type, id: it.id! } : undefined;
+      if (m.method === 'Player.OnPlay') this.onPlayer?.({ kind: 'play', item });
+      else this.onPlayer?.({ kind: 'stop', item, ended: !!m.params?.data?.end });
     }
   }
 }

@@ -122,3 +122,23 @@ test('no Kodi host: no connection', () => {
   ev.connect('');
   assert.equal(tcp.pipes.length, 0);
 });
+
+test('player events are passed on: what started, and what stopped (and whether it reached its end)', () => {
+  const tcp = fakeOpener();
+  const seen: unknown[] = [];
+  const ev = new KodiEvents(() => {}, { tcp: tcp.open, nc: fakeOpener().open }, 9090, (e) => seen.push(e));
+  ev.connect('10.0.0.5');
+  const [p] = tcp.pipes;
+  try {
+  p!.data('{"jsonrpc":"2.0","method":"Player.OnPlay","params":{"data":{"item":{"id":12,"type":"movie"},"player":{"playerid":1,"speed":1}},"sender":"xbmc"}}');
+  p!.data('{"jsonrpc":"2.0","method":"Player.OnStop","params":{"data":{"end":true,"item":{"id":12,"type":"movie"}},"sender":"xbmc"}}');
+  p!.data('{"jsonrpc":"2.0","method":"Player.OnPlay","params":{"data":{"item":{"title":"trailer","type":"unknown"},"player":{"playerid":1}},"sender":"xbmc"}}');
+  assert.deepEqual(seen, [
+    { kind: 'play', item: { type: 'movie', id: 12 } },
+    { kind: 'stop', item: { type: 'movie', id: 12 }, ended: true },
+    { kind: 'play', item: undefined },
+  ]);
+  } finally {
+    ev.stop();
+  }
+});

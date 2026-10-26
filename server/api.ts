@@ -25,6 +25,7 @@ import type { Settings } from './db.ts';
 import { TvError, addTv, editTv, removeTv, publicTvs, handoffTv, type TvInput } from './tvs.ts';
 import type { MediaType } from './scanner.ts';
 import { ProfileError, listProfiles, addProfile, editProfile, removeProfile, profileOf } from './profiles.ts';
+import { notePlay } from './owners.ts';
 
 function sendFile(file: string, maxAge = 31536000): Response {
   const st = statSync(file);
@@ -220,7 +221,7 @@ export function createApi(svc: Service): Hono {
   function kodi(c: Context) {
     const tv = svc.tv(c.req.query('tv') ?? c.req.header('x-kodi-tv'));
     if (!tv) throw new KodiError('unreachable', 'Kodi is not set up yet');
-    return { cfg: svc.kodiConfig(tv.id)!, prefix: tv.pathPrefix };
+    return { cfg: svc.kodiConfig(tv.id)!, prefix: tv.pathPrefix, tv: tv.id };
   }
 
   type Episode = { path: string; kodi_id: number | null };
@@ -317,24 +318,30 @@ export function createApi(svc: Service): Hono {
   api.post('/items/:id/play', async (c) => {
     const id = Number(c.req.param('id'));
     const body = (await c.req.json().catch(() => ({}))) as { episodeId?: number };
-    const { cfg, prefix } = kodi(c);
+    const { cfg, prefix, tv } = kodi(c);
+    const p = who(c);
     const it = db.prepare('SELECT path, is_dir, present, kodi_id, kodi_type FROM items WHERE id = ?').get(id) as
       | { path: string; is_dir: number; present: number; kodi_id: number | null; kodi_type: string | null }
       | undefined;
     if (!it || !it.present) return c.json({ error: 'File is not on the NAS' }, 404);
     if (!prefix) return c.json({ error: 'Kodi path for the media folder is unknown: set it in Settings' }, 400);
+    // Played from this device: Kodi's next changes to it are this profile's, even if the TV's events don't come through.
+    const now = Date.now();
+    svc.owners.touch(tv, p, now);
     if (it.is_dir) {
       const ep = body.episodeId
         ? (db.prepare('SELECT path, kodi_id FROM episodes WHERE id = ? AND item_id = ?').get(body.episodeId, id) as Episode | undefined)
-        : nextEpisode(db, id, who(c));
+        : nextEpisode(db, id, p);
       if (!ep) return c.json({ error: 'No episode found' }, 404);
+      if (ep.kodi_id) notePlay(db, 'episode', ep.kodi_id, p, now);
       await play(cfg, ep.kodi_id ? { episodeid: ep.kodi_id } : { file: toKodiPath(prefix, ep.path) });
     } else if (it.kodi_id && it.kodi_type === 'movie') {
+      notePlay(db, 'movie', it.kodi_id, p, now);
       await play(cfg, { movieid: it.kodi_id });
     } else {
       await play(cfg, { file: toKodiPath(prefix, it.path) });
     }
-    recordActivity(db, who(c), id, 'play');
+    recordActivity(db, p, id, 'play');
     return c.json({ ok: true });
   });
 
@@ -492,14 +499,19 @@ export function createApi(svc: Service): Hono {
 
   api.post('/kodi/remote', async (c) => {
     const body = (await c.req.json()) as { action: RemoteAction; value?: number };
-    await remote(kodi(c).cfg, body.action, body.value);
+    const { cfg, tv } = kodi(c);
+    // What starts on the TV soon after is this profile's (browsing Kodi's menus from the phone).
+    svc.owners.touch(tv, who(c), Date.now());
+    await remote(cfg, body.action, body.value);
     return c.json({ ok: true });
   });
 
   api.post('/kodi/input', async (c) => {
     const { text } = (await c.req.json()) as { text?: unknown };
     if (typeof text !== 'string' || text.length > 1000) return c.json({ error: 'Text for Kodi is missing or too long' }, 400);
-    await sendText(kodi(c).cfg, text);
+    const { cfg, tv } = kodi(c);
+    svc.owners.touch(tv, who(c), Date.now());
+    await sendText(cfg, text);
     return c.json({ ok: true });
   });
 
