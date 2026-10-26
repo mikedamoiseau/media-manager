@@ -8,8 +8,14 @@ export class ApiError extends Error {
   }
 }
 
+// The TV this device controls: the server sends its Kodi calls there.
+let kodiTv: string | null = null;
+export function setKodiTv(id: string | null): void {
+  kodiTv = id;
+}
+
 async function request<T>(method: string, url: string, body?: unknown, headers: Record<string, string> = {}): Promise<T> {
-  const init: RequestInit = { method, headers: { ...headers } };
+  const init: RequestInit = { method, headers: { ...(kodiTv ? { 'x-kodi-tv': kodiTv } : {}), ...headers } };
   if (body instanceof Blob) {
     init.body = body;
     (init.headers as Record<string, string>)['content-type'] = body.type || 'application/octet-stream';
@@ -34,5 +40,6 @@ export const api = {
   post: <T>(url: string, body?: unknown) => request<T>('POST', url, body ?? {}),
   put: <T>(url: string, body: unknown) => request<T>('PUT', url, body),
   patch: <T>(url: string, body: unknown) => request<T>('PATCH', url, body),
+  del: <T>(url: string) => request<T>('DELETE', url),
   upload: <T>(url: string, file: Blob) => request<T>('POST', url, file),
 };

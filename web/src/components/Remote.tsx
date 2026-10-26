@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { api } from '../api.ts';
-import { useStore, nowPlaying, status, toast, startFastPoll, pollNowPlaying, typingForKodi } from '../store.ts';
+import { useStore, nowPlaying, nowPlayingError, status, toast, startFastPoll, pollNowPlaying, typingForKodi, useTv } from '../store.ts';
 import { formatClock } from '../search.ts';
 import { languageName } from '../tracks.ts';
 import { TrackPicker } from './TrackPicker.tsx';
@@ -30,6 +30,8 @@ const KEYS: Record<string, string> = {
 export function Remote() {
   const np = useStore(nowPlaying);
   const st = useStore(status);
+  const tv = useTv();
+  const answering = !useStore(nowPlayingError);
   const [picker, setPicker] = useState<'audio' | 'subtitles' | null>(null);
   const [powerMenu, setPowerMenu] = useState(false);
 
@@ -48,7 +50,7 @@ export function Remote() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  if (!st?.kodi.host) {
+  if (!st || !tv) {
     return (
       <div className="scroller">
         <header className="page-head">
@@ -57,7 +59,7 @@ export function Remote() {
         <div className="empty">
           <IconTv size={40} />
           <h2>No Kodi connected</h2>
-          <p>Open Settings and tap “Find Kodi”. In Kodi, “Allow remote control via HTTP” must be on (Settings › Services › Control).</p>
+          <p>Open Settings and tap “Find TVs”. In Kodi, “Allow remote control via HTTP” must be on (Settings › Services › Control).</p>
         </div>
       </div>
     );
@@ -66,7 +68,7 @@ export function Remote() {
   const active = np?.active;
   const playing = active && (np.speed ?? 0) !== 0;
   // The link is ready before the tap: Safari opens VLC only straight from a tap.
-  const handoff = isIOS && active ? handoffLink(location.origin, np, vlcBack(), Date.now().toString(36)) : null;
+  const handoff = isIOS && active ? handoffLink(location.origin, np, vlcBack(), Date.now().toString(36), tv.id) : null;
 
   return (
     <>
@@ -103,13 +105,13 @@ export function Remote() {
               </>
             ) : (
               <>
-                <p className="np-label">{st.kodi.connected ? 'Kodi is ready' : 'Kodi is not answering'}</p>
+                <p className="np-label">{answering ? `${tv.name} is ready` : `${tv.name} is not answering`}</p>
                 <h1 className="np-title">Nothing playing</h1>
                 <p className="muted small">Pick something in the library and press Play on TV.</p>
               </>
             )}
           </div>
-          {st.kodi.connected && (
+          {answering && (
             <button className="icon-btn on-image np-power" onClick={() => setPowerMenu(true)} aria-label="Shut down or restart the Kodi box">
               <IconPower />
             </button>

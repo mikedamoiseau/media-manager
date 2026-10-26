@@ -22,6 +22,7 @@ import {
 import { Tmdb, type Candidate } from './tmdb.ts';
 import { ensureTitle, slimCandidates } from './metadata.ts';
 import type { Settings } from './db.ts';
+import { TvError, addTv, editTv, removeTv, publicTvs, handoffTv, type TvInput } from './tvs.ts';
 import type { MediaType } from './scanner.ts';
 
 function sendFile(file: string, maxAge = 31536000): Response {
@@ -41,7 +42,14 @@ function maskKey(k: string): string {
 }
 
 function publicSettings(s: Settings) {
-  return { ...s, tmdbKey: maskKey(s.tmdbKey), kodiPass: s.kodiPass ? '••••' : '' };
+  return { ...s, tmdbKey: maskKey(s.tmdbKey), kodiTvs: publicTvs(s.kodiTvs) };
+}
+
+const str = (v: unknown) => (v === undefined ? undefined : String(v));
+
+/** A TV as typed in Settings: only its own fields. */
+function tvInput(b: Record<string, unknown>): TvInput {
+  return { name: str(b.name), host: str(b.host), port: b.port === undefined ? undefined : Number(b.port), user: str(b.user), pass: str(b.pass), pathPrefix: str(b.pathPrefix) };
 }
 
 export function createApi(svc: Service): Hono {
@@ -201,10 +209,11 @@ export function createApi(svc: Service): Hono {
 
   // ---------- Kodi ----------
 
-  function kodi() {
-    const cfg = svc.kodiConfig();
-    if (!cfg) throw new KodiError('unreachable', 'Kodi is not set up yet');
-    return cfg;
+  /** The TV a request is for: ?tv= (VLC's handoff), else the phone's x-kodi-tv header, else the first. */
+  function kodi(c: Context) {
+    const tv = svc.tv(c.req.query('tv') ?? c.req.header('x-kodi-tv'));
+    if (!tv) throw new KodiError('unreachable', 'Kodi is not set up yet');
+    return { cfg: svc.kodiConfig(tv.id)!, prefix: tv.pathPrefix };
   }
 
   type Episode = { path: string; kodi_id: number | null };
@@ -271,11 +280,12 @@ export function createApi(svc: Service): Hono {
   api.get('/media/:kind/:id/:key/:name', media);
 
   /** Stop the TV if it still plays this file: the phone took over. */
-  const stopIfPlaying = async (kind: string, id: number) => {
-    const cfg = svc.kodiConfig();
-    if (!cfg) return;
+  const stopIfPlaying = async (kind: string, id: number, tvId: string | undefined) => {
+    const tv = handoffTv(svc.tvs(), tvId);
+    if (!tv) return;
+    const cfg = svc.kodiConfig(tv.id)!;
     const np = await nowPlaying(cfg);
-    const m = np.active && np.file ? kodiMedia(db, svc.settings().kodiPathPrefix, np.file) : undefined;
+    const m = np.active && np.file ? kodiMedia(db, tv.pathPrefix, np.file) : undefined;
     if (m?.kind === kind && m.id === id) await remote(cfg, 'stop');
   };
 
@@ -290,7 +300,7 @@ export function createApi(svc: Service): Hono {
     const o = parseHandoff(c.req.param('opts'));
     const name = c.req.param('name').replace(/\.m3u$/, '');
     if ((kind !== 'item' && kind !== 'episode') || !Number.isInteger(id) || !o) return c.json({ error: 'Not found' }, 404);
-    void stopIfPlaying(kind, id).catch((e: Error) => console.warn(`Handoff: could not stop the TV (${e.message})`));
+    void stopIfPlaying(kind, id, o.tv).catch((e: Error) => console.warn(`Handoff: could not stop the TV (${e.message})`));
     // On the address the phone used, as the media links.
     const url = new URL(`/api/media/${kind}/${id}/${o.key}/${encodeURIComponent(name)}`, c.req.url).href;
     return c.body(vlcPlaylist(url, name, o), 200, { 'content-type': 'audio/x-mpegurl', 'cache-control': 'no-store' });
@@ -299,8 +309,7 @@ export function createApi(svc: Service): Hono {
   api.post('/items/:id/play', async (c) => {
     const id = Number(c.req.param('id'));
     const body = (await c.req.json().catch(() => ({}))) as { episodeId?: number };
-    const cfg = kodi();
-    const prefix = svc.settings().kodiPathPrefix;
+    const { cfg, prefix } = kodi(c);
     const it = db.prepare('SELECT path, is_dir, present, kodi_id, kodi_type FROM items WHERE id = ?').get(id) as
       | { path: string; is_dir: number; present: number; kodi_id: number | null; kodi_type: string | null }
       | undefined;
@@ -345,7 +354,7 @@ export function createApi(svc: Service): Hono {
   api.post('/items/:id/trailer', async (c) => {
     const d = itemDetail(db, Number(c.req.param('id')));
     if (!d?.trailer) return c.json({ error: 'No trailer' }, 404);
-    await playTrailer(kodi(), d.trailer);
+    await playTrailer(kodi(c).cfg, d.trailer);
     recordActivity(db, d.id, 'trailer');
     return c.json({ ok: true });
   });
@@ -420,7 +429,7 @@ export function createApi(svc: Service): Hono {
   api.post('/films/:id/trailer', async (c) => {
     const d = await filmDetails(db, svc.tmdb() ?? null, Number(c.req.param('id')));
     if (!d?.trailer) return c.json({ error: 'No trailer' }, 404);
-    await playTrailer(kodi(), d.trailer);
+    await playTrailer(kodi(c).cfg, d.trailer);
     return c.json({ ok: true });
   });
 
@@ -464,40 +473,72 @@ export function createApi(svc: Service): Hono {
   });
 
   api.get('/kodi/now', async (c) => {
-    const np = await nowPlaying(kodi());
+    const { cfg, prefix } = kodi(c);
+    const np = await nowPlaying(cfg);
     // Which file of the library it is, so the phone can take over in VLC.
-    const media = np.active && np.file ? kodiMedia(db, svc.settings().kodiPathPrefix, np.file) : undefined;
+    const media = np.active && np.file ? kodiMedia(db, prefix, np.file) : undefined;
     return c.json(media ? { ...np, media } : np);
   });
 
-  api.get('/kodi/streams', async (c) => c.json(await streams(kodi())));
+  api.get('/kodi/streams', async (c) => c.json(await streams(kodi(c).cfg)));
 
   api.post('/kodi/remote', async (c) => {
     const body = (await c.req.json()) as { action: RemoteAction; value?: number };
-    await remote(kodi(), body.action, body.value);
+    await remote(kodi(c).cfg, body.action, body.value);
     return c.json({ ok: true });
   });
 
   api.post('/kodi/input', async (c) => {
     const { text } = (await c.req.json()) as { text?: unknown };
     if (typeof text !== 'string' || text.length > 1000) return c.json({ error: 'Text for Kodi is missing or too long' }, 400);
-    await sendText(kodi(), text);
+    await sendText(kodi(c).cfg, text);
     return c.json({ ok: true });
   });
 
-  api.get('/kodi/power', async (c) => c.json(await powerOptions(kodi())));
+  api.get('/kodi/power', async (c) => c.json(await powerOptions(kodi(c).cfg)));
 
   api.post('/kodi/power', async (c) => {
     const { action } = (await c.req.json()) as { action?: string };
     if (action !== 'shutdown' && action !== 'reboot') return c.json({ error: 'Unknown power action' }, 400);
-    if (!(await powerOptions(kodi()))[action]) {
+    const { cfg } = kodi(c);
+    if (!(await powerOptions(cfg))[action]) {
       return c.json({ error: action === 'shutdown' ? 'This Kodi box cannot be shut down remotely' : 'This Kodi box cannot be restarted remotely' }, 409);
     }
-    await power(kodi(), action);
+    await power(cfg, action);
     return c.json({ ok: true });
   });
 
   api.post('/kodi/discover', async (c) => c.json({ found: await discoverKodi() }));
+
+  // ---------- TVs ----------
+
+  /** Save the TVs as changed, answering with the settings; a TV that can't be saved says why. */
+  const saveTvs = (c: Context, change: () => ReturnType<typeof addTv>, id?: string) => {
+    try {
+      const tvs = change();
+      svc.saveTvs(tvs, id ?? tvs.at(-1)?.id);
+    } catch (e) {
+      if (e instanceof TvError) return c.json({ error: e.message }, 400);
+      throw e;
+    }
+    return c.json(publicSettings(svc.settings()));
+  };
+
+  api.post('/tvs', async (c) => {
+    const input = tvInput(await c.req.json());
+    return saveTvs(c, () => addTv(svc.tvs(), input, svc.settings().kodiTvLast));
+  });
+
+  api.put('/tvs/:id', async (c) => {
+    const id = c.req.param('id');
+    const input = tvInput(await c.req.json());
+    return saveTvs(c, () => editTv(svc.tvs(), id, input), id);
+  });
+
+  api.delete('/tvs/:id', (c) => {
+    const id = c.req.param('id');
+    return saveTvs(c, () => removeTv(svc.tvs(), id), id);
+  });
 
   // ---------- settings & jobs ----------
 
@@ -508,7 +549,7 @@ export function createApi(svc: Service): Hono {
   api.put('/settings', async (c) => {
     const body = (await c.req.json()) as Partial<Settings>;
     const patch: Partial<Settings> = {};
-    const keys: Array<keyof Settings> = ['mediaRoot', 'kodiHost', 'kodiPort', 'kodiUser', 'kodiPathPrefix', 'scanIntervalMin', 'sheetId'];
+    const keys: Array<keyof Settings> = ['mediaRoot', 'scanIntervalMin', 'sheetId'];
     for (const k of keys) if (body[k] !== undefined) (patch as Record<string, unknown>)[k] = body[k];
     if (body.cinemaCountry !== undefined) {
       if (!/^[A-Z]{2}$/.test(body.cinemaCountry)) return c.json({ error: 'Unknown country' }, 400);
@@ -516,7 +557,6 @@ export function createApi(svc: Service): Hono {
     }
     if (patch.sheetId !== undefined) patch.sheetId = sheetIdFrom(String(patch.sheetId));
     const newSheet = !!patch.sheetId && patch.sheetId !== svc.settings().sheetId;
-    if (body.kodiPass !== undefined && body.kodiPass !== '••••') patch.kodiPass = body.kodiPass;
     let newKey = false;
     if (body.tmdbKey !== undefined && !body.tmdbKey.startsWith('••••')) {
       const key = body.tmdbKey.trim();
@@ -527,7 +567,6 @@ export function createApi(svc: Service): Hono {
     const s = svc.updateSettings(patch);
     if (newKey) void svc.metadata();
     if (newSheet) void svc.importSheet();
-    if (patch.kodiHost !== undefined || patch.kodiPathPrefix !== undefined) void svc.syncKodi();
     return c.json(publicSettings(s));
   });
 

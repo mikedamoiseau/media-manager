@@ -206,28 +206,39 @@ export interface Status {
   nas: { mounted: boolean; root: string };
   scan: TaskStatus;
   sheet: TaskStatus;
-  kodi: TaskStatus & {
-    connected: boolean;
-    host?: string;
-    transport: string;
-    /** the phone can type when Kodi shows its keyboard */
-    keyboard?: boolean;
-    /** Kodi's keyboard, while it waits for text */
-    input?: KodiInput | null;
-  };
+  /** The library sync, from the first TV */
+  kodi: TaskStatus & { connected: boolean; transport: string };
+  tvs: TvStatus[];
   metadata: TaskStatus;
   tmdbConfigured: boolean;
   counts: Record<string, number>;
 }
 
+export interface TvStatus {
+  id: string;
+  name: string;
+  /** phones on this TV can type when Kodi shows its keyboard */
+  keyboard: boolean;
+  /** Kodi's keyboard, while it waits for text */
+  input: KodiInput | null;
+}
+
+/** A Kodi box, as Settings edits it (the password comes back hidden: "••••"). */
+export interface KodiTv {
+  id: string;
+  name: string;
+  host: string;
+  port: number;
+  user: string;
+  pass: string;
+  /** how this Kodi sees the media root, e.g. smb://192.168.0.24/video/MEDIA */
+  pathPrefix: string;
+}
+
 export interface Settings {
   mediaRoot: string;
   tmdbKey: string;
-  kodiHost: string;
-  kodiPort: number;
-  kodiUser: string;
-  kodiPass: string;
-  kodiPathPrefix: string;
+  kodiTvs: KodiTv[];
   scanIntervalMin: number;
   sheetId: string;
   sheetImportedAt: number;

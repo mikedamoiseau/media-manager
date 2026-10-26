@@ -62,11 +62,11 @@ export function vlcPlaylist(url: string, title: string, o: HandoffOptions): stri
   return ['#EXTM3U', `#EXTINF:-1,${name}`, ...opts.map((x) => `#EXTVLCOPT:${x}`), url, ''].join('\n');
 }
 
-/** "t445-a2-s1-k<key>" (or "soff"; tracks optional) from a handoff address. Null if malformed. */
-export function parseHandoff(s: string): (HandoffOptions & { key: string }) | null {
-  const m = /^t(\d+)(?:-a(\d+))?(?:-s(\d+|off))?-k([a-z0-9]+)$/.exec(s);
+/** "t445-a2-s1-vtv2-k<key>" (or "soff"; tracks and TV optional) from a handoff address. Null if malformed. */
+export function parseHandoff(s: string): (HandoffOptions & { tv?: string; key: string }) | null {
+  const m = /^t(\d+)(?:-a(\d+))?(?:-s(\d+|off))?(?:-v([a-z0-9]+))?-k([a-z0-9]+)$/.exec(s);
   if (!m) return null;
-  return { start: Number(m[1]), audio: m[2] ? Number(m[2]) : undefined, sub: m[3] === undefined ? undefined : m[3] === 'off' ? 'off' : Number(m[3]), key: m[4]! };
+  return { start: Number(m[1]), audio: m[2] ? Number(m[2]) : undefined, sub: m[3] === undefined ? undefined : m[3] === 'off' ? 'off' : Number(m[3]), tv: m[4], key: m[5]! };
 }
 
 /**

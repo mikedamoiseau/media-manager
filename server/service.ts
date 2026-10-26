@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events';
 import { existsSync, readdirSync } from 'node:fs';
 import { basename, join } from 'node:path';
-import { type DB, type Settings, getSettings, saveSettings } from './db.ts';
+import { type DB, type KodiTv, type Settings, getSettings, saveSettings } from './db.ts';
 import { scanMediaRoot, pool } from './scanner.ts';
 import { cachedImage, isAllowedImage } from './images.ts';
 import { reconcile, applySheetHints, syncSheetOnlyItems, importSheetRows } from './library.ts';
@@ -11,6 +11,7 @@ import { syncFromKodi, matchPending, enrichTitles } from './metadata.ts';
 import { Tmdb } from './tmdb.ts';
 import { lanTransport } from './net.ts';
 import { KodiEvents, type KodiInput } from './kodiEvents.ts';
+import { pickTv, addTv, editTv, tvNumber, firstTvChanged, firstRun } from './tvs.ts';
 
 export interface TaskStatus {
   running: boolean;
@@ -24,18 +25,42 @@ export interface Status {
   nas: { mounted: boolean; root: string };
   scan: TaskStatus;
   sheet: TaskStatus;
-  kodi: TaskStatus & {
-    connected: boolean;
-    host?: string;
-    transport: string;
-    /** Kodi's event connection is up: the phone can type when Kodi shows its keyboard */
-    keyboard: boolean;
-    /** Kodi's keyboard, while it waits for text */
-    input: KodiInput | null;
-  };
+  /** The library sync, from the first TV */
+  kodi: TaskStatus & { connected: boolean; transport: string };
+  tvs: TvStatus[];
   metadata: TaskStatus;
   tmdbConfigured: boolean;
   counts: Record<string, number>;
+}
+
+/** Runs `job` one at a time: asked again while it runs, it runs once more when done. */
+export function oneAtATime(job: () => Promise<void>): () => Promise<void> {
+  let running = false;
+  let again = false;
+  return async () => {
+    if (running) {
+      again = true;
+      return;
+    }
+    running = true;
+    try {
+      do {
+        again = false;
+        await job();
+      } while (again);
+    } finally {
+      running = false;
+    }
+  };
+}
+
+export interface TvStatus {
+  id: string;
+  name: string;
+  /** Kodi's event connection is up: phones on this TV can type when Kodi shows its keyboard */
+  keyboard: boolean;
+  /** Kodi's keyboard, while it waits for text */
+  input: KodiInput | null;
 }
 
 export class Service extends EventEmitter {
@@ -45,7 +70,8 @@ export class Service extends EventEmitter {
   private timer?: NodeJS.Timeout;
   private libraryTimer?: NodeJS.Timeout;
   private kodiResyncTimer?: NodeJS.Timeout;
-  private kodiEvents: KodiEvents;
+  /** Each TV's event connection, and the address it is for */
+  private events = new Map<string, { host: string; ev: KodiEvents }>();
 
   constructor(db: DB, dataDir: string) {
     super();
@@ -57,17 +83,13 @@ export class Service extends EventEmitter {
       nas: { mounted: existsSync(s.mediaRoot), root: s.mediaRoot },
       scan: { running: false },
       sheet: { running: false, lastAt: s.sheetImportedAt || undefined },
-      kodi: { running: false, connected: false, host: s.kodiHost || undefined, transport: lanTransport(), keyboard: false, input: null },
+      kodi: { running: false, connected: false, transport: lanTransport() },
+      tvs: s.kodiTvs.map((t) => ({ id: t.id, name: t.name, keyboard: false, input: null })),
       metadata: { running: false },
       tmdbConfigured: !!s.tmdbKey,
       counts: {},
     };
     this.refreshCounts();
-    this.kodiEvents = new KodiEvents(() => {
-      this.status.kodi.keyboard = this.kodiEvents.live;
-      this.status.kodi.input = this.kodiEvents.input;
-      this.emitStatus();
-    });
   }
 
   settings(): Settings {
@@ -75,20 +97,73 @@ export class Service extends EventEmitter {
   }
 
   updateSettings(patch: Partial<Settings>): Settings {
-    const before = this.settings().kodiHost;
     const s = saveSettings(this.db, patch);
-    if (s.kodiHost !== before) this.kodiEvents.connect(s.kodiHost);
     this.status.tmdbConfigured = !!s.tmdbKey;
-    this.status.kodi.host = s.kodiHost || undefined;
     this.status.nas.root = s.mediaRoot;
     if (patch.scanIntervalMin !== undefined) this.schedule();
     this.emitStatus();
     return s;
   }
 
-  kodiConfig(): KodiConfig | undefined {
-    const s = this.settings();
-    return s.kodiHost ? { host: s.kodiHost, port: s.kodiPort, user: s.kodiUser, pass: s.kodiPass } : undefined;
+  tvs(): KodiTv[] {
+    return this.settings().kodiTvs;
+  }
+
+  /** This TV, else the first. */
+  tv(id?: string): KodiTv | undefined {
+    return pickTv(this.tvs(), id);
+  }
+
+  kodiConfig(id?: string): KodiConfig | undefined {
+    const tv = this.tv(id);
+    return tv && { host: tv.host, port: tv.port, user: tv.user, pass: tv.pass };
+  }
+
+  /**
+   * The TVs as changed in Settings. A new first TV, or a new address or media path for it, syncs the
+   * library again; any other TV changed (`id`) only gets its media path worked out, if missing.
+   */
+  saveTvs(tvs: KodiTv[], id?: string): void {
+    const before = this.tvs();
+    this.storeTvs(tvs);
+    if (firstTvChanged(before, tvs)) {
+      void this.syncKodi();
+    } else if (id) {
+      void this.findPathPrefix(id).catch((e: Error) => console.warn(`Kodi media path: ${e.message}`));
+    }
+  }
+
+  /** Saved, with the highest TV number given, and connected. */
+  private storeTvs(tvs: KodiTv[]): void {
+    const last = Math.max(this.settings().kodiTvLast, ...tvs.map((t) => tvNumber(t.id)));
+    saveSettings(this.db, { kodiTvs: tvs, kodiTvLast: last });
+    this.connectTvs();
+  }
+
+  /** One event connection per TV, for its keyboard: opened, moved or closed as the TVs change. */
+  private connectTvs(): void {
+    const tvs = this.tvs();
+    for (const [id, e] of this.events) {
+      if (tvs.some((t) => t.id === id)) continue;
+      this.events.delete(id);
+      e.ev.stop();
+    }
+    for (const tv of tvs) {
+      let e = this.events.get(tv.id);
+      if (!e) this.events.set(tv.id, (e = { host: '', ev: new KodiEvents(() => this.tvsChanged()) }));
+      if (e.host === tv.host) continue;
+      e.host = tv.host;
+      e.ev.connect(tv.host);
+    }
+    this.tvsChanged();
+  }
+
+  private tvsChanged(): void {
+    this.status.tvs = this.tvs().map((t) => {
+      const ev = this.events.get(t.id)?.ev;
+      return { id: t.id, name: t.name, keyboard: ev?.live ?? false, input: ev?.input ?? null };
+    });
+    this.emitStatus();
   }
 
   tmdb(): Tmdb | undefined {
@@ -213,10 +288,14 @@ export class Service extends EventEmitter {
     });
   }
 
-  /** Connect to Kodi (auto-discovering it on first run) and work out how it addresses the media folder. */
+  /** Connect to the first TV (auto-discovering one on first run) and work out how it addresses the media folder. */
   async connectKodi(): Promise<KodiConfig | undefined> {
-    let cfg = this.kodiConfig();
-    if (!cfg) {
+    if (!this.tvs().length && !firstRun(this.settings())) {
+      this.status.kodi.connected = false;
+      this.status.kodi.error = 'No TV set up: add one in Settings › TVs.';
+      return undefined;
+    }
+    if (!this.tvs().length) {
       const found = await discoverKodi();
       const k = found.find((f) => !f.needsAuth) ?? found[0];
       if (!k) {
@@ -224,26 +303,39 @@ export class Service extends EventEmitter {
         this.status.kodi.error = 'No Kodi found on the network. Enable "Allow remote control via HTTP" in Kodi.';
         return undefined;
       }
-      this.updateSettings({ kodiHost: k.host, kodiPort: k.port });
-      cfg = this.kodiConfig()!;
+      this.storeTvs(addTv([], { name: k.name, host: k.host, port: k.port }, this.settings().kodiTvLast));
     }
+    const tv = this.tv()!;
+    const cfg = this.kodiConfig(tv.id)!;
     await kodiCall(cfg, 'JSONRPC.Ping');
     this.status.kodi.connected = true;
-    const s = this.settings();
-    if (!s.kodiPathPrefix && existsSync(s.mediaRoot)) {
-      const tops = readdirSync(s.mediaRoot, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name);
-      const prefix = await detectPathPrefix(cfg, tops, basename(s.mediaRoot));
-      if (prefix) this.updateSettings({ kodiPathPrefix: prefix });
-    }
+    await this.findPathPrefix(tv.id);
     return cfg;
   }
 
-  async syncKodi(): Promise<void> {
+  /** Work out how this TV's Kodi addresses the media folder, unless known. */
+  async findPathPrefix(id: string): Promise<void> {
+    const s = this.settings();
+    const tv = s.kodiTvs.find((t) => t.id === id);
+    if (!tv || tv.pathPrefix || !existsSync(s.mediaRoot)) return;
+    const tops = readdirSync(s.mediaRoot, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name);
+    const prefix = await detectPathPrefix(this.kodiConfig(id)!, tops, basename(s.mediaRoot));
+    // The TVs may have changed while Kodi answered.
+    if (prefix && this.tvs().some((t) => t.id === id && t.host === tv.host && !t.pathPrefix)) {
+      saveSettings(this.db, { kodiTvs: editTv(this.tvs(), id, { pathPrefix: prefix }) });
+    }
+  }
+
+  /** Asked again while it runs (the first TV changed meanwhile): it syncs once more after. */
+  readonly syncKodi = oneAtATime(() => this.syncKodiOnce());
+
+  private async syncKodiOnce(): Promise<void> {
     await this.task('kodi', async () => {
       const cfg = await this.connectKodi();
       if (!cfg) throw new Error(this.status.kodi.error ?? 'Kodi not found');
-      const prefix = this.settings().kodiPathPrefix;
-      if (!prefix) throw new Error('Could not work out how Kodi sees the media folder: set the Kodi path in Settings');
+      const tv = this.tv()!;
+      if (!tv.pathPrefix) throw new Error(`Could not work out how Kodi sees the media folder: set the media path of ${tv.name} in Settings`);
+      const prefix = tv.pathPrefix;
       const r = await syncFromKodi(this.db, cfg, prefix);
       this.libraryChanged(true);
       return `${r.movies} films and ${r.shows} shows in Kodi, ${r.linked} linked to files`;
@@ -315,7 +407,7 @@ export class Service extends EventEmitter {
 
   start(): void {
     this.schedule();
-    this.kodiEvents.connect(this.settings().kodiHost);
+    this.connectTvs();
     void this.scan();
   }
 
@@ -323,6 +415,6 @@ export class Service extends EventEmitter {
     this.stopRequested = true;
     clearInterval(this.timer);
     clearTimeout(this.kodiResyncTimer);
-    this.kodiEvents.stop();
+    for (const e of this.events.values()) e.ev.stop();
   }
 }

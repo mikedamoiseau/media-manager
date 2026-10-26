@@ -190,7 +190,7 @@ export function DetailView({ id, onClose }: { id: number; onClose: () => void })
   const t = d ? displayTitle(d, titleLang) : null;
   const overviewLang = d ? plotLang(titleLang, d.originalLanguage) : 'fr';
   const overview = d ? (overviewLang === 'fr' ? (d.overviewFr ?? d.overviewEn) : (d.overviewEn ?? d.overviewFr)) : null;
-  const kodiReady = !!st?.kodi.host;
+  const kodiReady = !!st?.tvs.length;
   const present = d?.versions.some((v) => v.present);
   // The episodes listed are this copy's: playable only when this copy is on the NAS.
   const episodesHere = !!d?.versions.find((v) => v.id === d.id)?.present;

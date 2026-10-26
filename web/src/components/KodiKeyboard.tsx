@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type InputHTMLAttributes } from 'react';
 import { api } from '../api.ts';
-import { useStore, status, typingForKodi, toast } from '../store.ts';
+import { useStore, typingForKodi, toast, useTv } from '../store.ts';
 import type { KodiInput } from '../types.ts';
 import { Sheet } from './Sheet.tsx';
 
@@ -30,17 +30,19 @@ function fieldFor(type: string): InputHTMLAttributes<HTMLInputElement> {
  * Also opened from the Remote's Keyboard button.
  */
 export function KodiKeyboard() {
-  const st = useStore(status);
+  const tv = useTv();
   const manual = useStore(typingForKodi);
-  const input = st?.kodi.input ?? null;
+  // Only the keyboard of the TV this device controls.
+  const input = tv?.input ?? null;
+  const key = input && `${tv!.id}:${input.id}`;
   // Closed on the phone, but Kodi may still wait (finish it with the TV remote).
-  const [hidden, setHidden] = useState(0);
-  if (!(manual || (input && input.id !== hidden))) return null;
+  const [hidden, setHidden] = useState<string | null>(null);
+  if (!(manual || (key && key !== hidden))) return null;
   const done = () => {
-    if (input) setHidden(input.id);
+    if (key) setHidden(key);
     typingForKodi.set(false);
   };
-  return <KeyboardSheet key={input?.id ?? 'manual'} input={input} onDone={done} />;
+  return <KeyboardSheet key={key ?? 'manual'} input={input} onDone={done} />;
 }
 
 function KeyboardSheet({ input, onDone }: { input: KodiInput | null; onDone: () => void }) {

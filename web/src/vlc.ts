@@ -22,13 +22,14 @@ export function handoffUrl(
   origin: string,
   kind: 'item' | 'episode',
   id: number,
-  o: { start: number; audio?: number; sub?: number | 'off' },
+  o: { start: number; audio?: number; sub?: number | 'off'; tv?: string },
   key: string,
   name: string,
 ): string {
   const parts = [`t${Math.max(0, Math.floor(o.start))}`];
   if (o.audio !== undefined) parts.push(`a${o.audio}`);
   if (o.sub !== undefined) parts.push(o.sub === 'off' ? 'soff' : `s${o.sub}`);
+  if (o.tv) parts.push(`v${o.tv}`);
   parts.push(`k${key}`);
   return new URL(`/api/handoff/${kind}/${id}/${parts.join('-')}/${encodeURIComponent(name)}.m3u`, origin).href;
 }
@@ -55,9 +56,10 @@ const HANDOFF_REWIND = 5;
 /**
  * VLC on the phone taking over from the TV: a few seconds before where the TV is, with its audio and
  * subtitle tracks, named like the episode or the film. The TV stops once VLC loads the playlist, so
- * nothing stops when VLC doesn't open. `key`: new for each link. Null when Kodi plays no file of the library.
+ * nothing stops when VLC doesn't open. `key`: new for each link; `tv`: the TV to stop. Null when Kodi plays
+ * no file of the library.
  */
-export function handoffLink(origin: string, np: NowPlaying, back: string | null, key: string): string | null {
+export function handoffLink(origin: string, np: NowPlaying, back: string | null, key: string, tv?: string): string | null {
   const m = np.media;
   if (!m) return null;
   const name =
@@ -65,7 +67,7 @@ export function handoffLink(origin: string, np: NowPlaying, back: string | null,
       ? episodeName(np.showTitle, { name: `${np.showTitle} - ${np.title ?? 'Episode'}${m.ext}`, season: np.season ?? null, episode: np.episode ?? null })
       : `${np.title ?? 'Video'}${m.ext}`;
   const sub: number | 'off' | undefined = np.subtitlesOn === false ? 'off' : np.subtitlesOn && np.subtitle ? np.subtitle.index : undefined;
-  const o = { start: (np.time ?? 0) - HANDOFF_REWIND, audio: np.audio?.index, sub };
+  const o = { start: (np.time ?? 0) - HANDOFF_REWIND, audio: np.audio?.index, sub, tv };
   return vlcLink(handoffUrl(origin, m.kind, m.id, o, key, name), back);
 }
 

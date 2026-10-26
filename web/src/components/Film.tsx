@@ -144,7 +144,7 @@ export function FilmView({ id, onClose }: { id: number; onClose: () => void }) {
             <p className="hint pad">{where}</p>
           ) : null}
 
-          {trailer && d.trailer && <Trailer videoId={d.trailer} onTv={st?.kodi.host ? () => api.post(`/api/films/${d.id}/trailer`) : undefined} />}
+          {trailer && d.trailer && <Trailer videoId={d.trailer} onTv={st?.tvs.length ? () => api.post(`/api/films/${d.id}/trailer`) : undefined} />}
 
           <div className="detail-body">
             {/* TMDB only gives the English tagline: don't mix it with a French plot. */}

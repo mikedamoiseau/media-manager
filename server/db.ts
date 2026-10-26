@@ -201,15 +201,24 @@ export function tx<T>(db: DB, fn: () => T): T {
   }
 }
 
+/** A Kodi box the app can control. The first one is also where the library syncs from. */
+export interface KodiTv {
+  id: string;
+  name: string;
+  host: string;
+  port: number;
+  user: string;
+  pass: string;
+  /** How this Kodi sees the media root, e.g. smb://192.168.0.24/video/MEDIA */
+  pathPrefix: string;
+}
+
 export interface Settings {
   mediaRoot: string;
   tmdbKey: string;
-  kodiHost: string;
-  kodiPort: number;
-  kodiUser: string;
-  kodiPass: string;
-  /** How Kodi sees the media root, e.g. smb://192.168.0.24/video/MEDIA */
-  kodiPathPrefix: string;
+  kodiTvs: KodiTv[];
+  /** The highest TV number given (tv3: 3): a removed TV's id is never given again */
+  kodiTvLast: number;
   scanIntervalMin: number;
   sheetId: string;
   sheetImportedAt: number;
@@ -220,11 +229,8 @@ export interface Settings {
 export const DEFAULT_SETTINGS: Settings = {
   mediaRoot: '/Volumes/video/MEDIA',
   tmdbKey: '',
-  kodiHost: '',
-  kodiPort: 8080,
-  kodiUser: 'kodi',
-  kodiPass: '',
-  kodiPathPrefix: '',
+  kodiTvs: [],
+  kodiTvLast: 0,
   scanIntervalMin: 10,
   sheetId: '',
   sheetImportedAt: 0,
@@ -235,7 +241,17 @@ export function getSettings(db: DB): Settings {
   const rows = db.prepare('SELECT key, value FROM settings').all() as Array<{ key: string; value: string }>;
   const s: Record<string, unknown> = { ...DEFAULT_SETTINGS };
   for (const r of rows) if (r.key in DEFAULT_SETTINGS) s[r.key] = JSON.parse(r.value);
+  if (!rows.some((r) => r.key === 'kodiTvs')) s.kodiTvs = oneKodi(rows);
+  // Never below the TVs listed: the Kodi set up before TVs is tv1 before anything was saved.
+  s.kodiTvLast = Math.max(s.kodiTvLast as number, ...(s.kodiTvs as KodiTv[]).map((t) => Number(/^tv(\d+)$/.exec(t.id)?.[1] ?? 0)));
   return s as unknown as Settings;
+}
+
+/** The single Kodi set up before there were TVs: the first TV, until TVs are saved. */
+function oneKodi(rows: Array<{ key: string; value: string }>): KodiTv[] {
+  const old = Object.fromEntries(rows.filter((r) => r.key.startsWith('kodi')).map((r) => [r.key, JSON.parse(r.value)]));
+  if (!old.kodiHost) return [];
+  return [{ id: 'tv1', name: 'Living room', host: old.kodiHost, port: old.kodiPort ?? 8080, user: old.kodiUser ?? 'kodi', pass: old.kodiPass ?? '', pathPrefix: old.kodiPathPrefix ?? '' }];
 }
 
 export function saveSettings(db: DB, patch: Partial<Settings>): Settings {

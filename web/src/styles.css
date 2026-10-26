@@ -2152,6 +2152,15 @@ select option {
   flex: none;
 }
 
+.track .track-end {
+  margin-left: auto;
+}
+
+/* A TV that didn't answer: still there to pick, for when it's back. */
+.track.is-off {
+  opacity: 0.6;
+}
+
 .track-detail.wraps {
   white-space: normal;
 }
@@ -2290,6 +2299,17 @@ select option {
   padding: 12px 14px;
   border-radius: 12px;
   background: var(--nuit);
+}
+
+/* A saved TV: Edit and Remove side by side, the form in place of the row while editing. */
+.found .tv-actions {
+  display: flex;
+  gap: 8px;
+  flex: none;
+}
+
+.found li.tv-edit {
+  display: block;
 }
 
 /* ---------- toasts ---------- */

@@ -40,4 +40,7 @@ test('taking over from the TV: from 5 s before, with its tracks, on an address V
   assert.equal(ep(undefined, 5), `${origin}/api/handoff/episode/9/t55-kk3/Dark E05.mp4.m3u`);
   assert.equal(ep(), `${origin}/api/handoff/episode/9/t55-kk3/Dark - Ghosts.mp4.m3u`);
   assert.equal(handoffLink(origin, { active: true, title: 'YouTube', time: 30 }, null, 'k4'), null);
+  // The TV this phone controls, to stop it once VLC has the film.
+  const fromBedroom = handoffLink(origin, { active: true, title: 'Heat', time: 4325, audio, media: { kind: 'item', id: 7, ext: '.mkv' } }, null, 'k5', 'tv2');
+  assert.equal(inner(fromBedroom), `${origin}/api/handoff/item/7/t4320-a2-vtv2-kk5/Heat.mkv.m3u`);
 });

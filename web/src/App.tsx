@@ -6,7 +6,7 @@ import { FilmView } from './components/Film.tsx';
 import { Review } from './components/Review.tsx';
 import { Remote } from './components/Remote.tsx';
 import { SettingsView } from './components/Settings.tsx';
-import { NowPlayingBar } from './components/NowPlayingBar.tsx';
+import { TvBar } from './components/TvBar.tsx';
 import { Toasts } from './components/Toasts.tsx';
 import { KodiKeyboard } from './components/KodiKeyboard.tsx';
 import { IconFilm, IconInbox, IconRemote, IconSettings } from './components/icons.tsx';
@@ -70,7 +70,7 @@ export function App() {
       {filmParams && <FilmView key={filmParams.id} id={Number(filmParams.id)} onClose={closeDetail} />}
 
       <footer className="chrome">
-        {tab !== 'remote' && <NowPlayingBar />}
+        <TvBar onRemote={tab === 'remote'} />
         <nav className="tabbar" aria-label="Sections">
           {TABS.map(({ key, path, label, Icon }) => (
             <button

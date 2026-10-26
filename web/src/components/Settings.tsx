@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useLocation, useRoute } from 'wouter';
 import { api } from '../api.ts';
 import { useStore, status, toast, prefs } from '../store.ts';
-import type { Settings, TaskStatus } from '../types.ts';
+import type { KodiTv, Settings, TaskStatus } from '../types.ts';
 import { LangSwitch } from './Detail.tsx';
 import { IconRefresh, IconTv } from './icons.tsx';
 import { DuplicatesReport, SetsReport, WantedReport } from './Reports.tsx';
@@ -39,6 +39,7 @@ export function SettingsView() {
   const [tmdbKey, setTmdbKey] = useState('');
   const [found, setFound] = useState<Array<{ host: string; port: number; name: string; version?: string; needsAuth?: boolean }> | null>(null);
   const [searching, setSearching] = useState(false);
+  const [adding, setAdding] = useState<KodiTv | null>(null);
   const [saving, setSaving] = useState(false);
   const [, navigate] = useLocation();
   const [, report] = useRoute('/settings/:report');
@@ -198,79 +199,65 @@ export function SettingsView() {
       </section>
 
       <section className="panel">
-        <h2>Kodi</h2>
+        <h2>TVs</h2>
         <p className="muted">
-          {st?.kodi.connected ? `Connected to ${s.kodiHost}:${s.kodiPort}.` : s.kodiHost ? `Set to ${s.kodiHost}:${s.kodiPort}, not answering right now.` : 'Not set up yet.'}
-          {st?.kodi.connected &&
-            (st.kodi.keyboard
-              ? ' When Kodi shows its keyboard, you can type from this device.'
-              : ' To type from this device when Kodi shows its keyboard, turn on Settings › Services › Control › “Allow remote control from applications on other systems” in Kodi.')}
+          {s.kodiTvs.length
+            ? 'Each phone or iPad picks the TV it controls in the bar above the tabs. Watched marks come from the first TV.'
+            : 'No TV yet: find your Kodi boxes on the network.'}
           {st?.kodi.transport === 'curl' && ' macOS is blocking local network access for Node, so calls go through curl (works, slightly slower). Allow your terminal app under System Settings › Privacy & Security › Local Network to fix it.'}
         </p>
+        {s.kodiTvs.length > 0 && (
+          <ul className="found">
+            {s.kodiTvs.map((t) => (
+              <SavedTv key={t.id} tv={t} live={!!st?.tvs.find((x) => x.id === t.id)?.keyboard} onSaved={setS} />
+            ))}
+          </ul>
+        )}
         <div className="tool-row">
           <button className="btn" onClick={() => void discover()} disabled={searching}>
-            {searching ? 'Searching the network…' : 'Find Kodi'}
+            {searching ? 'Searching the network…' : 'Find TVs'}
+          </button>
+          <button className="btn" onClick={() => setAdding({ ...NEW_TV })}>
+            Add by address
           </button>
         </div>
         {found && found.length === 0 && <p className="error-text">No Kodi found. In Kodi, turn on Settings › Services › Control › “Allow remote control via HTTP”.</p>}
         {found && found.length > 0 && (
           <ul className="found">
-            {found.map((k) => (
-              <li key={`${k.host}:${k.port}`}>
-                <span>
-                  <strong>{k.name}</strong> {k.version && <span className="muted">v{k.version}</span>}
-                  <br />
-                  <span className="muted small">
-                    {k.host}:{k.port}
-                    {k.needsAuth ? ', needs a password' : ''}
+            {found.map((k) => {
+              const saved = s.kodiTvs.find((t) => t.host === k.host && t.port === k.port);
+              return (
+                <li key={`${k.host}:${k.port}`}>
+                  <span>
+                    <strong>{k.name}</strong> {k.version && <span className="muted">v{k.version}</span>}
+                    <br />
+                    <span className="muted small">
+                      {k.host}:{k.port}
+                      {k.needsAuth ? ', needs a password' : ''}
+                    </span>
                   </span>
-                </span>
-                <button className="btn small primary" onClick={() => void save({ kodiHost: k.host, kodiPort: k.port, kodiPathPrefix: '' }, 'Kodi connected')}>
-                  Use this one
-                </button>
-              </li>
-            ))}
+                  {saved ? (
+                    <span className="muted small">Saved as {saved.name}</span>
+                  ) : (
+                    <button className="btn small primary" onClick={() => setAdding({ ...NEW_TV, host: k.host, port: k.port })}>
+                      Add…
+                    </button>
+                  )}
+                </li>
+              );
+            })}
           </ul>
         )}
-        <form
-          key={`${s.kodiHost}|${s.kodiPort}|${s.kodiUser}|${s.kodiPathPrefix}`}
-          className="form-grid"
-          onSubmit={(e) => {
-            e.preventDefault();
-            const f = new FormData(e.currentTarget);
-            void save({
-              kodiHost: String(f.get('host')).trim(),
-              kodiPort: Number(f.get('port')) || 8080,
-              kodiUser: String(f.get('user')).trim(),
-              kodiPass: String(f.get('pass')),
-              kodiPathPrefix: String(f.get('prefix')).trim(),
-            });
-          }}
-        >
-          <label>
-            <span>Address</span>
-            <input name="host" defaultValue={s.kodiHost} placeholder="192.168.0.20" />
-          </label>
-          <label>
-            <span>Port</span>
-            <input name="port" defaultValue={s.kodiPort} inputMode="numeric" />
-          </label>
-          <label>
-            <span>User</span>
-            <input name="user" defaultValue={s.kodiUser} autoComplete="off" />
-          </label>
-          <label>
-            <span>Password</span>
-            <input name="pass" type="password" defaultValue={s.kodiPass} autoComplete="off" />
-          </label>
-          <label className="span-2">
-            <span>How Kodi sees the media folder</span>
-            <input name="prefix" defaultValue={s.kodiPathPrefix} placeholder="smb://192.168.0.24/video/MEDIA" />
-          </label>
-          <button className="btn span-2" disabled={saving}>
-            Save Kodi settings
-          </button>
-        </form>
+        {adding && (
+          <TvForm
+            key={`${adding.host}:${adding.port}`}
+            tv={adding}
+            onDone={(next) => {
+              setAdding(null);
+              if (next) setS(next);
+            }}
+          />
+        )}
       </section>
 
       <section className="panel">
@@ -313,5 +300,129 @@ export function SettingsView() {
         )}
       </section>
     </div>
+  );
+}
+
+const NEW_TV: KodiTv = { id: '', name: '', host: '', port: 8080, user: 'kodi', pass: '', pathPrefix: '' };
+
+/** A saved TV: its address, Edit, and Remove (a second tap removes it). */
+function SavedTv({ tv, live, onSaved }: { tv: KodiTv; live: boolean; onSaved: (s: Settings) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [confirm, setConfirm] = useState(false);
+  const remove = async () => {
+    if (!confirm) return setConfirm(true);
+    try {
+      onSaved(await api.del<Settings>(`/api/tvs/${encodeURIComponent(tv.id)}`));
+      toast(`${tv.name} removed`);
+    } catch (e) {
+      toast((e as Error).message, 'error');
+    }
+  };
+  if (editing) {
+    return (
+      <li className="tv-edit">
+        <TvForm
+          tv={tv}
+          onDone={(next) => {
+            setEditing(false);
+            if (next) onSaved(next);
+          }}
+        />
+      </li>
+    );
+  }
+  return (
+    <li>
+      <span>
+        <strong>{tv.name}</strong>
+        <br />
+        <span className="muted small">
+          {tv.host}:{tv.port}
+          {live ? ', connected' : ', not connected (to type from the phone, turn on “Allow remote control from applications on other systems” in its Kodi)'}
+        </span>
+      </span>
+      <span className="tv-actions">
+        <button
+          className="btn small"
+          onClick={() =>
+            // The server may have worked out its media path since: edit what it holds now.
+            api.get<Settings>('/api/settings').then(
+              (s) => {
+                onSaved(s);
+                setEditing(true);
+              },
+              (e: Error) => toast(e.message, 'error'),
+            )
+          }
+        >
+          Edit
+        </button>
+        <button className={`btn small${confirm ? ' danger' : ''}`} onClick={() => void remove()} onBlur={() => setConfirm(false)}>
+          {confirm ? `Remove ${tv.name}?` : 'Remove'}
+        </button>
+      </span>
+    </li>
+  );
+}
+
+/** Add a TV (no id yet) or change one. `onDone`: the settings once saved, or nothing when cancelled. */
+function TvForm({ tv, onDone }: { tv: KodiTv; onDone: (s?: Settings) => void }) {
+  const [saving, setSaving] = useState(false);
+  return (
+    <form
+      className="form-grid"
+      onSubmit={async (e) => {
+        e.preventDefault();
+        const f = new FormData(e.currentTarget);
+        const body = {
+          name: String(f.get('name')),
+          host: String(f.get('host')),
+          port: Number(f.get('port')) || 8080,
+          user: String(f.get('user')),
+          pass: String(f.get('pass')),
+          pathPrefix: String(f.get('prefix')),
+        };
+        setSaving(true);
+        try {
+          const next = tv.id ? await api.put<Settings>(`/api/tvs/${encodeURIComponent(tv.id)}`, body) : await api.post<Settings>('/api/tvs', body);
+          toast(tv.id ? `${body.name.trim()} saved` : `${body.name.trim()} added`);
+          onDone(next);
+        } catch (err) {
+          toast((err as Error).message, 'error');
+          setSaving(false);
+        }
+      }}
+    >
+      <label className="span-2">
+        <span>Name</span>
+        <input name="name" defaultValue={tv.name} placeholder="Living room, Bedroom…" autoFocus={!tv.name} />
+      </label>
+      <label>
+        <span>Address</span>
+        <input name="host" defaultValue={tv.host} placeholder="192.168.0.20" />
+      </label>
+      <label>
+        <span>Port</span>
+        <input name="port" defaultValue={tv.port} inputMode="numeric" />
+      </label>
+      <label>
+        <span>User</span>
+        <input name="user" defaultValue={tv.user} autoComplete="off" />
+      </label>
+      <label>
+        <span>Password</span>
+        <input name="pass" type="password" defaultValue={tv.pass} autoComplete="off" />
+      </label>
+      <label className="span-2">
+        <span>How this Kodi sees the media folder (worked out on its own when empty)</span>
+        <input name="prefix" defaultValue={tv.pathPrefix} placeholder="smb://192.168.0.24/video/MEDIA" />
+      </label>
+      <button className="btn primary" disabled={saving}>
+        {tv.id ? 'Save' : 'Add TV'}
+      </button>
+      <button type="button" className="btn" onClick={() => onDone()}>
+        Cancel
+      </button>
+    </form>
   );
 }

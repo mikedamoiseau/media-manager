@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from 'react';
-import { api } from './api.ts';
-import type { Card, NowPlaying, Status, TitleLang } from './types.ts';
+import { api, setKodiTv } from './api.ts';
+import { chosenTv } from './tvs.ts';
+import type { Card, NowPlaying, Status, TitleLang, TvStatus } from './types.ts';
 
 type Listener = () => void;
 
@@ -119,14 +120,23 @@ export function connectEvents(): void {
 // ---------- Kodi now playing ----------
 
 export const nowPlaying = createStore<NowPlaying | null>(null);
+/** This device's TV didn't answer the last time it was asked: why. */
+export const nowPlayingError = createStore<string | null>(null);
 let fastPoll = 0;
 
 export async function pollNowPlaying(): Promise<void> {
-  if (!status.get()?.kodi.host) return;
+  if (!status.get()?.tvs.length) return;
+  const tv = tvChoice.get();
   try {
-    nowPlaying.set(await api.get<NowPlaying>('/api/kodi/now'));
-  } catch {
+    const np = await api.get<NowPlaying>('/api/kodi/now');
+    // The answer of a TV this device left meanwhile: not about the TV it controls now.
+    if (tvChoice.get() !== tv) return;
+    nowPlaying.set(np);
+    nowPlayingError.set(null);
+  } catch (e) {
+    if (tvChoice.get() !== tv) return;
     nowPlaying.set(null);
+    nowPlayingError.set((e as Error).message);
   }
 }
 
@@ -145,6 +155,47 @@ export function startFastPoll(): () => void {
   return () => {
     fastPoll--;
   };
+}
+
+// ---------- the TV this device controls ----------
+
+function readTv(): string | null {
+  try {
+    return localStorage.getItem('mm.tv');
+  } catch {
+    return null;
+  }
+}
+
+/** The TV this phone or iPad picked, each its own; null (or a TV removed since): the first. */
+export const tvChoice = createStore<string | null>(readTv());
+setKodiTv(tvChoice.get());
+tvChoice.subscribe(() => {
+  const id = tvChoice.get();
+  setKodiTv(id);
+  try {
+    if (id) localStorage.setItem('mm.tv', id);
+    else localStorage.removeItem('mm.tv');
+  } catch {
+    /* private mode */
+  }
+  // Another TV: what played on the last one says nothing about this one.
+  nowPlaying.set(null);
+  nowPlayingError.set(null);
+  void pollNowPlaying();
+});
+// The TV picked was removed: back to the first, and not to a TV added later under the same id.
+status.subscribe(() => {
+  const tvs = status.get()?.tvs;
+  const id = tvChoice.get();
+  if (tvs && id && !tvs.some((t) => t.id === id)) tvChoice.set(null);
+});
+
+/** This device's TV; null when none is set up. */
+export function useTv(): TvStatus | null {
+  const st = useStore(status);
+  const choice = useStore(tvChoice);
+  return chosenTv(st?.tvs ?? [], choice);
 }
 
 /** A name tapped on a title's page: the library shows the titles of that actor or director. */
