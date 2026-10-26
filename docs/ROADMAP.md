@@ -5,7 +5,7 @@ discussion before it is built.
 
 | # | Feature | Size | Status |
 |---|---------|------|--------|
-| 1 | Who's watching (profiles) | Medium | Designed: [design](superpowers/specs/2026-10-26-profiles-design.md) |
+| 1 | Who's watching (profiles) | Medium | Done: [design](superpowers/specs/2026-10-26-profiles-design.md) |
 | 2 | Kids mode | Medium | Idea |
 | 3 | What do we watch tonight? | Medium | Idea |
 | 4 | Series tracker | Medium | Idea |
@@ -20,6 +20,10 @@ Several Kodi TVs now share one library, so everyone's watched marks and
 resume points end up mixed together. Each phone or tablet picks who is
 watching, and that person gets their own Continue watching, ratings and
 suggestions.
+
+Done: "Who's watching?" on each device's first open, a badge on every screen
+to switch, and Settings › Profiles to add, rename, recolour or remove someone.
+Plays started with the TV's own remote go to the main profile.
 
 ## 2. Kids mode
 
