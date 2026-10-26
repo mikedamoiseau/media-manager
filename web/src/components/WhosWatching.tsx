@@ -2,6 +2,7 @@ import { useEffect, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import { api, ApiError } from '../api.ts';
 import { PROFILE_COLORS, initial } from '../profiles.ts';
+import { FSK_STEPS } from '../kids.ts';
 import { useStore, status, profileChoice, useProfile, useKids, toast } from '../store.ts';
 import type { Profile } from '../types.ts';
 import { IconClose } from './icons.tsx';
@@ -135,9 +136,16 @@ export function ProfileBadge() {
  * uses yet. `onDone`: the profile once saved, or nothing when cancelled.
  */
 export function ProfileForm({ profile, used = [], onDone }: { profile?: Profile; used?: string[]; onDone: (p?: Profile) => void }) {
+  const st = useStore(status);
   const [name, setName] = useState(profile?.name ?? '');
   const [color, setColor] = useState(profile?.color ?? PROFILE_COLORS.find((c) => !used.includes(c)) ?? PROFILE_COLORS[0]!);
+  const [kids, setKids] = useState(profile?.kids ?? false);
+  const [maxAge, setMaxAge] = useState(profile?.maxAge ?? 12);
+  const [bedtime, setBedtime] = useState(profile?.bedtime ?? '');
+  const [code, setCode] = useState({ code: '', again: '' });
   const [saving, setSaving] = useState(false);
+  // The first kids profile sets the household's parents' code.
+  const needsCode = kids && !st?.kidsCode;
   return (
     <form
       className="profile-form"
@@ -145,7 +153,8 @@ export function ProfileForm({ profile, used = [], onDone }: { profile?: Profile;
         e.preventDefault();
         setSaving(true);
         try {
-          const body = { name, color };
+          if (needsCode) await saveCode(code);
+          const body = { name, color, kids, maxAge, bedtime: kids && bedtime ? bedtime : null };
           const r = profile
             ? await api.put<{ profiles: Profile[] }>(`/api/profiles/${profile.id}`, body)
             : await api.post<{ profiles: Profile[] }>('/api/profiles', body);
@@ -180,6 +189,33 @@ export function ProfileForm({ profile, used = [], onDone }: { profile?: Profile;
           ))}
         </div>
       </fieldset>
+      {!profile?.main && (
+        <div className="kids-fields">
+          <button type="button" className="chip kids-switch" aria-pressed={kids} onClick={() => setKids(!kids)}>
+            Kids profile
+          </button>
+          {kids && (
+            <>
+              <p className="muted small">Only titles for their age, a simple remote, and the parents' code to leave.</p>
+              <fieldset>
+                <legend>Age limit (FSK)</legend>
+                <div className="segmented" role="radiogroup" aria-label="Age limit">
+                  {FSK_STEPS.map((a) => (
+                    <button key={a} type="button" role="radio" aria-checked={a === maxAge} onClick={() => setMaxAge(a)}>
+                      {a}
+                    </button>
+                  ))}
+                </div>
+              </fieldset>
+              <label>
+                <span>Bedtime (empty: none)</span>
+                <input type="time" value={bedtime} onChange={(e) => setBedtime(e.target.value)} />
+              </label>
+              {needsCode && <CodeInputs value={code} onChange={setCode} />}
+            </>
+          )}
+        </div>
+      )}
       <div className="form-actions">
         <button className="btn primary" disabled={saving || !name.trim()}>
           {profile ? 'Save' : 'Add'}
@@ -196,6 +232,7 @@ export function ProfileForm({ profile, used = [], onDone }: { profile?: Profile;
 export function ProfilesPanel() {
   const st = useStore(status);
   const [adding, setAdding] = useState(false);
+  const [changingCode, setChangingCode] = useState(false);
   const profiles = st?.profiles ?? [];
   return (
     <section className="panel">
@@ -208,11 +245,18 @@ export function ProfilesPanel() {
       </ul>
       {adding ? (
         <ProfileForm used={profiles.map((p) => p.color)} onDone={() => setAdding(false)} />
+      ) : changingCode ? (
+        <CodeForm onDone={() => setChangingCode(false)} />
       ) : (
         <div className="tool-row">
           <button className="btn" onClick={() => setAdding(true)}>
             Add someone
           </button>
+          {st?.kidsCode && (
+            <button className="btn" onClick={() => setChangingCode(true)}>
+              Change parents' code
+            </button>
+          )}
         </div>
       )}
     </section>
@@ -250,6 +294,15 @@ function SavedProfile({ profile, used }: { profile: Profile; used: string[] }) {
               <span className="muted small">Main profile: also gets what's played with the TV remote</span>
             </>
           )}
+          {profile.kids && (
+            <>
+              <br />
+              <span className="muted small">
+                Kids profile, up to FSK {profile.maxAge}
+                {profile.bedtime ? `, bedtime ${profile.bedtime}` : ''}
+              </span>
+            </>
+          )}
         </span>
       </span>
       <span className="tv-actions">
@@ -263,5 +316,63 @@ function SavedProfile({ profile, used }: { profile: Profile; used: string[] }) {
         )}
       </span>
     </li>
+  );
+}
+
+type NewCode = { code: string; again: string };
+
+/** The household's parents' code, typed twice. Shown as dots, but not a password field: no offer to save it. */
+function CodeInputs({ value, onChange }: { value: NewCode; onChange: (v: NewCode) => void }) {
+  const digits = (v: string) => v.replace(/\D/g, '').slice(0, 4);
+  return (
+    <>
+      <label>
+        <span>Parents' code (4 digits, to leave kids mode)</span>
+        <input className="code-input" inputMode="numeric" autoComplete="off" value={value.code} onChange={(e) => onChange({ ...value, code: digits(e.target.value) })} />
+      </label>
+      <label>
+        <span>The code again</span>
+        <input className="code-input" inputMode="numeric" autoComplete="off" value={value.again} onChange={(e) => onChange({ ...value, again: digits(e.target.value) })} />
+      </label>
+    </>
+  );
+}
+
+async function saveCode({ code, again }: NewCode): Promise<void> {
+  if (code !== again) throw new Error("The two codes aren't the same");
+  const { profiles } = await api.put<{ profiles: Profile[] }>('/api/kids/code', { code });
+  status.set((s) => (s ? { ...s, profiles, kidsCode: true } : s));
+}
+
+/** Settings: a new parents' code (also the way out when it's forgotten). */
+function CodeForm({ onDone }: { onDone: () => void }) {
+  const [code, setCode] = useState({ code: '', again: '' });
+  const [saving, setSaving] = useState(false);
+  return (
+    <form
+      className="profile-form"
+      onSubmit={async (e) => {
+        e.preventDefault();
+        setSaving(true);
+        try {
+          await saveCode(code);
+          toast("Parents' code changed");
+          onDone();
+        } catch (err) {
+          toast((err as Error).message, 'error');
+          setSaving(false);
+        }
+      }}
+    >
+      <CodeInputs value={code} onChange={setCode} />
+      <div className="form-actions">
+        <button className="btn primary" disabled={saving || code.code.length < 4}>
+          Save
+        </button>
+        <button type="button" className="btn" onClick={onDone}>
+          Cancel
+        </button>
+      </div>
+    </form>
   );
 }

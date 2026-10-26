@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { useStore, nowPlaying, startFastPoll, useTv } from '../store.ts';
+import { api } from '../api.ts';
+import { useStore, nowPlaying, startFastPoll, useTv, status, toast } from '../store.ts';
 import { send } from './Remote.tsx';
 import { TrackPicker } from './TrackPicker.tsx';
 import { ProfileBadge } from './WhosWatching.tsx';
@@ -149,5 +150,59 @@ export function KidsPlaying() {
       </div>
       {picker && <TrackPicker kind={picker} onClose={() => setPicker(null)} />}
     </>
+  );
+}
+
+type ForKids = { override: 'ok' | 'no' | null; kids: Array<{ id: number; name: string; allowed: boolean }> };
+
+const CALLS: Array<{ value: ForKids['override']; label: string }> = [
+  { value: null, label: 'Automatic' },
+  { value: 'ok', label: 'OK for kids' },
+  { value: 'no', label: 'Not for kids' },
+];
+
+/** A title's page, for parents: their call on it for every kids profile, and who can watch it. */
+export function KidsForTitle({ id }: { id: number }) {
+  const [state, setState] = useState<ForKids | null>(null);
+  // A kid's age limit changed, or a kid was added: who can watch it again.
+  const kidsShape = JSON.stringify(useStore(status)?.profiles.filter((p) => p.kids).map((p) => [p.id, p.name, p.maxAge]) ?? []);
+  useEffect(() => {
+    let alive = true;
+    api.get<ForKids>(`/api/kids/items/${id}`).then(
+      (r) => alive && setState(r),
+      () => alive && setState(null),
+    );
+    return () => {
+      alive = false;
+    };
+  }, [id, kidsShape]);
+  if (!state) return null;
+
+  const pick = async (value: ForKids['override']) => {
+    try {
+      setState(await api.put<ForKids>(`/api/kids/items/${id}`, { value }));
+    } catch (e) {
+      toast((e as Error).message, 'error');
+    }
+  };
+
+  return (
+    <section className="for-kids">
+      <h2 className="section-title">For kids</h2>
+      <div className="segmented" role="radiogroup" aria-label="For kids">
+        {CALLS.map((c) => (
+          <button key={c.label} role="radio" aria-checked={state.override === c.value} onClick={() => void pick(c.value)}>
+            {c.label}
+          </button>
+        ))}
+      </div>
+      <ul>
+        {state.kids.map((k) => (
+          <li key={k.id} className={k.allowed ? 'is-ok' : ''}>
+            {k.name}: {k.allowed ? 'can watch it' : "can't watch it"}
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }

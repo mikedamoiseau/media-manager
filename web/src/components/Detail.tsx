@@ -11,6 +11,7 @@ import { ProfileBadge } from './WhosWatching.tsx';
 import { IconBack, IconPlay, IconYoutube, IconTv, IconCheck, IconImage, IconLink, IconEye, IconEyeOff, IconDevice, IconThumbUp, IconThumbDown } from './icons.tsx';
 import { isIOS, mediaUrl, vlcLink, vlcBack, episodeName, VLC_APP_STORE } from '../vlc.ts';
 import { TitleTile, MissingTile } from './Library.tsx';
+import { KidsForTitle } from './Kids.tsx';
 import { useOpenTitle, useOpenSet, useShowPerson } from '../nav.ts';
 
 export const LANGS: Array<{ key: TitleLang; label: string; hint: string }> = [
@@ -358,6 +359,8 @@ export function DetailView({ id, onClose }: { id: number; onClose: () => void })
             {!kid && <People directors={d.directors} cast={d.cast} tv={d.mediaType === 'tv'} />}
 
             <Versions d={d} kodiReady={kodiReady} title={t.main} />
+
+            {!kid && st?.profiles.some((p) => p.kids) && <KidsForTitle id={d.id} />}
 
             {!kid && (
               <section className="file-tools">

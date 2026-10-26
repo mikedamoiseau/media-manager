@@ -456,6 +456,7 @@ body.has-overlay .chrome {
 
 input[type='text'],
 input[type='password'],
+input[type='time'],
 input:not([type]),
 .form-grid input,
 .field-row input,
@@ -2663,6 +2664,44 @@ select option {
 
 .code-keys button:active {
   background: var(--rideau-3);
+}
+
+/* The parents' code, as dots. */
+.code-input {
+  -webkit-text-security: disc;
+}
+
+/* Parents: a profile made a kids one. */
+.kids-fields {
+  display: grid;
+  gap: 12px;
+  justify-items: start;
+}
+
+.kids-fields label {
+  justify-self: stretch;
+}
+
+/* Parents, on a title's page: their call for the kids, and who can watch it. */
+.for-kids {
+  display: grid;
+  gap: 12px;
+  justify-items: start;
+}
+
+.for-kids .section-title {
+  margin-bottom: 0;
+}
+
+.for-kids ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  color: var(--brume);
+}
+
+.for-kids li.is-ok {
+  color: var(--ecran);
 }
 
 /* A parent's to-do, not the kid's. */
