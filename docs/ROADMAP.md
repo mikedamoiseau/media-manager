@@ -39,7 +39,8 @@ and within age, from TMDB's ratings, or a parent's "OK for kids"), a simple
 now playing card, and asks the parents' code to leave. After bedtime nothing
 new starts and Kodi doesn't go on to the next episode. The titles every kid
 may watch carry the tag `Cinematheque Kids` in Kodi's library; the kids view
-on the TV itself is the Lumen skin's to build.
+on the TV itself is the Lumen skin's to build. While a TV is in that kids view
+(Lumen's `CinemathequeKids` setting), what plays there counts as the kid's.
 
 ## 3. What do we watch tonight?
 

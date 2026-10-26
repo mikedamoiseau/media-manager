@@ -1,13 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { openDb, getSettings, type DB } from '../server/db.ts';
+import { openDb, getSettings, saveSettings, type DB } from '../server/db.ts';
 import { ageOf, setParentsCode, checkParentsCode, hasParentsCode, allowedItems, setOverride, overrideOf, itemKey, kidsProfile, kidsProfiles, kidsRoute, KIDS_REMOTE, isBedtime, bedtimeStop } from '../server/kids.ts';
 import { MAIN_PROFILE, PROFILE_COLORS, addProfile, editProfile } from '../server/profiles.ts';
 import { enrichTitles } from '../server/metadata.ts';
 import type { Tmdb, TitleDetails } from '../server/tmdb.ts';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { KIDS_TAG, kidsTagKeys, tagChanges, syncKidsTag } from '../server/kidsTag.ts';
+import { KIDS_TAG, KIDS_VIEW, kidsTagKeys, tagChanges, syncKidsTag, kidsViewProfile } from '../server/kidsTag.ts';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -310,4 +310,84 @@ test("the app's library right after this device's profile changes: a grown-up's 
   assert.equal(allowedAtFirst({ kids: false }), null);
   assert.equal(allowedAtFirst({ kids: true }), undefined);
   assert.equal(allowedAtFirst(null), undefined);
+});
+
+/** A stand-in Kodi whose skin says whether the TV is in its kids view (`view.on`). */
+async function kodiWithKidsView(view: { on: boolean }) {
+  const calls: Array<{ method: string; params: Record<string, unknown> }> = [];
+  const server = createServer((req, res) => {
+    let body = '';
+    req.on('data', (d) => (body += d));
+    req.on('end', () => {
+      const m = JSON.parse(body) as { id: number; method: string; params: Record<string, unknown> };
+      calls.push({ method: m.method, params: m.params });
+      const result =
+        m.method === 'XBMC.GetInfoBooleans' ? { [`Skin.HasSetting(${KIDS_VIEW})`]: view.on }
+        : m.method === 'Player.GetActivePlayers' ? [{ playerid: 1, type: 'video' }]
+        : 'OK';
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify({ id: m.id, jsonrpc: '2.0', result }));
+    });
+  });
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+  return { calls, server, port: (server.address() as AddressInfo).port };
+}
+
+test("a TV in its kids view: the kids profile watching there, Kodi asked only when there is one", async () => {
+  const view = { on: true };
+  const kodi = await kodiWithKidsView(view);
+  try {
+    const db = openDb(':memory:');
+    const cfg = { host: '127.0.0.1', port: kodi.port };
+    assert.equal(await kidsViewProfile(db, cfg), undefined, 'no kids profile');
+    assert.equal(kodi.calls.length, 0, 'Kodi not asked');
+    setParentsCode(db, '4821');
+    const older = addProfile(db, { name: 'Older', color: PROFILE_COLORS[2], kids: true, maxAge: 12 }).id;
+    addProfile(db, { name: 'Younger', color: PROFILE_COLORS[3], kids: true, maxAge: 6 });
+    assert.equal(await kidsViewProfile(db, cfg), older, 'the first kids profile made');
+    assert.deepEqual(kodi.calls, [{ method: 'XBMC.GetInfoBooleans', params: { booleans: ['Skin.HasSetting(CinemathequeKids)'] } }]);
+    view.on = false;
+    assert.equal(await kidsViewProfile(db, cfg), undefined, 'not in its kids view');
+    assert.equal(await kidsViewProfile(db, { host: '127.0.0.1', port: 9 }), undefined, 'Kodi not answering');
+  } finally {
+    kodi.server.close();
+  }
+});
+
+test("plays on a TV in its kids view are the kid's: noted for them, and Kodi doesn't go on after bedtime", async () => {
+  const view = { on: true };
+  const kodi = await kodiWithKidsView(view);
+  try {
+    const db = openDb(':memory:');
+    saveSettings(db, { mediaRoot: mkdtempSync(join(tmpdir(), 'media-')), kodiTvs: [{ id: 'tv1', name: 'Living room', host: '127.0.0.1', port: kodi.port, user: '', pass: '', pathPrefix: 'smb://nas/MEDIA' }] });
+    setParentsCode(db, '4821');
+    // Bedtime at 6:00 lasts all day.
+    const kid = addProfile(db, { name: 'Kid', color: PROFILE_COLORS[2], kids: true, maxAge: 12, bedtime: '06:00' }).id;
+    const show = Number(db.prepare(`INSERT INTO items (path, folder, category, is_dir, kodi_id, kodi_type, added_at, updated_at)
+      VALUES ('KIDS/Show', 'KIDS', 'kids', 1, 5, 'tvshow', 1, 1)`).run().lastInsertRowid);
+    const ep = db.prepare(`INSERT INTO episodes (item_id, path, season, episode, kodi_id, playcount) VALUES (?, ?, 1, ?, ?, 0)`);
+    ep.run(show, 'KIDS/Show/E01.mkv', 1, 101);
+    ep.run(show, 'KIDS/Show/E02.mkv', 2, 102);
+    const svc = new Service(db, mkdtempSync(join(tmpdir(), 'data-')));
+    const onPlayer = (e: Parameters<Service['onPlayer']>[1]) => svc['onPlayer']('tv1', e);
+    const owner = (type: string, id: number) => (db.prepare('SELECT profile_id FROM tv_plays WHERE kodi_type = ? AND kodi_id = ?').get(type, id) as { profile_id: number } | undefined)?.profile_id;
+
+    // Straight after one another, as the TV tells them: the episode ends and Kodi goes on to the next.
+    await Promise.all([
+      onPlayer({ kind: 'play', item: { type: 'episode', id: 101 } }),
+      onPlayer({ kind: 'stop', ended: true }),
+      onPlayer({ kind: 'play', item: { type: 'episode', id: 102 } }),
+    ]);
+    assert.equal(owner('episode', 101), kid, 'started with the TV remote in the kids view');
+    assert.equal(owner('episode', 102), kid);
+    for (let i = 0; i < 50 && !kodi.calls.some((c) => c.method === 'Player.Stop'); i++) await new Promise((r) => setTimeout(r, 10));
+    assert.ok(kodi.calls.some((c) => c.method === 'Player.Stop'), 'stopped: bedtime');
+
+    view.on = false;
+    await onPlayer({ kind: 'stop', ended: false });
+    await onPlayer({ kind: 'play', item: { type: 'movie', id: 12 } });
+    assert.equal(owner('movie', 12), MAIN_PROFILE, 'kids view off: the main profile, as before');
+  } finally {
+    kodi.server.close();
+  }
 });

@@ -172,3 +172,17 @@ test("only the next episode of the same show is Kodi going on by itself; the kid
   o.start('tv1', NOW + 200 * MIN + 20_000, 9);
   assert.equal(o.chained('tv1'), false, 'a Play from the app');
 });
+
+test("on a TV in its kids view, what starts there is the kid's, unless a phone pressed Play", () => {
+  const o = new TvOwners();
+  assert.equal(o.start('tv1', NOW, undefined, 3), 3, 'the TV remote');
+  o.touch('tv1', 2, NOW + MIN);
+  assert.equal(o.start('tv1', NOW + 2 * MIN, undefined, 3), 3, "a parent's phone remote just before");
+  o.touch('tv1', 2, NOW + 3 * MIN, true);
+  assert.equal(o.start('tv1', NOW + 3 * MIN + 10_000, 7, 3), 2, "Play on a parent's phone");
+  o.stop('tv1', true, NOW + 60 * MIN);
+  assert.equal(o.start('tv1', NOW + 60 * MIN + 20_000, 7, 3), 3, "the parent's next episode, the TV now in its kids view");
+  assert.equal(o.chained('tv1'), true, 'still Kodi going on by itself');
+  o.stop('tv1', false, NOW + 70 * MIN);
+  assert.equal(o.start('tv1', NOW + 80 * MIN), MAIN_PROFILE, 'kids view off again');
+});

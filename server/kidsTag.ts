@@ -11,6 +11,25 @@ export const KIDS_TAG = 'Cinematheque Kids';
 // Kodi's database ignores case: the tag keeps the spelling it was first given.
 const isKidsTag = (t: string) => t.toLowerCase() === KIDS_TAG.toLowerCase();
 
+/** The skin setting Lumen keeps on while a TV shows its kids view (agreed with the Kodi skin session). */
+export const KIDS_VIEW = 'CinemathequeKids';
+
+/**
+ * The kids profile watching on a TV in its kids view (the first one made, when there are several); none when
+ * it isn't in it or doesn't answer. Kodi isn't asked without a kids profile.
+ */
+export async function kidsViewProfile(db: DB, cfg: KodiConfig): Promise<number | undefined> {
+  const kid = kidsProfiles(db)[0];
+  if (!kid) return undefined;
+  const setting = `Skin.HasSetting(${KIDS_VIEW})`;
+  try {
+    const r = await kodiCall<Record<string, boolean>>(cfg, 'XBMC.GetInfoBooleans', { booleans: [setting] }, 3000);
+    return r[setting] === true ? kid.id : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /** Kodi's titles (`movie:<id>`, `tvshow:<id>`) allowed for every kids profile; none without a kids profile. */
 export function kidsTagKeys(db: DB): Set<string> {
   const kids = kidsProfiles(db);

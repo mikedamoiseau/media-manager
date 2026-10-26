@@ -9,7 +9,7 @@ import { fetchSheet } from './sheet.ts';
 import { type KodiConfig, kodiCall, discoverKodi, detectPathPrefix, libraryPathPrefix, remote } from './kodi.ts';
 import { listProfiles, type Profile } from './profiles.ts';
 import { hasParentsCode, kidsProfile, bedtimeStop } from './kids.ts';
-import { syncKidsTag } from './kidsTag.ts';
+import { syncKidsTag, kidsViewProfile } from './kidsTag.ts';
 import { syncFromKodi, matchPending, enrichTitles } from './metadata.ts';
 import { Tmdb } from './tmdb.ts';
 import { lanTransport } from './net.ts';
@@ -81,6 +81,7 @@ export class Service extends EventEmitter {
   private kidsTimer?: NodeJS.Timeout;
   /** Each TV's event connection, and the address it is for */
   private events = new Map<string, { host: string; ev: KodiEvents }>();
+  private playerEvents = new Map<string, Promise<void>>();
   /** Who is watching on each TV, for whose progress Kodi's changes are. */
   readonly owners = new TvOwners();
 
@@ -178,21 +179,28 @@ export class Service extends EventEmitter {
     this.tvsChanged();
   }
 
-  /** A TV started a film or episode of Kodi's library: noted for whoever is watching there. */
-  private onPlayer(tvId: string, e: PlayerEvent): void {
+  /** A TV started or stopped playing: handled in the order the TV told it, as a play may first ask the TV. */
+  private onPlayer(tvId: string, e: PlayerEvent): Promise<void> {
     const now = Date.now();
+    const next = (this.playerEvents.get(tvId) ?? Promise.resolve())
+      .then(() => this.player(tvId, e, now))
+      // Called from the TV's socket: an error here would stop the server, or the events after it.
+      .catch((err: Error) => console.warn(`Kodi play not noted: ${err.message}`));
+    this.playerEvents.set(tvId, next);
+    return next;
+  }
+
+  /** A TV started a film or episode of Kodi's library: noted for whoever is watching there. */
+  private async player(tvId: string, e: PlayerEvent, now: number): Promise<void> {
     if (e.kind === 'stop') return this.owners.stop(tvId, !!e.ended, now);
-    const owner = this.owners.start(tvId, now, this.seriesOf(e));
-    // Called from the TV's socket: an error here would stop the server.
-    try {
-      if (e.item?.type === 'movie' || e.item?.type === 'episode') notePlay(this.db, e.item.type, e.item.id, owner, now);
-      // A kid's bedtime: Kodi doesn't go on with the next episode.
-      const tv = this.tvs().find((t) => t.id === tvId);
-      if (tv && bedtimeStop(kidsProfile(this.db, owner), this.owners.chained(tvId), new Date(now))) {
-        remote(tv, 'stop').catch((err: Error) => console.warn(`Bedtime stop on ${tv.name}: ${err.message}`));
-      }
-    } catch (err) {
-      console.warn(`Kodi play not noted: ${(err as Error).message}`);
+    const tv = this.tvs().find((t) => t.id === tvId);
+    // A TV in its kids view: what starts there is the kid's.
+    const kid = tv && (await kidsViewProfile(this.db, tv));
+    const owner = this.owners.start(tvId, now, this.seriesOf(e), kid);
+    if (e.item?.type === 'movie' || e.item?.type === 'episode') notePlay(this.db, e.item.type, e.item.id, owner, now);
+    // A kid's bedtime: Kodi doesn't go on with the next episode.
+    if (tv && bedtimeStop(kidsProfile(this.db, owner), this.owners.chained(tvId), new Date(now))) {
+      remote(tv, 'stop').catch((err: Error) => console.warn(`Bedtime stop on ${tv.name}: ${err.message}`));
     }
   }
 

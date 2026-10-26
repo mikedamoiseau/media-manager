@@ -104,6 +104,12 @@ kids view of the TV that shows only their titles.
 - The kids view on the TV (its home built from the tag, and the code to
   leave it) belongs to the Lumen skin, built in the Kodi skin session.
   The app's side is only the tag.
+- Added with the owner on 2026-10-26: Lumen keeps the skin setting
+  `CinemathequeKids` on while a TV shows its kids view. A play started on
+  that TV then belongs to the kids profile (the first one made, if there
+  are several), unless it was a Play from a phone: its Continue watching and
+  watched marks get it, and its bedtime applies. Kodi's own watched marks
+  stay shared by everyone.
 - Prerequisite: the titles must be in Kodi's library. Today only 11 of
   the 311 KIDS files and 9 of the 82 ANIMES files are (KIDS and ANIMES
   look set to TV shows, so their loose film files were never scanned).
