@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Hono } from 'hono';
 import { openDb, saveSettings, getSettings } from '../server/db.ts';
+import { MAIN_PROFILE, PROFILE_COLORS, addProfile } from '../server/profiles.ts';
 import { prefixFromFiles, libraryPathPrefix } from '../server/kodi.ts';
 import { createApi } from '../server/api.ts';
 import { Service } from '../server/service.ts';
@@ -21,7 +22,7 @@ test("the media path from Kodi's library files, when its sources say nothing", (
 });
 
 /** A stand-in Kodi without video sources (its library comes from a shared database), as the Mi Box. */
-async function kodiWithoutSources() {
+async function kodiWithoutSources(films = ['smb://nas/video/MEDIA/MOVIES3/Known.mkv']) {
   const calls: Array<{ method: string; params: Record<string, unknown> }> = [];
   const server = createServer((req, res) => {
     let body = '';
@@ -31,7 +32,8 @@ async function kodiWithoutSources() {
       calls.push({ method: m.method, params: m.params });
       const result =
         m.method === 'Files.GetSources' ? { sources: [] }
-        : m.method === 'VideoLibrary.GetMovies' ? { movies: [{ movieid: 5, file: 'smb://nas/video/MEDIA/MOVIES3/Known.mkv' }], limits: { total: 1 } }
+        : m.method === 'VideoLibrary.GetMovies' ? { movies: films.map((file, i) => ({ movieid: 5 + i, file })), limits: { total: films.length } }
+        : m.method === 'VideoLibrary.GetEpisodes' ? { episodes: [], limits: { total: 0 } }
         : 'OK';
       res.setHeader('content-type', 'application/json');
       res.end(JSON.stringify({ id: m.id, jsonrpc: '2.0', result }));
@@ -94,6 +96,28 @@ test('Play on a TV whose media path is unknown: by Kodi id without it, by file o
     assert.equal((await playIt(fileOnly)).status, 200, 'a file Kodi lacks: the media path is worked out first');
     assert.deepEqual(kodi.calls.filter((c) => c.method === 'Player.Open').at(-1)?.params.item, { file: 'smb://nas/video/MEDIA/MOVIES3/New.mkv' });
     assert.equal(getSettings(db).kodiTvs[0]!.pathPrefix, 'smb://nas/video/MEDIA', 'and kept');
+  } finally {
+    kodi.server.close();
+  }
+});
+
+test("Play when Kodi's path to the media folder can't be worked out: asks for it, and claims nothing", async () => {
+  const kodi = await kodiWithoutSources(['smb://nas/video/MEDIA/MOVIES3/Not here.mkv']);
+  try {
+    const db = openDb(':memory:');
+    const root = mkdtempSync(join(tmpdir(), 'media-'));
+    mkdirSync(join(root, 'MOVIES3'));
+    saveSettings(db, { mediaRoot: root, kodiTvs: [{ id: 'tv1', name: 'Bedroom', host: '127.0.0.1', port: kodi.port, user: '', pass: '', pathPrefix: '' }] });
+    const id = Number(db.prepare(`INSERT INTO items (path, folder, category, is_dir, match_state, present, added_at, updated_at)
+      VALUES ('MOVIES3/New.mkv', 'MOVIES3', 'movies', 0, 'unmatched', 1, 1, 1)`).run().lastInsertRowid);
+    const anna = addProfile(db, { name: 'Anna', color: PROFILE_COLORS[1] });
+    const svc = new Service(db, mkdtempSync(join(tmpdir(), 'data-')));
+    const app = new Hono().route('/api', createApi(svc));
+    const r = await app.request(`/api/items/${id}/play`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-kodi-tv': 'tv1', 'x-profile': String(anna.id) }, body: '{}' });
+    assert.equal(r.status, 400);
+    assert.match(((await r.json()) as { error: string }).error, /set it in Settings/);
+    assert.ok(!kodi.calls.some((c) => c.method === 'Player.Open'));
+    assert.equal(svc.owners.start('tv1', Date.now()), MAIN_PROFILE, "what plays next on that TV isn't Anna's");
   } finally {
     kodi.server.close();
   }

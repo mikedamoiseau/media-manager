@@ -355,29 +355,25 @@ export function createApi(svc: Service): Hono {
       | { path: string; is_dir: number; present: number; kodi_id: number | null; kodi_type: string | null }
       | undefined;
     if (!it || !it.present) return c.json({ error: 'File is not on the NAS' }, 404);
-    // Only a file Kodi doesn't have needs Kodi's path to the media folder: worked out now if not yet.
-    const fileOf = async (rel: string) => {
-      const pre = prefix || (await svc.findPathPrefix(tv));
-      if (!pre) throw new KodiError('rpc', 'Kodi path for the media folder is unknown: set it in Settings');
-      return { file: toKodiPath(pre, rel) };
-    };
+    const ep = it.is_dir
+      ? body.episodeId
+        ? (db.prepare('SELECT id, path, kodi_id FROM episodes WHERE id = ? AND item_id = ?').get(body.episodeId, id) as Episode | undefined)
+        : nextEpisode(db, id, p)
+      : undefined;
+    if (it.is_dir && !ep) return c.json({ error: 'No episode found' }, 404);
+    // Kodi plays what it has by its id; any other file through Kodi's path to the media folder, worked out now if not yet.
+    const movie = !ep && it.kodi_id && it.kodi_type === 'movie' ? it.kodi_id : null;
+    const file = ep ? (ep.kodi_id ? null : ep.path) : movie ? null : it.path;
+    const pre = file === null ? prefix : prefix || (await svc.findPathPrefix(tv));
+    const target = file === null ? (ep ? { episodeid: ep.kodi_id! } : { movieid: movie! }) : pre ? { file: toKodiPath(pre, file) } : null;
+    if (!target) return c.json({ error: 'Kodi path for the media folder is unknown: set it in Settings' }, 400);
     // Played from this device: Kodi's next changes to it are this profile's, even if the TV's events don't come through.
     const now = Date.now();
     svc.owners.touch(tv, p, now, true);
-    if (it.is_dir) {
-      const ep = body.episodeId
-        ? (db.prepare('SELECT id, path, kodi_id FROM episodes WHERE id = ? AND item_id = ?').get(body.episodeId, id) as Episode | undefined)
-        : nextEpisode(db, id, p);
-      if (!ep) return c.json({ error: 'No episode found' }, 404);
-      // Where this profile stopped, not where someone else did. Noted once Kodi started it: a Play that failed claims nothing.
-      await play(cfg, ep.kodi_id ? { episodeid: ep.kodi_id } : await fileOf(ep.path), startPoint(db, p, { episodeId: ep.id }));
-      if (ep.kodi_id) notePlay(db, 'episode', ep.kodi_id, p, now);
-    } else if (it.kodi_id && it.kodi_type === 'movie') {
-      await play(cfg, { movieid: it.kodi_id }, startPoint(db, p, { itemId: id }));
-      notePlay(db, 'movie', it.kodi_id, p, now);
-    } else {
-      await play(cfg, await fileOf(it.path), startPoint(db, p, { itemId: id }));
-    }
+    // Where this profile stopped, not where someone else did. Noted once Kodi started it: a Play that failed claims nothing.
+    await play(cfg, target, startPoint(db, p, ep ? { episodeId: ep.id } : { itemId: id }));
+    if (ep?.kodi_id) notePlay(db, 'episode', ep.kodi_id, p, now);
+    else if (movie) notePlay(db, 'movie', movie, p, now);
     recordActivity(db, p, id, 'play');
     return c.json({ ok: true });
   });
