@@ -2,6 +2,7 @@ import { useMemo, useRef, useState } from 'react';
 import { useLocation } from 'wouter';
 import { api } from '../api.ts';
 import { useStore, library, status, prefs, toast, loadLibrary } from '../store.ts';
+import { ProfileBadge } from './WhosWatching.tsx';
 import { categoryLabel, displayTitle } from '../search.ts';
 import type { Card, Candidate, Detail } from '../types.ts';
 import { Poster } from './Poster.tsx';
@@ -31,7 +32,10 @@ export function Review() {
     <>
       <div className="scroller" ref={scroller}>
         <header className="page-head">
-          <h1>To review</h1>
+          <div className="head-row">
+            <h1>To review</h1>
+            <ProfileBadge />
+          </div>
           <p className="muted">
             {todo.length === 0
               ? 'Every file on the NAS is identified.'

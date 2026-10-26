@@ -3,9 +3,10 @@ import '@fontsource-variable/big-shoulders-display';
 import '@fontsource-variable/atkinson-hyperlegible-next';
 import './styles.css';
 import { App } from './App.tsx';
-import { connectEvents, loadLibrary, startNowPlayingLoop } from './store.ts';
+import { connectEvents, loadLibrary, loadMarks, startNowPlayingLoop } from './store.ts';
 
 void loadLibrary();
+void loadMarks();
 connectEvents();
 startNowPlayingLoop();
 

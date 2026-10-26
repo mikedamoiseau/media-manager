@@ -2351,3 +2351,223 @@ select option {
     transition: none !important;
   }
 }
+
+/* ---------- who's watching ---------- */
+
+/* A person: their initial on their colour (the colours are light enough for dark ink). */
+.avatar {
+  --c: var(--brume);
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--c);
+  color: #10181c;
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 19px;
+  line-height: 1;
+}
+
+.avatar.big {
+  width: 88px;
+  height: 88px;
+  font-size: 46px;
+}
+
+.avatar.add {
+  background: var(--rideau-2);
+  color: var(--brume);
+  font-family: var(--font-ui);
+  font-weight: 400;
+  box-shadow: inset 0 0 0 2px var(--line);
+}
+
+/* The badge in each page's top corner: who's watching here. */
+.avatar.badge {
+  width: 40px;
+  height: 40px;
+  font-size: 21px;
+  border: 0;
+  cursor: pointer;
+}
+
+.avatar.badge:focus-visible {
+  outline: 2px solid var(--lampe);
+  outline-offset: 3px;
+}
+
+.lib-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.head-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.remote > .remote-top {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: -12px;
+}
+
+.whos {
+  position: fixed;
+  inset: 0;
+  /* above the tab bar and sheets, below toasts */
+  z-index: 80;
+  overflow-y: auto;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 14px;
+  padding: calc(var(--safe-top) + 32px) var(--gutter) calc(var(--safe-bottom) + 32px);
+  background: var(--nuit);
+  text-align: center;
+}
+
+.whos h1 {
+  font-family: var(--font-display);
+  font-size: 48px;
+  line-height: 0.95;
+  font-weight: 800;
+}
+
+.whos > .muted {
+  max-width: 34ch;
+  margin: 0;
+}
+
+.whos-close {
+  position: absolute;
+  top: calc(var(--safe-top) + 12px);
+  right: var(--gutter);
+}
+
+.whos-list {
+  list-style: none;
+  margin: 18px 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 22px 18px;
+  max-width: 560px;
+}
+
+.whos-tile {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  width: 112px;
+  padding: 6px 0;
+  border: 0;
+  background: none;
+  color: var(--ecran);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.whos-tile > span:last-child {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.whos-tile[aria-current] .avatar {
+  box-shadow: 0 0 0 3px var(--nuit), 0 0 0 6px var(--lampe);
+}
+
+.whos-tile:focus-visible {
+  outline: none;
+}
+
+.whos-tile:focus-visible .avatar {
+  box-shadow: 0 0 0 3px var(--nuit), 0 0 0 6px var(--ecran);
+}
+
+/* Name and colour of a person: on the Who's watching screen and in Settings. */
+.profile-form {
+  display: grid;
+  gap: 14px;
+  width: min(100%, 380px);
+  padding: 16px;
+  border-radius: 16px;
+  background: var(--rideau);
+  text-align: left;
+}
+
+.profile-form label {
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--brume);
+}
+
+.profile-form fieldset {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.profile-form legend {
+  padding: 0;
+  margin-bottom: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--brume);
+}
+
+.swatches {
+  display: flex;
+  gap: 8px;
+}
+
+/* All eight on one line: they shrink a little on a narrow phone. */
+.swatch {
+  flex: 1 1 0;
+  min-width: 0;
+  max-width: 36px;
+  aspect-ratio: 1;
+  padding: 0;
+  border-radius: 50%;
+  border: 0;
+  background: var(--c);
+  cursor: pointer;
+}
+
+.swatch[aria-checked='true'] {
+  box-shadow: 0 0 0 3px var(--rideau), 0 0 0 5px var(--ecran);
+}
+
+.swatch:focus-visible {
+  outline: 2px solid var(--lampe);
+  outline-offset: 4px;
+}
+
+.profile-form .form-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.panel .profile-form {
+  width: 100%;
+  background: var(--nuit);
+}
+
+.profile-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}

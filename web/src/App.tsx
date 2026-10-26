@@ -9,8 +9,9 @@ import { SettingsView } from './components/Settings.tsx';
 import { TvBar } from './components/TvBar.tsx';
 import { Toasts } from './components/Toasts.tsx';
 import { KodiKeyboard } from './components/KodiKeyboard.tsx';
+import { WhosWatching } from './components/WhosWatching.tsx';
 import { IconFilm, IconInbox, IconRemote, IconSettings } from './components/icons.tsx';
-import { useStore, status, online } from './store.ts';
+import { useStore, status, online, profileChoice, useProfile } from './store.ts';
 
 type Tab = 'library' | 'review' | 'remote' | 'settings';
 
@@ -37,6 +38,8 @@ export function App() {
   const tab = current ?? lastTab.current;
   const st = useStore(status);
   const isOnline = useStore(online);
+  const choice = useStore(profileChoice);
+  const me = useProfile();
   const reviewCount = (st?.counts.unmatched ?? 0) + (st?.counts.pending ?? 0);
 
   const closeDetail = () => {
@@ -47,6 +50,16 @@ export function App() {
   useEffect(() => {
     document.body.classList.toggle('has-overlay', !!params);
   }, [params]);
+
+  // No one picked on this device yet, or the one picked was removed: ask first.
+  if (!choice || (st && !me)) {
+    return (
+      <>
+        <WhosWatching />
+        <Toasts />
+      </>
+    );
+  }
 
   return (
     <div className="app">
@@ -66,7 +79,7 @@ export function App() {
         </section>
       </main>
 
-      {titleParams && <DetailView key={titleParams.id} id={Number(titleParams.id)} onClose={closeDetail} />}
+      {titleParams && <DetailView key={`${titleParams.id}-${choice}`} id={Number(titleParams.id)} onClose={closeDetail} />}
       {filmParams && <FilmView key={filmParams.id} id={Number(filmParams.id)} onClose={closeDetail} />}
 
       <footer className="chrome">

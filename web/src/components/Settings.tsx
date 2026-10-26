@@ -6,6 +6,7 @@ import type { KodiTv, Settings, TaskStatus } from '../types.ts';
 import { LangSwitch } from './Detail.tsx';
 import { IconRefresh, IconTv } from './icons.tsx';
 import { DuplicatesReport, SetsReport, WantedReport } from './Reports.tsx';
+import { ProfileBadge, ProfilesPanel } from './WhosWatching.tsx';
 
 function ago(ts?: number): string {
   if (!ts) return 'never';
@@ -84,7 +85,10 @@ export function SettingsView() {
   return (
     <div className="scroller">
       <header className="page-head">
-        <h1>Settings</h1>
+        <div className="head-row">
+          <h1>Settings</h1>
+          <ProfileBadge />
+        </div>
       </header>
 
       <section className="panel">
@@ -197,6 +201,8 @@ export function SettingsView() {
           </button>
         </form>
       </section>
+
+      <ProfilesPanel />
 
       <section className="panel">
         <h2>TVs</h2>

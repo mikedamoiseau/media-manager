@@ -44,3 +44,10 @@ test('taking over from the TV: from 5 s before, with its tracks, on an address V
   const fromBedroom = handoffLink(origin, { active: true, title: 'Heat', time: 4325, audio, media: { kind: 'item', id: 7, ext: '.mkv' } }, null, 'k5', 'tv2');
   assert.equal(inner(fromBedroom), `${origin}/api/handoff/item/7/t4320-a2-vtv2-kk5/Heat.mkv.m3u`);
 });
+
+test("VLC's progress is the profile's of the device that sent it there", () => {
+  const inner = (link: string | null) => decodeURIComponent(new URL(link!.replace('vlc-x-callback://', 'http://x/')).searchParams.get('url')!);
+  assert.equal(mediaUrl(origin, 'item', 1901, 'Rocky.mkv', 3), `${origin}/api/media/item/1901/Rocky.mkv?p=3`);
+  const link = handoffLink(origin, { active: true, title: 'Heat', time: 4325, media: { kind: 'item', id: 7, ext: '.mkv' } }, null, 'k6', 'tv2', 3);
+  assert.equal(inner(link), `${origin}/api/handoff/item/7/t4320-vtv2-p3-kk6/Heat.mkv.m3u`);
+});

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { api } from '../api.ts';
-import { useStore, nowPlaying, nowPlayingError, status, toast, startFastPoll, pollNowPlaying, typingForKodi, useTv } from '../store.ts';
+import { useStore, nowPlaying, nowPlayingError, status, toast, startFastPoll, pollNowPlaying, typingForKodi, useTv, profileChoice } from '../store.ts';
+import { ProfileBadge } from './WhosWatching.tsx';
 import { formatClock } from '../search.ts';
 import { languageName } from '../tracks.ts';
 import { TrackPicker } from './TrackPicker.tsx';
@@ -54,7 +55,10 @@ export function Remote() {
     return (
       <div className="scroller">
         <header className="page-head">
-          <h1>Remote</h1>
+          <div className="head-row">
+            <h1>Remote</h1>
+            <ProfileBadge />
+          </div>
         </header>
         <div className="empty">
           <IconTv size={40} />
@@ -68,11 +72,14 @@ export function Remote() {
   const active = np?.active;
   const playing = active && (np.speed ?? 0) !== 0;
   // The link is ready before the tap: Safari opens VLC only straight from a tap.
-  const handoff = isIOS && active ? handoffLink(location.origin, np, vlcBack(), Date.now().toString(36), tv.id) : null;
+  const handoff = isIOS && active ? handoffLink(location.origin, np, vlcBack(), Date.now().toString(36), tv.id, profileChoice.get() ?? undefined) : null;
 
   return (
     <>
       <div className="scroller remote">
+        <div className="remote-top">
+          <ProfileBadge />
+        </div>
         <section className={`np-card${active ? '' : ' is-idle'}`}>
           {active && np.fanart && <img className="np-fanart" src={`/api/img?w=780&u=${encodeURIComponent(np.fanart)}`} alt="" aria-hidden="true" />}
           <div className="np-inner">

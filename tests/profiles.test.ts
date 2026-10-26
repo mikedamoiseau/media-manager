@@ -81,3 +81,13 @@ test('profileOf: an unknown, removed or missing id is the main profile', () => {
   assert.equal(profileOf(db, '2'), 2);
   for (const raw of ['9', undefined, null, 'x', '', '1.5']) assert.equal(profileOf(db, raw), MAIN_PROFILE, String(raw));
 });
+
+test("the app: this device's profile, none when unset or removed (then it asks who's watching)", async () => {
+  const { chosenProfile, PROFILE_COLORS: webColors } = await import('../web/src/profiles.ts');
+  assert.deepEqual(webColors, PROFILE_COLORS, 'the same colours as the server');
+  const list = [{ id: 1, name: 'Me', color: PROFILE_COLORS[0]!, main: true }, { id: 2, name: 'Anna', color: PROFILE_COLORS[1]!, main: false }];
+  assert.equal(chosenProfile(list, null), null);
+  assert.equal(chosenProfile(list, 3), null);
+  assert.equal(chosenProfile(list, 2)?.name, 'Anna');
+  assert.equal(chosenProfile([], 1), null, 'profiles not loaded yet');
+});

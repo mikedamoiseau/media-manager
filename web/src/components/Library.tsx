@@ -1,7 +1,8 @@
 import { useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useLocation, useRoute } from 'wouter';
-import { useStore, library, prefs, toast, loadLibrary, personRequest } from '../store.ts';
+import { useStore, library, prefs, toast, loadLibrary, personRequest, profileChoice } from '../store.ts';
+import { ProfileBadge } from './WhosWatching.tsx';
 import {
   applyFilters, allGenres, groupCards, groupSets, isSet, setName, splitSet, displayTitle, formatDay, CATEGORIES, DECADES, DEFAULT_FILTERS,
   type Filters, type SortKey, type StatusKey,
@@ -60,6 +61,8 @@ function yearSpan(list: Array<number | null>): string {
 
 export function Library({ active }: { active: boolean }) {
   const { items, loading, error, version } = useStore(library);
+  // Someone else watching on this device: their rows.
+  const who = useStore(profileChoice);
   const p = useStore(prefs);
   const { titleLang, groupSets: setsOn, showContinue, showSuggested, showElsewhere, showCinema } = p;
   const [filters, setFilters] = useState<Filters>(loadFilters);
@@ -123,7 +126,7 @@ export function Library({ active }: { active: boolean }) {
     if (showSuggested) void loadSuggestions();
     if (showElsewhere) void loadElsewhere();
     if (showCinema) void loadCinema();
-  }, [version, active, showContinue, showSuggested, showElsewhere, showCinema]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [version, who, active, showContinue, showSuggested, showElsewhere, showCinema]); // eslint-disable-line react-hooks/exhaustive-deps
   // Pull to refresh: new files on the NAS, what Kodi says was watched, then everything shown here.
   const refreshAll = async () => {
     await serverRefresh(() => api.post('/api/refresh'));
@@ -201,6 +204,7 @@ export function Library({ active }: { active: boolean }) {
     <>
       <div className="scroller" ref={scroller}>
         <header className="lib-head">
+          <div className="lib-row">
           <div className="search">
             <IconSearch size={20} />
             <input
@@ -229,6 +233,8 @@ export function Library({ active }: { active: boolean }) {
               <IconFilter />
               {activeFilterCount > 0 && <b>{activeFilterCount}</b>}
             </button>
+          </div>
+          <ProfileBadge />
           </div>
           {filters.people.length > 0 && (
             <div className="chips" aria-label="Actors and directors">

@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { api, ApiError } from '../api.ts';
-import { useStore, prefs, status, toast, pollNowPlaying, library } from '../store.ts';
+import { useStore, prefs, status, toast, pollNowPlaying, library, profileChoice } from '../store.ts';
 import { displayTitle, plotLang, categoryLabel, formatRuntime, formatSize, groupCards, setLineup, setName, splitSet } from '../search.ts';
 import type { Detail, Episode, SetPart, TitleLang } from '../types.ts';
 import { Poster } from './Poster.tsx';
@@ -262,7 +262,7 @@ export function DetailView({ id, onClose }: { id: number; onClose: () => void })
               </button>
             )}
             {isIOS && phoneCopy && (
-              <a className="btn big" href={vlcLink(mediaUrl(location.origin, 'item', phoneCopy.id, phoneName), vlcBack())} onClick={watchVlcLaunch}>
+              <a className="btn big" href={vlcLink(mediaUrl(location.origin, 'item', phoneCopy.id, phoneName, profileChoice.get() ?? undefined), vlcBack())} onClick={watchVlcLaunch}>
                 <IconDevice size={20} />
                 Play in VLC
               </a>
@@ -566,7 +566,7 @@ function Episodes({
             {vlc && (
               <a
                 className="ep-vlc"
-                href={vlcLink(mediaUrl(location.origin, 'episode', e.id, episodeName(vlc.show, e)), vlcBack())}
+                href={vlcLink(mediaUrl(location.origin, 'episode', e.id, episodeName(vlc.show, e), profileChoice.get() ?? undefined), vlcBack())}
                 onClick={vlc.onOpen}
                 aria-label={`Play ${e.title ?? e.name} in VLC`}
               >

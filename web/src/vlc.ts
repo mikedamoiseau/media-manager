@@ -9,9 +9,12 @@ export const isIOS = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && (na
 /** An iPad (iPadOS reports itself as a Mac with a touch screen). */
 export const isTablet = /iPad/.test(ua) || (/Macintosh/.test(ua) && (nav?.maxTouchPoints ?? 0) > 1);
 
-/** The original file, served with byte ranges so the player can seek. The name is only what VLC shows. */
-export function mediaUrl(origin: string, kind: 'item' | 'episode', id: number, name: string): string {
-  return new URL(`/api/media/${kind}/${id}/${encodeURIComponent(name)}`, origin).href;
+/**
+ * The original file, served with byte ranges so the player can seek. The name is only what VLC shows;
+ * the profile, whose progress VLC makes.
+ */
+export function mediaUrl(origin: string, kind: 'item' | 'episode', id: number, name: string, profile?: number): string {
+  return new URL(`/api/media/${kind}/${id}/${encodeURIComponent(name)}${profile ? `?p=${profile}` : ''}`, origin).href;
 }
 
 /**
@@ -22,7 +25,7 @@ export function handoffUrl(
   origin: string,
   kind: 'item' | 'episode',
   id: number,
-  o: { start: number; audio?: number; sub?: number | 'off'; tv?: string },
+  o: { start: number; audio?: number; sub?: number | 'off'; tv?: string; profile?: number },
   key: string,
   name: string,
 ): string {
@@ -30,6 +33,7 @@ export function handoffUrl(
   if (o.audio !== undefined) parts.push(`a${o.audio}`);
   if (o.sub !== undefined) parts.push(o.sub === 'off' ? 'soff' : `s${o.sub}`);
   if (o.tv) parts.push(`v${o.tv}`);
+  if (o.profile) parts.push(`p${o.profile}`);
   parts.push(`k${key}`);
   return new URL(`/api/handoff/${kind}/${id}/${parts.join('-')}/${encodeURIComponent(name)}.m3u`, origin).href;
 }
@@ -56,10 +60,10 @@ const HANDOFF_REWIND = 5;
 /**
  * VLC on the phone taking over from the TV: a few seconds before where the TV is, with its audio and
  * subtitle tracks, named like the episode or the film. The TV stops once VLC loads the playlist, so
- * nothing stops when VLC doesn't open. `key`: new for each link; `tv`: the TV to stop. Null when Kodi plays
- * no file of the library.
+ * nothing stops when VLC doesn't open. `key`: new for each link; `tv`: the TV to stop; `profile`: whose
+ * progress VLC makes. Null when Kodi plays no file of the library.
  */
-export function handoffLink(origin: string, np: NowPlaying, back: string | null, key: string, tv?: string): string | null {
+export function handoffLink(origin: string, np: NowPlaying, back: string | null, key: string, tv?: string, profile?: number): string | null {
   const m = np.media;
   if (!m) return null;
   const name =
@@ -67,7 +71,7 @@ export function handoffLink(origin: string, np: NowPlaying, back: string | null,
       ? episodeName(np.showTitle, { name: `${np.showTitle} - ${np.title ?? 'Episode'}${m.ext}`, season: np.season ?? null, episode: np.episode ?? null })
       : `${np.title ?? 'Video'}${m.ext}`;
   const sub: number | 'off' | undefined = np.subtitlesOn === false ? 'off' : np.subtitlesOn && np.subtitle ? np.subtitle.index : undefined;
-  const o = { start: (np.time ?? 0) - HANDOFF_REWIND, audio: np.audio?.index, sub, tv };
+  const o = { start: (np.time ?? 0) - HANDOFF_REWIND, audio: np.audio?.index, sub, tv, profile };
   return vlcLink(handoffUrl(origin, m.kind, m.id, o, key, name), back);
 }
 

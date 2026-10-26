@@ -15,6 +15,7 @@ export interface Card {
   d: boolean;
   n: number;
   m: 'pending' | 'matched' | 'unmatched' | 'manual' | 'none';
+  /** watched and in progress, for this device's profile (from /api/marks) */
   w: boolean;
   rs: boolean;
   pr: boolean;
@@ -209,9 +210,20 @@ export interface Status {
   /** The library sync, from the first TV */
   kodi: TaskStatus & { connected: boolean; transport: string };
   tvs: TvStatus[];
+  /** Who's watching: the people a device can pick */
+  profiles: Profile[];
   metadata: TaskStatus;
   tmdbConfigured: boolean;
   counts: Record<string, number>;
+}
+
+/** A person's likes, suggestions and progress (see server/profiles.ts). */
+export interface Profile {
+  id: number;
+  name: string;
+  color: string;
+  /** gets what is played on a TV without the app; can't be removed */
+  main: boolean;
 }
 
 export interface TvStatus {

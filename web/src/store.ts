@@ -1,7 +1,8 @@
 import { useSyncExternalStore } from 'react';
-import { api, setKodiTv } from './api.ts';
+import { api, setKodiTv, setProfile } from './api.ts';
 import { chosenTv } from './tvs.ts';
-import type { Card, NowPlaying, Status, TitleLang, TvStatus } from './types.ts';
+import { chosenProfile } from './profiles.ts';
+import type { Card, NowPlaying, Profile, Status, TitleLang, TvStatus } from './types.ts';
 
 type Listener = () => void;
 
@@ -68,11 +69,32 @@ export const library = createStore<{ items: Card[]; version: string | null; load
 
 let loadingPromise: Promise<void> | null = null;
 
+/** What this device's profile watched and has in progress: the cards are the same for everyone. */
+const marks = createStore<{ w: Set<number>; rs: Set<number> }>({ w: new Set(), rs: new Set() });
+const withMarks = (items: Card[]) => {
+  const m = marks.get();
+  return items.map((c) => ({ ...c, w: m.w.has(c.id), rs: m.rs.has(c.id) }));
+};
+
+export async function loadMarks(): Promise<void> {
+  const who = profileChoice.get();
+  if (!who) return;
+  try {
+    const m = await api.get<{ w: number[]; rs: number[] }>('/api/marks');
+    // Asked for the profile this device has left meanwhile.
+    if (profileChoice.get() !== who) return;
+    marks.set({ w: new Set(m.w), rs: new Set(m.rs) });
+    library.set((s) => ({ ...s, items: withMarks(s.items) }));
+  } catch {
+    /* the badges stay as they were */
+  }
+}
+
 export function loadLibrary(): Promise<void> {
   loadingPromise ??= (async () => {
     try {
       const r = await api.get<{ version: string; items: Card[] }>('/api/library');
-      library.set({ items: r.items, version: r.version, loading: false, error: null });
+      library.set({ items: withMarks(r.items), version: r.version, loading: false, error: null });
     } catch (e) {
       library.set((s) => ({ ...s, loading: false, error: (e as Error).message }));
     } finally {
@@ -99,6 +121,8 @@ export function connectEvents(): void {
     es.addEventListener('status', (e) => status.set(JSON.parse((e as MessageEvent).data)));
     es.addEventListener('library', (e) => {
       if ((e as MessageEvent).data !== library.get().version) void loadLibrary();
+      // A sync may have given this profile new progress even when the cards didn't change.
+      void loadMarks();
     });
     es.addEventListener('error', () => {
       online.set(false);
@@ -112,6 +136,7 @@ export function connectEvents(): void {
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') {
       void loadLibrary();
+      void loadMarks();
       void pollNowPlaying();
     }
   });
@@ -196,6 +221,47 @@ export function useTv(): TvStatus | null {
   const st = useStore(status);
   const choice = useStore(tvChoice);
   return chosenTv(st?.tvs ?? [], choice);
+}
+
+// ---------- who's watching on this device ----------
+
+function readProfile(): number | null {
+  try {
+    const id = Number(localStorage.getItem('mm.profile'));
+    return Number.isInteger(id) && id > 0 ? id : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The profile this phone or iPad picked, each its own; null: the app asks who's watching. */
+export const profileChoice = createStore<number | null>(readProfile());
+setProfile(profileChoice.get());
+profileChoice.subscribe(() => {
+  const id = profileChoice.get();
+  setProfile(id);
+  try {
+    if (id) localStorage.setItem('mm.profile', String(id));
+    else localStorage.removeItem('mm.profile');
+  } catch {
+    /* private mode */
+  }
+  marks.set({ w: new Set(), rs: new Set() });
+  library.set((s) => ({ ...s, items: withMarks(s.items) }));
+  if (id) void loadMarks();
+});
+// The profile picked was removed (on any device): ask again who's watching.
+status.subscribe(() => {
+  const profiles = status.get()?.profiles;
+  const id = profileChoice.get();
+  if (profiles && id && !profiles.some((p) => p.id === id)) profileChoice.set(null);
+});
+
+/** This device's profile; null until one is picked (or while the list is loading). */
+export function useProfile(): Profile | null {
+  const st = useStore(status);
+  const choice = useStore(profileChoice);
+  return chosenProfile(st?.profiles ?? [], choice);
 }
 
 /** A name tapped on a title's page: the library shows the titles of that actor or director. */

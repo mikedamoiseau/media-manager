@@ -14,8 +14,17 @@ export function setKodiTv(id: string | null): void {
   kodiTv = id;
 }
 
+// Who's watching on this device: the server keeps likes, activity and progress per profile.
+let profile: number | null = null;
+export function setProfile(id: number | null): void {
+  profile = id;
+}
+
 async function request<T>(method: string, url: string, body?: unknown, headers: Record<string, string> = {}): Promise<T> {
-  const init: RequestInit = { method, headers: { ...(kodiTv ? { 'x-kodi-tv': kodiTv } : {}), ...headers } };
+  const init: RequestInit = {
+    method,
+    headers: { ...(kodiTv ? { 'x-kodi-tv': kodiTv } : {}), ...(profile ? { 'x-profile': String(profile) } : {}), ...headers },
+  };
   if (body instanceof Blob) {
     init.body = body;
     (init.headers as Record<string, string>)['content-type'] = body.type || 'application/octet-stream';
