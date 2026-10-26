@@ -1,6 +1,7 @@
 // Kids mode: which titles a kids profile sees, and what it may do.
 import { createHash, randomBytes } from 'node:crypto';
 import type { DB } from './db.ts';
+import type { RemoteAction } from './kodi.ts';
 
 /** Asked as it is: the message says why (shown in the app). */
 export class KidsError extends Error {}
@@ -100,6 +101,26 @@ export function kidsProfile(db: DB, profileId: number): KidsProfile | null {
 export function kidsProfiles(db: DB): KidsProfile[] {
   return (db.prepare(`${KIDS} ORDER BY id`).all() as unknown as KidsProfile[]).map((r) => ({ ...r }));
 }
+
+// ---------- what a kids profile may ask ----------
+
+// The server's side of kids mode: the app shows no more than this, and a kids profile can't reach more.
+const KIDS_ROUTES: Array<[string, RegExp]> = [
+  ['GET', /^\/(library|marks|continue|suggestions|status|events|profiles|img|kids\/allowed|kodi\/now|kodi\/streams)$/],
+  ['GET', /^\/(items|thumb|poster)\/\d+$/],
+  ['POST', /^\/items\/\d+\/(play|activity)$/],
+  ['PUT', /^\/items\/\d+\/rating$/],
+  ['POST', /^\/continue\/\d+\/dismiss$/],
+  ['POST', /^\/(kodi\/remote|kids\/unlock|refresh)$/],
+];
+
+/** Whether a kids profile may make this request (path as under /api). */
+export function kidsRoute(method: string, path: string): boolean {
+  return KIDS_ROUTES.some(([m, re]) => m === method && re.test(path));
+}
+
+/** The TV controls kids mode keeps: for a break, the sound, the language and the subtitles. */
+export const KIDS_REMOTE: ReadonlySet<RemoteAction> = new Set<RemoteAction>(['playpause', 'stop', 'volume', 'mute', 'subtitles', 'audio']);
 
 // ---------- the parents' code ----------
 

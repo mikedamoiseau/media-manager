@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { openDb, getSettings, type DB } from '../server/db.ts';
-import { ageOf, setParentsCode, checkParentsCode, hasParentsCode, allowedItems, setOverride, overrideOf, itemKey, kidsProfile, kidsProfiles } from '../server/kids.ts';
+import { ageOf, setParentsCode, checkParentsCode, hasParentsCode, allowedItems, setOverride, overrideOf, itemKey, kidsProfile, kidsProfiles, kidsRoute, KIDS_REMOTE } from '../server/kids.ts';
 import { MAIN_PROFILE, PROFILE_COLORS, addProfile, editProfile } from '../server/profiles.ts';
 import { enrichTitles } from '../server/metadata.ts';
 import type { Tmdb, TitleDetails } from '../server/tmdb.ts';
@@ -148,4 +148,19 @@ test('kids profiles: found by id, the others are not', () => {
   assert.equal(kidsProfile(db, other.id), null);
   assert.equal(kidsProfile(db, MAIN_PROFILE), null);
   assert.deepEqual(kidsProfiles(db).map((k) => k.id), [kid.id]);
+});
+
+test('a kids profile reaches only its own routes', () => {
+  for (const [m, p] of [['GET', '/library'], ['GET', '/marks'], ['GET', '/items/12'], ['POST', '/items/12/play'],
+    ['POST', '/items/12/activity'], ['PUT', '/items/12/rating'], ['GET', '/continue'], ['POST', '/continue/12/dismiss'],
+    ['GET', '/suggestions'], ['GET', '/kodi/now'], ['GET', '/kodi/streams'], ['POST', '/kodi/remote'], ['GET', '/status'],
+    ['GET', '/events'], ['GET', '/profiles'], ['GET', '/kids/allowed'], ['POST', '/kids/unlock'], ['POST', '/refresh'],
+    ['GET', '/img'], ['GET', '/thumb/12'], ['GET', '/poster/12']]) assert.equal(kidsRoute(m, p), true, `${m} ${p}`);
+  for (const [m, p] of [['GET', '/elsewhere'], ['GET', '/cinema'], ['GET', '/films/3'], ['POST', '/kodi/power'], ['POST', '/kodi/input'],
+    ['PUT', '/settings'], ['GET', '/settings'], ['PUT', '/profiles/1'], ['POST', '/profiles'], ['DELETE', '/profiles/2'], ['GET', '/person'],
+    ['GET', '/people'], ['GET', '/set'], ['POST', '/items/12/match'], ['PATCH', '/items/12'], ['GET', '/media/item/12/a.mkv'],
+    ['GET', '/handoff/item/12/x/a.mkv'], ['POST', '/items/12/trailer'], ['PUT', '/kids/code'], ['PUT', '/kids/items/12'], ['GET', '/kids/items/12'],
+    ['POST', '/tvs'], ['POST', '/scan'], ['GET', '/reports/wanted'], ['GET', '/items/12/posters'], ['GET', '/items/12/x'], ['DELETE', '/items/12']])
+    assert.equal(kidsRoute(m, p), false, `${m} ${p}`);
+  assert.deepEqual([...KIDS_REMOTE].sort(), ['audio', 'mute', 'playpause', 'stop', 'subtitles', 'volume']);
 });

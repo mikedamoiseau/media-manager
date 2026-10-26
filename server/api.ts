@@ -25,7 +25,7 @@ import type { Settings } from './db.ts';
 import { TvError, addTv, editTv, removeTv, publicTvs, handoffTv, type TvInput } from './tvs.ts';
 import type { MediaType } from './scanner.ts';
 import { ProfileError, listProfiles, addProfile, editProfile, removeProfile, profileOf, type ProfileInput } from './profiles.ts';
-import { KidsError, setParentsCode, checkParentsCode, kidsProfile, kidsProfiles, allowedItems, itemKey, overrideOf, setOverride, type Override } from './kids.ts';
+import { KidsError, setParentsCode, checkParentsCode, kidsProfile, kidsProfiles, allowedItems, itemKey, overrideOf, setOverride, kidsRoute, KIDS_REMOTE, type Override } from './kids.ts';
 import { notePlay } from './owners.ts';
 
 function sendFile(file: string, maxAge = 31536000): Response {
@@ -63,6 +63,25 @@ export function createApi(svc: Service): Hono {
 
   /** Who's watching on the device that asks: its likes, activity and progress. VLC's links carry it as ?p=. */
   const who = (c: Context) => profileOf(db, c.req.header('x-profile') ?? c.req.query('p'));
+
+  /** For a kids profile, the items it sees; another profile: null (everything). */
+  const kidSees = (c: Context): Set<number> | null => {
+    const kid = kidsProfile(db, who(c));
+    return kid ? allowedItems(db, kid.maxAge) : null;
+  };
+  const notForKids = (c: Context) => c.json({ error: 'Not available in kids mode', code: 'kids' }, 403);
+
+  // A kids profile reaches only what kids mode shows, and only its own titles: the app hides the rest, this keeps it so.
+  api.use('*', async (c, next) => {
+    const kid = kidsProfile(db, who(c));
+    if (kid) {
+      const path = c.req.path.replace(/^\/api/, '');
+      if (!kidsRoute(c.req.method, path)) return notForKids(c);
+      const item = /^\/(?:items|continue)\/(\d+)/.exec(path);
+      if (item && !allowedItems(db, kid.maxAge).has(Number(item[1]))) return c.req.method === 'GET' ? c.json({ error: 'Not found' }, 404) : notForKids(c);
+    }
+    await next();
+  });
 
   api.onError((err, c) => {
     if (err instanceof KodiError) return c.json({ error: err.message, code: `kodi_${err.code}` }, 502);
@@ -376,7 +395,10 @@ export function createApi(svc: Service): Hono {
     return c.json({ ok: true });
   });
 
-  api.get('/continue', (c) => c.json({ items: continueWatching(db, who(c)) }));
+  api.get('/continue', (c) => {
+    const sees = kidSees(c);
+    return c.json({ items: continueWatching(db, who(c)).filter((w) => !sees || sees.has(w.id)) });
+  });
 
   api.post('/continue/:id/dismiss', (c) => {
     const id = Number(c.req.param('id'));
@@ -385,7 +407,10 @@ export function createApi(svc: Service): Hono {
     return c.json({ ok: true });
   });
 
-  api.get('/suggestions', async (c) => c.json({ suggestions: await suggestions(db, who(c), svc.tmdb() ?? null) }));
+  api.get('/suggestions', async (c) => {
+    const sees = kidSees(c);
+    return c.json({ suggestions: (await suggestions(db, who(c), svc.tmdb() ?? null)).filter((s) => !sees || sees.has(s.id)) });
+  });
 
   // Films not on the NAS: picked from your tastes, in cinemas, and the page of each.
   api.get('/elsewhere', async (c) =>
@@ -489,18 +514,42 @@ export function createApi(svc: Service): Hono {
     return c.json({ sets: incompleteSets(db), total: keys.length, checked: keys.length - stale.length, running: !!setFill, tmdb: !!tmdb });
   });
 
+  /** The library item a file Kodi plays belongs to (an episode: its series). */
+  const itemOfMedia = (m: ReturnType<typeof kodiMedia>) =>
+    m?.kind === 'episode' ? (db.prepare('SELECT item_id FROM episodes WHERE id = ?').get(m.id) as { item_id: number } | undefined)?.item_id : m?.id;
+
+  /** For a kids profile: whether what plays on the TV is one of its titles (whoever started it). */
+  const kidMayControl = async (c: Context, sees: Set<number>) => {
+    const { cfg, prefix } = kodi(c);
+    const np = await nowPlaying(cfg);
+    const id = np.active && np.file ? itemOfMedia(kodiMedia(db, prefix, np.file)) : undefined;
+    return id !== undefined && sees.has(id);
+  };
+
   api.get('/kodi/now', async (c) => {
     const { cfg, prefix } = kodi(c);
     const np = await nowPlaying(cfg);
     // Which file of the library it is, so the phone can take over in VLC.
     const media = np.active && np.file ? kodiMedia(db, prefix, np.file) : undefined;
+    // Kids mode: only one of the kid's titles is shown; anything else only as "something else is playing".
+    const sees = kidSees(c);
+    if (sees && np.active) {
+      const id = itemOfMedia(media);
+      if (id === undefined || !sees.has(id)) return c.json({ active: true, hidden: true });
+    }
     return c.json(media ? { ...np, media } : np);
   });
 
-  api.get('/kodi/streams', async (c) => c.json(await streams(kodi(c).cfg)));
+  api.get('/kodi/streams', async (c) => {
+    const sees = kidSees(c);
+    if (sees && !(await kidMayControl(c, sees))) return notForKids(c);
+    return c.json(await streams(kodi(c).cfg));
+  });
 
   api.post('/kodi/remote', async (c) => {
     const body = (await c.req.json()) as { action: RemoteAction; value?: number };
+    const sees = kidSees(c);
+    if (sees && (!KIDS_REMOTE.has(body.action) || !(await kidMayControl(c, sees)))) return notForKids(c);
     const { cfg, tv } = kodi(c);
     // What starts on the TV soon after is this profile's (browsing Kodi's menus from the phone).
     svc.owners.touch(tv, who(c), Date.now());
