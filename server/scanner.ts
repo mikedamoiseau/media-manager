@@ -75,13 +75,17 @@ export async function pool<T>(items: T[], limit: number, fn: (item: T) => Promis
 
 const EXTRAS_DIR = /featurette|extras?\b|bonus|behind.the.scenes|making.of/i;
 
-async function walkVideos(root: string, rel: string, season: number | undefined, out: ScannedFile[]): Promise<void> {
-  let entries;
+/** A folder that can't be listed (the NAS dropped mid-scan?) stops the scan: skipping it would count its files as gone. */
+async function listDir(root: string, rel: string) {
   try {
-    entries = await readdir(join(root, rel), { withFileTypes: true });
-  } catch {
-    return;
+    return await readdir(join(root, rel), { withFileTypes: true });
+  } catch (e) {
+    throw new Error(`Couldn't read ${rel}: ${(e as { code?: string }).code ?? (e as Error).message} (did the NAS disconnect?)`);
   }
+}
+
+async function walkVideos(root: string, rel: string, season: number | undefined, out: ScannedFile[]): Promise<void> {
+  const entries = await listDir(root, rel);
   for (const e of entries) {
     if (skipName(e.name)) continue;
     const childRel = `${rel}/${e.name}`;
@@ -102,7 +106,7 @@ export interface ScanOptions {
   onProgress?: (msg: string) => void;
 }
 
-/** Walk the media root. Throws if the root is missing (NAS not mounted). */
+/** Walk the media root. Throws if the root or a folder in it can't be read (NAS not mounted, or gone mid-scan). */
 export async function scanMediaRoot(root: string, opts: ScanOptions = {}): Promise<ScannedItem[]> {
   const top = await readdir(root, { withFileTypes: true });
   const items: ScannedItem[] = [];
@@ -117,12 +121,7 @@ export async function scanMediaRoot(root: string, opts: ScanOptions = {}): Promi
     const folder = e.name;
     const rule = ruleFor(folder);
     opts.onProgress?.(`Scanning ${folder}`);
-    let entries;
-    try {
-      entries = await readdir(join(root, folder), { withFileTypes: true });
-    } catch {
-      continue;
-    }
+    const entries = await listDir(root, folder);
     for (const c of entries) {
       if (skipName(c.name)) continue;
       const rel = `${folder}/${c.name}`;

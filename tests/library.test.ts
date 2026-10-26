@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, renameSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, renameSync, rmSync, chmodSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openDb } from '../server/db.ts';
@@ -57,6 +57,20 @@ test('scan builds file and folder items, skipping partial downloads and junk', a
   assert.equal(items.find((i) => i.path.startsWith('MOVIES/'))!.size, 100);
   rmSync(root, { recursive: true });
 });
+
+// The NAS dropping mid-scan makes folders unreadable: their files must not all count as gone.
+for (const folder of ['SERIES', 'SERIES/Fallout (2024) S01']) {
+  test(`scan stops when ${folder} can't be read, instead of leaving its files out`, async () => {
+    const root = fixture();
+    chmodSync(join(root, folder), 0o000);
+    try {
+      await assert.rejects(scanMediaRoot(root), (e: Error) => e.message.includes(`Couldn't read ${folder}`));
+    } finally {
+      chmodSync(join(root, folder), 0o755);
+      rmSync(root, { recursive: true });
+    }
+  });
+}
 
 test('reconcile inserts, keeps metadata across moves, and flags removals', async () => {
   const root = fixture();
