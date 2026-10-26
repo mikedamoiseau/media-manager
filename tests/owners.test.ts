@@ -117,3 +117,22 @@ test('a play noted long before the change Kodi reports is not its owner (a Play 
   attributeKodiChanges(db, before);
   assert.deepEqual(states(db, 'film_states', 'item_id', film).map((r) => r.profile_id), [MAIN_PROFILE]);
 });
+
+test('a noted play gives one play: a later change, started with the TV remote, is the main profile\'s', () => {
+  const { db, anna, film } = seed();
+  notePlay(db, 'movie', 12, anna, NOW);
+  let before = kodiStates(db);
+  // Kodi may stamp the last play when it starts.
+  db.prepare('UPDATE items SET resume = 0.5, last_played = ? WHERE id = ?').run(kodiDate(NOW + MIN), film);
+  attributeKodiChanges(db, before, NOW + 70 * MIN);
+  before = kodiStates(db);
+  db.prepare('UPDATE items SET resume = 0.2, last_played = ? WHERE id = ?').run(kodiDate(NOW + 120 * MIN), film);
+  attributeKodiChanges(db, before, NOW + 180 * MIN);
+  assert.deepEqual(states(db, 'film_states', 'item_id', film).map((r) => [r.profile_id, r.resume]), [[MAIN_PROFILE, 0.2], [anna, 0.5]]);
+  // Anna plays it again from the app: hers again.
+  notePlay(db, 'movie', 12, anna, NOW + 200 * MIN);
+  before = kodiStates(db);
+  db.prepare('UPDATE items SET resume = 0.6, last_played = ? WHERE id = ?').run(kodiDate(NOW + 201 * MIN), film);
+  attributeKodiChanges(db, before, NOW + 260 * MIN);
+  assert.equal(states(db, 'film_states', 'item_id', film).find((r) => r.profile_id === anna)?.resume, 0.6);
+});

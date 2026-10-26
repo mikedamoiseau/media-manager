@@ -4,7 +4,7 @@ import { openDb, type DB } from '../server/db.ts';
 import * as w from '../server/watching.ts';
 import { marks, itemDetail } from '../server/views.ts';
 import { MAIN_PROFILE, PROFILE_COLORS, addProfile } from '../server/profiles.ts';
-import { notePlay } from '../server/owners.ts';
+import { notePlay, kodiStates, attributeKodiChanges } from '../server/owners.ts';
 
 // The main profile's, as these tests were before profiles.
 const continueWatching = (db: DB, now: number) => w.continueWatching(db, MAIN_PROFILE, now);
@@ -280,4 +280,10 @@ test("Play on TV: Kodi's own, live point when this profile played it there last 
   assert.equal(w.startPoint(db, MAIN_PROFILE, { itemId: ids.fresh }), false, 'Kodi\'s point is Anna\'s');
   w.noteStreamed(db, a, ids.fresh, 0, 500 * MB, 1000 * MB, NOW + 60_000);
   assert.equal(w.startPoint(db, a, { itemId: ids.fresh }), 50, 'then further in VLC');
+  // Synced: her TV play is in her own progress now, and Kodi's point may since be someone else's.
+  notePlay(db, 'movie', 12, a, NOW + 2 * 60_000);
+  const before = kodiStates(db);
+  db.prepare('UPDATE items SET resume = 0.55, last_played = ? WHERE id = ?').run(kodiDate(NOW + 30 * 60_000), ids.fresh);
+  attributeKodiChanges(db, before, NOW + 40 * 60_000);
+  assert.equal(w.startPoint(db, a, { itemId: ids.fresh }), 55);
 });

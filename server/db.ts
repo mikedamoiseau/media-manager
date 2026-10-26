@@ -247,6 +247,7 @@ export const MIGRATIONS: string[] = [
     kodi_id INTEGER NOT NULL,
     profile_id INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
     at INTEGER NOT NULL,
+    used_at INTEGER,                    -- when the change of that play was given: a later one isn't theirs
     PRIMARY KEY (kodi_type, kodi_id)
   );
   `,

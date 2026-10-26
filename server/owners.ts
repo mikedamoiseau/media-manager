@@ -52,7 +52,7 @@ export class TvOwners {
 /** A film or episode of Kodi's library started on a TV for this profile. Kept, so a restart loses nothing. */
 export function notePlay(db: DB, kodiType: 'movie' | 'episode', kodiId: number, profileId: number, now: number): void {
   db.prepare(`INSERT INTO tv_plays (kodi_type, kodi_id, profile_id, at) VALUES (?, ?, ?, ?)
-    ON CONFLICT(kodi_type, kodi_id) DO UPDATE SET profile_id = excluded.profile_id, at = excluded.at`).run(kodiType, kodiId, profileId, now);
+    ON CONFLICT(kodi_type, kodi_id) DO UPDATE SET profile_id = excluded.profile_id, at = excluded.at, used_at = NULL`).run(kodiType, kodiId, profileId, now);
 }
 
 interface State {
@@ -81,12 +81,14 @@ export function kodiStates(db: DB): KodiStates {
 
 /**
  * After a sync: each film or episode whose state in Kodi changed gives the change to the profile that
- * started it on a TV (noted after its previous play, and not long before this one), else to the main profile. That profile gets
+ * started it on a TV (noted after its previous play, not long before this one, and not given yet: a noted
+ * play is one play), else to the main profile. That profile gets
  * Kodi's new resume point and last play, and the plays added (or none, when Kodi's count went to 0).
  * How many changes were given.
  */
-export function attributeKodiChanges(db: DB, before: KodiStates): number {
-  const owner = db.prepare('SELECT profile_id, at FROM tv_plays WHERE kodi_type = ? AND kodi_id = ?');
+export function attributeKodiChanges(db: DB, before: KodiStates, now = Date.now()): number {
+  const owner = db.prepare('SELECT profile_id, at, used_at FROM tv_plays WHERE kodi_type = ? AND kodi_id = ?');
+  const used = db.prepare('UPDATE tv_plays SET used_at = ? WHERE kodi_type = ? AND kodi_id = ?');
   const tables = [
     { sql: FILMS, kind: 'movie' as const, prev: before.films, table: 'film_states', key: 'item_id' },
     { sql: EPISODES, kind: 'episode' as const, prev: before.episodes, table: 'episode_states', key: 'episode_id' },
@@ -100,14 +102,15 @@ export function attributeKodiChanges(db: DB, before: KodiStates): number {
       const b = t.prev.get(r.id);
       if (b && b.playcount === r.playcount && b.resume === r.resume && b.lastPlayed === r.last_played) continue;
       if (!b && !r.playcount && r.resume === null && r.last_played === null) continue;
-      const play = owner.get(t.kind, r.kodi_id) as { profile_id: number; at: number } | undefined;
+      const play = owner.get(t.kind, r.kodi_id) as { profile_id: number; at: number; used_at: number | null } | undefined;
       const since = b?.lastPlayed ? kodiTime(b.lastPlayed) - CLOCK_SLACK : -Infinity;
-      const claimed = play && play.at >= since && (!r.last_played || kodiTime(r.last_played) - play.at <= CLAIM_WINDOW);
+      const claimed = play && play.used_at === null && play.at >= since && (!r.last_played || kodiTime(r.last_played) - play.at <= CLAIM_WINDOW);
       const profile = claimed ? play.profile_id : MAIN_PROFILE;
       const had = ((current.get(profile, r.id) as { playcount: number | null } | undefined)?.playcount) ?? 0;
       const added = (r.playcount ?? 0) - (b?.playcount ?? 0);
       const playcount = (r.playcount ?? 0) === 0 ? 0 : had + Math.max(0, added);
       save.run(profile, r.id, playcount, r.resume, r.last_played);
+      if (claimed) used.run(now, t.kind, r.kodi_id);
       given++;
     }
   }
