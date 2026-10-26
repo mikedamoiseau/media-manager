@@ -136,3 +136,17 @@ test('a noted play gives one play: a later change, started with the TV remote, i
   attributeKodiChanges(db, before, NOW + 260 * MIN);
   assert.equal(states(db, 'film_states', 'item_id', film).find((r) => r.profile_id === anna)?.resume, 0.6);
 });
+
+test('a play Kodi chained by itself is told apart from one started from the app', () => {
+  const o = new TvOwners();
+  o.touch('tv1', 2, NOW);
+  o.start('tv1', NOW + 10_000);
+  assert.equal(o.chained('tv1'), false, 'Play from the app');
+  o.stop('tv1', true, NOW + 50 * MIN);
+  o.start('tv1', NOW + 50 * MIN + 20_000);
+  assert.equal(o.chained('tv1'), true, 'the next episode');
+  o.stop('tv1', false, NOW + 60 * MIN);
+  o.start('tv1', NOW + 100 * MIN);
+  assert.equal(o.chained('tv1'), false, 'the TV remote');
+  assert.equal(o.chained('tv2'), false, 'never played');
+});

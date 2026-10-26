@@ -25,7 +25,7 @@ import type { Settings } from './db.ts';
 import { TvError, addTv, editTv, removeTv, publicTvs, handoffTv, type TvInput } from './tvs.ts';
 import type { MediaType } from './scanner.ts';
 import { ProfileError, listProfiles, addProfile, editProfile, removeProfile, profileOf, type ProfileInput } from './profiles.ts';
-import { KidsError, setParentsCode, checkParentsCode, kidsProfile, kidsProfiles, allowedItems, itemKey, overrideOf, setOverride, kidsRoute, KIDS_REMOTE, type Override } from './kids.ts';
+import { KidsError, setParentsCode, checkParentsCode, kidsProfile, kidsProfiles, allowedItems, itemKey, overrideOf, setOverride, kidsRoute, KIDS_REMOTE, isBedtime, type Override } from './kids.ts';
 import { notePlay } from './owners.ts';
 
 function sendFile(file: string, maxAge = 31536000): Response {
@@ -340,6 +340,8 @@ export function createApi(svc: Service): Hono {
     const body = (await c.req.json().catch(() => ({}))) as { episodeId?: number };
     const { cfg, prefix, tv } = kodi(c);
     const p = who(c);
+    // A kid's bedtime: nothing new starts until the morning.
+    if (isBedtime(kidsProfile(db, p)?.bedtime ?? null, new Date())) return c.json({ error: "It's bedtime", code: 'bedtime' }, 403);
     const it = db.prepare('SELECT path, is_dir, present, kodi_id, kodi_type FROM items WHERE id = ?').get(id) as
       | { path: string; is_dir: number; present: number; kodi_id: number | null; kodi_type: string | null }
       | undefined;

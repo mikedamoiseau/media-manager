@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { openDb, getSettings, type DB } from '../server/db.ts';
-import { ageOf, setParentsCode, checkParentsCode, hasParentsCode, allowedItems, setOverride, overrideOf, itemKey, kidsProfile, kidsProfiles, kidsRoute, KIDS_REMOTE } from '../server/kids.ts';
+import { ageOf, setParentsCode, checkParentsCode, hasParentsCode, allowedItems, setOverride, overrideOf, itemKey, kidsProfile, kidsProfiles, kidsRoute, KIDS_REMOTE, isBedtime, bedtimeStop } from '../server/kids.ts';
 import { MAIN_PROFILE, PROFILE_COLORS, addProfile, editProfile } from '../server/profiles.ts';
 import { enrichTitles } from '../server/metadata.ts';
 import type { Tmdb, TitleDetails } from '../server/tmdb.ts';
@@ -163,4 +163,30 @@ test('a kids profile reaches only its own routes', () => {
     ['POST', '/tvs'], ['POST', '/scan'], ['GET', '/reports/wanted'], ['GET', '/items/12/posters'], ['GET', '/items/12/x'], ['DELETE', '/items/12']])
     assert.equal(kidsRoute(m, p), false, `${m} ${p}`);
   assert.deepEqual([...KIDS_REMOTE].sort(), ['audio', 'mute', 'playpause', 'stop', 'subtitles', 'volume']);
+});
+
+const at = (hm: string) => new Date(`2026-10-26T${hm}:00`);
+
+test('bedtime: from the time set until 6:00', () => {
+  assert.equal(isBedtime(null, at('23:00')), false);
+  for (const [hm, want] of [['19:59', false], ['20:00', true], ['23:59', true], ['00:29', true], ['05:59', true], ['06:00', false]] as const)
+    assert.equal(isBedtime('20:00', at(hm)), want, `20:00 at ${hm}`);
+  for (const [hm, want] of [['23:59', false], ['00:29', false], ['00:30', true], ['05:59', true], ['06:00', false]] as const)
+    assert.equal(isBedtime('00:30', at(hm)), want, `00:30 at ${hm}`);
+});
+
+test('bedtime stops only what Kodi chained by itself, for a kid, after bedtime', () => {
+  const kid = { bedtime: '20:00' };
+  assert.equal(bedtimeStop(kid, true, at('21:00')), true);
+  assert.equal(bedtimeStop(kid, false, at('20:00')), false, 'Play pressed at 19:59, event at 20:00');
+  assert.equal(bedtimeStop(kid, true, at('19:00')), false);
+  assert.equal(bedtimeStop({ bedtime: null }, true, at('21:00')), false, 'no bedtime');
+  assert.equal(bedtimeStop(null, true, at('21:00')), false, 'a parent');
+});
+
+test("the app's bedtime is the server's", async () => {
+  const web = await import('../web/src/kids.ts');
+  for (const b of ['20:00', '00:30', null]) for (const hm of ['00:00', '00:30', '05:59', '06:00', '19:59', '20:00', '23:59'])
+    assert.equal(web.isBedtime(b, at(hm)), isBedtime(b, at(hm)), `${b} at ${hm}`);
+  assert.deepEqual(web.FSK_STEPS, [0, 6, 12, 16]);
 });

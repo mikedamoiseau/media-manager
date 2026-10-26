@@ -122,6 +122,28 @@ export function kidsRoute(method: string, path: string): boolean {
 /** The TV controls kids mode keeps: for a break, the sound, the language and the subtitles. */
 export const KIDS_REMOTE: ReadonlySet<RemoteAction> = new Set<RemoteAction>(['playpause', 'stop', 'volume', 'mute', 'subtitles', 'audio']);
 
+// ---------- bedtime ----------
+
+// Bedtime lasts until the morning.
+const MORNING = 6 * 60;
+const minutes = (hm: string) => Number(hm.slice(0, 2)) * 60 + Number(hm.slice(3, 5));
+
+/** From the bedtime ("HH:MM") until 6:00, local time. No bedtime: never. */
+export function isBedtime(bedtime: string | null, now: Date): boolean {
+  if (!bedtime) return false;
+  const b = minutes(bedtime);
+  const m = now.getHours() * 60 + now.getMinutes();
+  return b >= MORNING ? m >= b || m < MORNING : m >= b && m < MORNING;
+}
+
+/**
+ * A play that just started on a TV is stopped at bedtime only when it is a kid's and Kodi went on to it
+ * by itself (the next episode): what plays finishes, a parent's play never stops.
+ */
+export function bedtimeStop(kid: { bedtime: string | null } | null, chained: boolean, now: Date): boolean {
+  return !!kid && chained && isBedtime(kid.bedtime, now);
+}
+
 // ---------- the parents' code ----------
 
 // In the settings table but not among the app's settings (never sent to a phone): a salted hash.

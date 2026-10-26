@@ -19,6 +19,7 @@ export class TvOwners {
   private touched = new Map<string, { profile: number; at: number }>();
   private playing = new Map<string, number>();
   private ended = new Map<string, { profile: number; at: number }>();
+  private byChain = new Map<string, boolean>();
 
   touch(tvId: string, profileId: number, now: number): void {
     this.touched.set(tvId, { profile: profileId, at: now });
@@ -28,9 +29,17 @@ export class TvOwners {
   start(tvId: string, now: number): number {
     const t = this.touched.get(tvId);
     const e = this.ended.get(tvId);
-    const owner = t && now - t.at <= TOUCH_WINDOW ? t.profile : e && now - e.at <= CHAIN_WINDOW ? e.profile : MAIN_PROFILE;
+    const touched = !!t && now - t.at <= TOUCH_WINDOW;
+    const chained = !touched && !!e && now - e.at <= CHAIN_WINDOW;
+    const owner = touched ? t.profile : chained ? e.profile : MAIN_PROFILE;
     this.playing.set(tvId, owner);
+    this.byChain.set(tvId, chained);
     return owner;
+  }
+
+  /** What last started on the TV is Kodi going on by itself (the next episode), not a Play or the TV remote. */
+  chained(tvId: string): boolean {
+    return this.byChain.get(tvId) ?? false;
   }
 
   /** A profile was removed: no TV is theirs any more. */

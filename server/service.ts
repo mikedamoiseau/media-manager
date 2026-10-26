@@ -6,9 +6,9 @@ import { scanMediaRoot, pool } from './scanner.ts';
 import { cachedImage, isAllowedImage } from './images.ts';
 import { reconcile, applySheetHints, syncSheetOnlyItems, importSheetRows } from './library.ts';
 import { fetchSheet } from './sheet.ts';
-import { type KodiConfig, kodiCall, discoverKodi, detectPathPrefix } from './kodi.ts';
+import { type KodiConfig, kodiCall, discoverKodi, detectPathPrefix, remote } from './kodi.ts';
 import { listProfiles, type Profile } from './profiles.ts';
-import { hasParentsCode } from './kids.ts';
+import { hasParentsCode, kidsProfile, bedtimeStop } from './kids.ts';
 import { syncFromKodi, matchPending, enrichTitles } from './metadata.ts';
 import { Tmdb } from './tmdb.ts';
 import { lanTransport } from './net.ts';
@@ -184,6 +184,11 @@ export class Service extends EventEmitter {
     // Called from the TV's socket: an error here would stop the server.
     try {
       if (e.item?.type === 'movie' || e.item?.type === 'episode') notePlay(this.db, e.item.type, e.item.id, owner, now);
+      // A kid's bedtime: Kodi doesn't go on with the next episode.
+      const tv = this.tvs().find((t) => t.id === tvId);
+      if (tv && bedtimeStop(kidsProfile(this.db, owner), this.owners.chained(tvId), new Date(now))) {
+        remote(tv, 'stop').catch((err: Error) => console.warn(`Bedtime stop on ${tv.name}: ${err.message}`));
+      }
     } catch (err) {
       console.warn(`Kodi play not noted: ${(err as Error).message}`);
     }
