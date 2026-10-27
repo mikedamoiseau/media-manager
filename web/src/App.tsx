@@ -13,6 +13,7 @@ import { WhosWatching } from './components/WhosWatching.tsx';
 import { KidsPlaying } from './components/Kids.tsx';
 import { IconFilm, IconInbox, IconPlay, IconRemote, IconSettings } from './components/icons.tsx';
 import { useStore, status, online, profileChoice, useProfile } from './store.ts';
+import { rowOf } from './rows.ts';
 
 type Tab = 'library' | 'review' | 'remote' | 'settings';
 
@@ -59,8 +60,9 @@ export function App() {
     document.body.classList.toggle('has-overlay', !!params);
   }, [params]);
 
-  // Kids mode has no To review, Settings, film pages (films not on the NAS) or sets' pages: back to the library.
-  const offLimits = kids && (tab === 'review' || tab === 'settings' || !!filmParams || location.startsWith('/set/'));
+  // Kids mode has no To review, Settings, film pages (films not on the NAS), sets' pages or the rows of other films: back to the library.
+  const offLimits =
+    kids && (tab === 'review' || tab === 'settings' || !!filmParams || location.startsWith('/set/') || (location.startsWith('/row/') && !rowOf(location, true)));
   useEffect(() => {
     if (offLimits) navigate('/', { replace: true });
   }, [offLimits]); // eslint-disable-line react-hooks/exhaustive-deps

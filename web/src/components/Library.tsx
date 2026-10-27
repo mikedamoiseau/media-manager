@@ -13,8 +13,9 @@ import { forProfile } from '../profiles.ts';
 import { peopleTitles } from '../peopleTitles.ts';
 import { Poster } from './Poster.tsx';
 import { Sheet } from './Sheet.tsx';
-import { IconSearch, IconClose, IconFilter, IconCheck, IconSets, IconBack } from './icons.tsx';
-import { useOpenTitle, useOpenSet, useOpenFilm } from '../nav.ts';
+import { IconSearch, IconClose, IconFilter, IconCheck, IconSets, IconBack, IconRight } from './icons.tsx';
+import { useOpenTitle, useOpenSet, useOpenFilm, useOpenRow } from '../nav.ts';
+import { rowOf, ROW_TITLES, type RowKey } from '../rows.ts';
 import { PullToRefresh, serverRefresh } from './PullToRefresh.tsx';
 
 function loadFilters(): Filters {
@@ -81,6 +82,8 @@ export function Library({ active }: { active: boolean }) {
   );
   const [, setParams] = useRoute('/set/:key');
   const openSet = setParams ? decodeKey(setParams.key) : null;
+  const [location] = useLocation();
+  const openRow = rowOf(location, !!kid);
   const [showFilters, setShowFilters] = useState(false);
   const deferred = useDeferredValue(filters);
   const scroller = useRef<HTMLDivElement>(null);
@@ -183,6 +186,16 @@ export function Library({ active }: { active: boolean }) {
       }),
     [suggested, groupOf, deferred.cat], // eslint-disable-line react-hooks/exhaustive-deps
   );
+  const elsewhereFilms = useMemo(
+    () =>
+      elsewhere.map((f) => {
+        const seed = groupOf.get(f.because);
+        const like = seed ? displayTitle(seed.main, titleLang).main : null;
+        return { f, why: like ? `Like ${like}` : '' };
+      }),
+    [elsewhere, groupOf, titleLang],
+  );
+  const cinemaFilms = useMemo(() => cinema.map((f) => ({ f, why: f.soon && f.date ? `Out ${formatDay(f.date)}` : 'In cinemas' })), [cinema]);
   const catCounts = useMemo(() => {
     const counts: Record<string, number> = {};
     const base = applyFilters(groups, { ...deferred, cat: 'all' }, titleLang, peopleKeys);
@@ -203,7 +216,7 @@ export function Library({ active }: { active: boolean }) {
 
   // "/" focuses search on desktop.
   useEffect(() => {
-    if (!active || openSet) return;
+    if (!active || openSet || openRow) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === '/' && document.activeElement?.tagName !== 'INPUT') {
         e.preventDefault();
@@ -212,7 +225,7 @@ export function Library({ active }: { active: boolean }) {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [active, openSet]);
+  }, [active, openSet, openRow]);
 
   return (
     <>
@@ -274,25 +287,10 @@ export function Library({ active }: { active: boolean }) {
       {showSuggested && !filters.q && activeFilterCount === 0 && shelf.length >= 3 && <Shelf entries={shelf} lang={titleLang} />}
       {/* Films not on the NAS: only with films in view. */}
       {showElsewhere && !filters.q && activeFilterCount === 0 && filmsInView && elsewhere.length >= 3 && (
-        <FilmShelf
-          id="elsewhere-title"
-          title="Not on the NAS"
-          lang={titleLang}
-          notOnNas
-          films={elsewhere.map((f) => {
-            const seed = groupOf.get(f.because);
-            const like = seed ? displayTitle(seed.main, titleLang).main : null;
-            return { f, why: like ? `Like ${like}` : '' };
-          })}
-        />
+        <FilmShelf row="elsewhere" lang={titleLang} notOnNas films={elsewhereFilms} />
       )}
       {showCinema && !filters.q && activeFilterCount === 0 && filmsInView && cinema.length > 0 && (
-        <FilmShelf
-          id="cinema-title"
-          title="At the cinema"
-          lang={titleLang}
-          films={cinema.map((f) => ({ f, why: f.soon && f.date ? `Out ${formatDay(f.date)}` : 'In cinemas' }))}
-        />
+        <FilmShelf row="cinema" lang={titleLang} films={cinemaFilms} />
       )}
 
       {error && !items.length ? (
@@ -418,6 +416,17 @@ export function Library({ active }: { active: boolean }) {
       <PullToRefresh scroller={scroller} onRefresh={refreshAll} />
       {/* A sibling of the library scroller, so the grid underneath keeps its scroll position. */}
       {openSet && <SetView key={openSet} name={openSet} results={results} groups={groups} />}
+      {openRow && (
+        <RowView key={openRow} row={openRow}>
+          {openRow === 'continue'
+            ? started.map(({ w, g }) => <ContinueTile key={g.key} w={w} g={g} lang={titleLang} onDismiss={dismiss} />)
+            : openRow === 'suggested'
+              ? shelf.map(({ s, g, seed }) => <SuggestionTile key={g.key} s={s} g={g} seed={seed} lang={titleLang} />)
+              : (openRow === 'elsewhere' ? elsewhereFilms : cinemaFilms).map(({ f, why }) => (
+                  <FilmTile key={f.id} f={f} why={why} lang={titleLang} notOnNas={openRow === 'elsewhere'} />
+                ))}
+        </RowView>
+      )}
     </>
   );
 }
@@ -497,14 +506,10 @@ function PeoplePicker({ chosen, onToggle, version }: { chosen: string[]; onToggl
   );
 }
 
-function SetView({ name, results, groups }: { name: string; results: Group[]; groups: Group[] }) {
+/** A page over the library (a film set, a row's titles): Back or Escape returns to the library as it was. */
+function LibraryPage({ title, meta, children }: { title: string; meta: string; children: React.ReactNode }) {
   const scroller = useRef<HTMLDivElement>(null);
   const [, navigate] = useLocation();
-  const { titleLang } = useStore(prefs);
-  const openTitle = useOpenTitle();
-  const [parts, setParts] = useState<SetPart[] | null>(null);
-  const [partsError, setPartsError] = useState(false);
-  const title = setName(name);
   const close = () => {
     if ((history.state as { fromApp?: boolean } | null)?.fromApp) history.back();
     else navigate('/', { replace: true });
@@ -521,6 +526,39 @@ function SetView({ name, results, groups }: { name: string; results: Group[]; gr
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  return (
+    <div className="scroller set-view" ref={scroller} tabIndex={-1} aria-label={title}>
+      <header className="set-head">
+        <button className="icon-btn" onClick={close} aria-label="Back to the library">
+          <IconBack />
+        </button>
+        <div className="set-head-text">
+          <h1 className="set-title">{title}</h1>
+          <p className="set-meta">{meta}</p>
+        </div>
+      </header>
+      {children}
+    </div>
+  );
+}
+
+/** All the titles of a row above the library, as a grid. */
+function RowView({ row, children }: { row: RowKey; children: React.ReactNode[] }) {
+  const n = children.length;
+  const noun = row === 'elsewhere' || row === 'cinema' ? (n === 1 ? 'film' : 'films') : n === 1 ? 'title' : 'titles';
+  return (
+    <LibraryPage title={ROW_TITLES[row]} meta={`${n} ${noun}`}>
+      {n ? <div className="set-grid">{children}</div> : <p className="set-note">Nothing here right now.</p>}
+    </LibraryPage>
+  );
+}
+
+function SetView({ name, results, groups }: { name: string; results: Group[]; groups: Group[] }) {
+  const { titleLang } = useStore(prefs);
+  const openTitle = useOpenTitle();
+  const [parts, setParts] = useState<SetPart[] | null>(null);
+  const [partsError, setPartsError] = useState(false);
+
   useEffect(() => {
     api.get<{ parts: SetPart[] }>(`/api/set?name=${encodeURIComponent(name)}`).then(
       (r) => setParts(r.parts),
@@ -531,20 +569,9 @@ function SetView({ name, results, groups }: { name: string; results: Group[]; gr
   const { available, missing, onNas, released } = useMemo(() => splitSet(name, parts ?? [], results, groups), [name, parts, results, groups]);
   // The whole set's range when TMDB knows it, not just the films on the NAS.
   const span = yearSpan(parts?.length ? parts.map((p) => (p.date ? Number(p.date.slice(0, 4)) : null)) : available.map((g) => g.main.y));
+  const count = released > 0 ? `${onNas} of ${released} films on the NAS` : `${available.length} ${available.length === 1 ? 'film' : 'films'}`;
   return (
-    <div className="scroller set-view" ref={scroller} tabIndex={-1} aria-label={title}>
-      <header className="set-head">
-        <button className="icon-btn" onClick={close} aria-label="Back to the library">
-          <IconBack />
-        </button>
-        <div className="set-head-text">
-          <h1 className="set-title">{title}</h1>
-          <p className="set-meta">
-            {released > 0 ? `${onNas} of ${released} films on the NAS` : `${available.length} ${available.length === 1 ? 'film' : 'films'}`}
-            {span && `, ${span}`}
-          </p>
-        </div>
-      </header>
+    <LibraryPage title={setName(name)} meta={span ? `${count}, ${span}` : count}>
       {missing.length > 0 && <h2 className="set-section">On the NAS</h2>}
       {available.length ? (
         <div className="set-grid">
@@ -569,7 +596,7 @@ function SetView({ name, results, groups }: { name: string; results: Group[]; gr
           </div>
         </>
       )}
-    </div>
+    </LibraryPage>
   );
 }
 
@@ -579,107 +606,126 @@ function episodeLabel(e: NonNullable<Watching['episode']>): string {
   return e.episode != null ? `E${e.episode}` : (e.title ?? 'Next episode');
 }
 
+/** A row's title, opening the page with all its titles. */
+function ShelfHead({ row }: { row: RowKey }) {
+  const openRow = useOpenRow();
+  return (
+    <h2 className="shelf-title" id={`${row}-title`}>
+      <button className="shelf-more" onClick={() => openRow(row)} aria-label={`${ROW_TITLES[row]}, see all`}>
+        {ROW_TITLES[row]}
+        <IconRight size={16} />
+      </button>
+    </h2>
+  );
+}
+
 /**
  * Films started and not finished, with how far you got and where; series with the episode to go on
  * with and how much of it you've seen. × removes one from the row.
  */
 function ContinueShelf({ entries, lang, onDismiss }: { entries: Array<{ w: Watching; g: Group }>; lang: TitleLang; onDismiss: (id: number) => void }) {
-  const openTitle = useOpenTitle();
   return (
     <section className="shelf" aria-labelledby="continue-title">
-      <h2 className="shelf-title" id="continue-title">
-        Continue watching
-      </h2>
+      <ShelfHead row="continue" />
       <div className="shelf-row">
-        {entries.map(({ w, g }) => {
-          const t = displayTitle(g.main, lang);
-          const pct = Math.round(w.fraction * 100);
-          // A series' bar is the share of its episodes watched.
-          const bar = w.seen ? Math.round((w.seen.watched / Math.max(1, w.seen.total)) * 100) : pct;
-          const why = !w.episode
-            ? `${pct}% ${w.where === 'tv' ? 'on the TV' : 'in VLC'}`
-            : w.fraction > 0
-              ? `${episodeLabel(w.episode)} at ${pct}%`
-              : `Next: ${episodeLabel(w.episode)}`;
-          return (
-            <div key={g.key} className="shelf-item">
-              <button className="tile shelf-tile" onClick={() => openTitle(w.id)}>
-                <Poster src={g.main.p} title={t.main} year={g.main.y} />
-                <span className="tile-bar" aria-hidden="true">
-                  <span>
-                    <i style={{ width: `${bar}%` }} />
-                  </span>
-                </span>
-                <span className="tile-title">{t.main}</span>
-                <span className="tile-meta">
-                  <span className="shelf-why">{why}</span>
-                </span>
-              </button>
-              <button className="tile-remove" onClick={() => onDismiss(w.id)} aria-label={`Remove ${t.main} from Continue watching`}>
-                <IconClose size={14} />
-              </button>
-            </div>
-          );
-        })}
+        {entries.map(({ w, g }) => (
+          <ContinueTile key={g.key} w={w} g={g} lang={lang} onDismiss={onDismiss} />
+        ))}
       </div>
     </section>
+  );
+}
+
+function ContinueTile({ w, g, lang, onDismiss }: { w: Watching; g: Group; lang: TitleLang; onDismiss: (id: number) => void }) {
+  const openTitle = useOpenTitle();
+  const t = displayTitle(g.main, lang);
+  const pct = Math.round(w.fraction * 100);
+  // A series' bar is the share of its episodes watched.
+  const bar = w.seen ? Math.round((w.seen.watched / Math.max(1, w.seen.total)) * 100) : pct;
+  const why = !w.episode
+    ? `${pct}% ${w.where === 'tv' ? 'on the TV' : 'in VLC'}`
+    : w.fraction > 0
+      ? `${episodeLabel(w.episode)} at ${pct}%`
+      : `Next: ${episodeLabel(w.episode)}`;
+  return (
+    <div className="shelf-item">
+      <button className="tile shelf-tile" onClick={() => openTitle(w.id)}>
+        <Poster src={g.main.p} title={t.main} year={g.main.y} />
+        <span className="tile-bar" aria-hidden="true">
+          <span>
+            <i style={{ width: `${bar}%` }} />
+          </span>
+        </span>
+        <span className="tile-title">{t.main}</span>
+        <span className="tile-meta">
+          <span className="shelf-why">{why}</span>
+        </span>
+      </button>
+      <button className="tile-remove" onClick={() => onDismiss(w.id)} aria-label={`Remove ${t.main} from Continue watching`}>
+        <IconClose size={14} />
+      </button>
+    </div>
   );
 }
 
 /** A row of titles to watch next, each with why it is there. */
 function Shelf({ entries, lang }: { entries: Array<{ s: Suggestion; g: Group; seed: Group }>; lang: TitleLang }) {
-  const openTitle = useOpenTitle();
   return (
-    <section className="shelf" aria-labelledby="shelf-title">
-      <h2 className="shelf-title" id="shelf-title">
-        Suggested for you
-      </h2>
+    <section className="shelf" aria-labelledby="suggested-title">
+      <ShelfHead row="suggested" />
       <div className="shelf-row">
-        {entries.map(({ s, g, seed }) => {
-          const t = displayTitle(g.main, lang);
-          const seedTitle = displayTitle(seed.main, lang).main;
-          // "Dragons, like Dragons": the year tells the 2010 film from the 2025 one you watched.
-          const like = seedTitle === t.main && seed.main.y ? `${seedTitle} (${seed.main.y})` : seedTitle;
-          const why = s.kind === 'next' && g.main.k ? `Next in ${setName(g.main.k)}` : `Like ${like}`;
-          return (
-            <button key={g.key} className="tile shelf-tile" onClick={() => openTitle(g.main.id)}>
-              <Poster src={g.main.p} title={t.main} year={g.main.y} />
-              <span className="tile-title">{t.main}</span>
-              <span className="tile-meta">
-                <span className="shelf-why">{why}</span>
-              </span>
-            </button>
-          );
-        })}
+        {entries.map(({ s, g, seed }) => (
+          <SuggestionTile key={g.key} s={s} g={g} seed={seed} lang={lang} />
+        ))}
       </div>
     </section>
   );
 }
 
-/** A row of films that aren't on the NAS, each opening its page. notOnNas: faded and tagged, as films to get rather than to play. */
-function FilmShelf({ id, title, films, lang, notOnNas = false }: { id: string; title: string; films: Array<{ f: Film; why: string }>; lang: TitleLang; notOnNas?: boolean }) {
-  const openFilm = useOpenFilm();
+function SuggestionTile({ s, g, seed, lang }: { s: Suggestion; g: Group; seed: Group; lang: TitleLang }) {
+  const openTitle = useOpenTitle();
+  const t = displayTitle(g.main, lang);
+  const seedTitle = displayTitle(seed.main, lang).main;
+  // "Dragons, like Dragons": the year tells the 2010 film from the 2025 one you watched.
+  const like = seedTitle === t.main && seed.main.y ? `${seedTitle} (${seed.main.y})` : seedTitle;
+  const why = s.kind === 'next' && g.main.k ? `Next in ${setName(g.main.k)}` : `Like ${like}`;
   return (
-    <section className="shelf" aria-labelledby={id}>
-      <h2 className="shelf-title" id={id}>
-        {title}
-      </h2>
+    <button className="tile shelf-tile" onClick={() => openTitle(g.main.id)}>
+      <Poster src={g.main.p} title={t.main} year={g.main.y} />
+      <span className="tile-title">{t.main}</span>
+      <span className="tile-meta">
+        <span className="shelf-why">{why}</span>
+      </span>
+    </button>
+  );
+}
+
+/** A row of films that aren't on the NAS, each opening its page. notOnNas: faded and tagged, as films to get rather than to play. */
+function FilmShelf({ row, films, lang, notOnNas = false }: { row: RowKey; films: Array<{ f: Film; why: string }>; lang: TitleLang; notOnNas?: boolean }) {
+  return (
+    <section className="shelf" aria-labelledby={`${row}-title`}>
+      <ShelfHead row={row} />
       <div className="shelf-row">
-        {films.map(({ f, why }) => {
-          const t = displayTitle(f, lang);
-          return (
-            <button key={f.id} className={`tile shelf-tile${notOnNas ? ' is-elsewhere' : ''}`} onClick={() => openFilm(f.id)}>
-              <Poster src={f.poster} title={t.main} year={f.date ? Number(f.date.slice(0, 4)) : null} />
-              {notOnNas && <span className="tile-flag is-plain">Not on NAS</span>}
-              <span className="tile-title">{t.main}</span>
-              <span className="tile-meta">
-                <span className="shelf-why">{why}</span>
-              </span>
-            </button>
-          );
-        })}
+        {films.map(({ f, why }) => (
+          <FilmTile key={f.id} f={f} why={why} lang={lang} notOnNas={notOnNas} />
+        ))}
       </div>
     </section>
+  );
+}
+
+function FilmTile({ f, why, lang, notOnNas }: { f: Film; why: string; lang: TitleLang; notOnNas: boolean }) {
+  const openFilm = useOpenFilm();
+  const t = displayTitle(f, lang);
+  return (
+    <button className={`tile shelf-tile${notOnNas ? ' is-elsewhere' : ''}`} onClick={() => openFilm(f.id)}>
+      <Poster src={f.poster} title={t.main} year={f.date ? Number(f.date.slice(0, 4)) : null} />
+      {notOnNas && <span className="tile-flag is-plain">Not on NAS</span>}
+      <span className="tile-title">{t.main}</span>
+      <span className="tile-meta">
+        <span className="shelf-why">{why}</span>
+      </span>
+    </button>
   );
 }
 

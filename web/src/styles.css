@@ -532,6 +532,21 @@ select option {
   font-weight: 700;
 }
 
+/* The row's title opens the page with all its titles. */
+.shelf-more {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin: -6px 0;
+  padding: 6px 0;
+  color: inherit;
+  font: inherit;
+}
+
+.shelf-more svg {
+  color: var(--brume);
+}
+
 .shelf-row {
   display: grid;
   grid-auto-flow: column;
