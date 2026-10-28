@@ -85,11 +85,11 @@ export function liveTvRoutes(api: Hono, svc: Service, tvOf: (c: Context) => { cf
     return c.json({ error: why.error, code: r }, why.status);
   });
 
-  /** Whether the TV really plays that channel (asked a few seconds after Play). */
+  /** Whether the TV really plays that channel, still opens it, or not (asked a few seconds after Play). */
   api.get('/livetv/:key/playing', async (c) => {
     const ch = picked(c.req.param('key'));
     if (!ch) return c.json({ error: 'Not one of your channels' }, 404);
-    return c.json({ playing: await isPlaying(tvOf(c).cfg, ch.name) });
+    return c.json({ state: await isPlaying(tvOf(c).cfg, ch.name) });
   });
 
   /** For VLC on the phone: the channel with the request headers a bare link can't carry. No video goes through here. */

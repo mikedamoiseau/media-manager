@@ -80,16 +80,13 @@ test('starting a channel opens it by its id on that TV', async () => {
   assert.deepEqual(k.calls.at(-1), { method: 'Player.Open', params: { item: { channelid: 3 } } });
 });
 
-test('really playing: a video codec, that channel, and the time moving', async () => {
-  const labels = (codec: string, name: string) => ({ 'VideoPlayer.VideoCodec': codec, 'VideoPlayer.ChannelName': name });
-  const times = (...secs: number[]) => () => ({ time: { hours: 0, minutes: 0, seconds: secs.length > 1 ? secs.shift()! : secs[0]!, milliseconds: 0 } });
-  const video = [{ playerid: 1, type: 'video' }];
-  const k = (l: unknown, players: unknown, t: () => unknown) =>
-    fakeKodi({ 'XBMC.GetInfoLabels': l, 'Player.GetActivePlayers': players, 'Player.GetProperties': t }).call;
-
-  assert.equal(await isPlaying(CFG, 'TF1', k(labels('h264', 'TF1'), video, times(3, 5)), 1), true);
-  assert.equal(await isPlaying(CFG, 'TF1', k(labels('', 'TF1'), video, times(3, 5)), 1), false, 'still opening');
-  assert.equal(await isPlaying(CFG, 'TF1', k(labels('h264', 'M6'), video, times(3, 5)), 1), false, 'another channel');
-  assert.equal(await isPlaying(CFG, 'TF1', k(labels('h264', 'TF1'), video, times(4, 4)), 1), false, 'stuck');
-  assert.equal(await isPlaying(CFG, 'TF1', k(labels('h264', 'TF1'), [], times(3, 5)), 1), false, 'no player');
+test('really playing: that channel, a picture, full screen, no busy dialog, and Kodi playing (live TV has no clock)', async () => {
+  const k = (labels: unknown, booleans: unknown) => fakeKodi({ 'XBMC.GetInfoLabels': labels, 'XBMC.GetInfoBooleans': booleans }).call;
+  const L = (codec: string, name: string) => ({ 'VideoPlayer.VideoCodec': codec, 'VideoPlayer.ChannelName': name });
+  const B = (playing: boolean, modal: boolean, full: boolean) => ({ 'Player.Playing': playing, 'System.HasActiveModalDialog': modal, 'Window.IsActive(fullscreenvideo)': full });
+  assert.equal(await isPlaying(CFG, 'TF1', k(L('h264', 'TF1'), B(true, false, true))), 'playing');
+  assert.equal(await isPlaying(CFG, 'TF1', k(L('h264', 'TF1'), B(true, true, false))), 'opening', 'its busy dialog still up (the Mi Box, 13 s in)');
+  assert.equal(await isPlaying(CFG, 'TF1', k(L('', 'TF1'), B(false, false, false))), 'opening', 'no picture yet');
+  assert.equal(await isPlaying(CFG, 'TF1', k(L('h264', ''), B(false, false, false))), 'stopped', 'back to Home: the stream failed (BFM TV on the Pi)');
+  assert.equal(await isPlaying(CFG, 'TF1', k(L('h264', 'M6 HD'), B(true, false, true))), 'stopped', 'another channel');
 });

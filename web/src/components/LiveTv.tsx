@@ -15,6 +15,9 @@ const HALF_HOUR = 30 * 60_000;
 const GRID_SPAN = 25 * 3600_000;
 /** Kodi took up to 11 s to start a channel on the Pi (measured): asking sooner says "not playing" for one that's opening. */
 const PLAY_CHECK_MS = 13_000;
+/** A channel Kodi still opens is asked about again, this long after, this many times. */
+const PLAY_RECHECK_MS = 10_000;
+const PLAY_RECHECKS = 2;
 const VIEW_KEY = 'mm.liveView';
 
 type Override = { view: LiveView; w: number; h: number };
@@ -166,14 +169,21 @@ export function LiveTv() {
       return;
     }
     toast(`Starting ${ch.name} on ${tv?.name ?? 'the TV'}`);
-    // Kodi keeps a player while a stream fails: ask the TV whether it really plays, unless another play came since.
-    setTimeout(() => {
-      if (n !== plays.current || onTv !== tvChoice.get()) return;
-      api.get<{ playing: boolean }>(`/api/livetv/${encodeURIComponent(ch.key)}/playing`).then(
-        (r) => !r.playing && n === plays.current && toast(`${ch.name} didn't start: its stream may be down`, 'error'),
-        () => {},
-      );
-    }, PLAY_CHECK_MS);
+    // Kodi keeps a player while a stream fails: ask the TV whether it really plays (again while it still opens
+    // it), unless another play came since.
+    const check = (delay: number, left: number) =>
+      setTimeout(() => {
+        if (n !== plays.current || onTv !== tvChoice.get()) return;
+        api.get<{ state: 'playing' | 'opening' | 'stopped' }>(`/api/livetv/${encodeURIComponent(ch.key)}/playing`).then(
+          (r) => {
+            if (n !== plays.current || onTv !== tvChoice.get() || r.state === 'playing') return;
+            if (r.state === 'opening' && left > 0) check(PLAY_RECHECK_MS, left - 1);
+            else toast(`${ch.name} didn't start: its stream may be down`, 'error');
+          },
+          () => {},
+        );
+      }, delay);
+    check(PLAY_CHECK_MS, PLAY_RECHECKS);
   };
 
   let body;

@@ -52,22 +52,16 @@ export async function startChannel(
   return 'started';
 }
 
-const ms = (t: { hours: number; minutes: number; seconds: number; milliseconds?: number }) =>
-  ((t.hours * 60 + t.minutes) * 60 + t.seconds) * 1000 + (t.milliseconds ?? 0);
-
 /**
- * The TV really plays that channel: Kodi keeps a player while a stream opens and while it fails (BFM TV held
- * one 40 s with nothing on screen, measured on the Pi), so it takes a video codec, the channel's name, and
- * the time moving between two reads `gapMs` apart.
+ * Whether the TV plays that channel, as the Kodi session measured on both boxes (2026-10-28): its name, a
+ * picture, full screen, no busy dialog, and Kodi playing. Not the clock: live TV reports no time, or one that
+ * jumps while a stream opens. "opening" while Kodi still opens it (its busy dialog showed 3 to 13 s, sometimes
+ * longer); "stopped" when another channel or nothing plays (a stream that fails goes back to Home).
  */
-export async function isPlaying(cfg: KodiConfig, name: string, call: typeof kodiCall = kodiCall, gapMs = 1500): Promise<boolean> {
-  const labels = await call<Record<string, string>>(cfg, 'XBMC.GetInfoLabels', { labels: ['VideoPlayer.VideoCodec', 'VideoPlayer.ChannelName'] });
-  if (!labels['VideoPlayer.VideoCodec'] || labels['VideoPlayer.ChannelName'] !== name) return false;
-  const player = (await call<Array<{ playerid: number; type: string }>>(cfg, 'Player.GetActivePlayers')).find((p) => p.type === 'video');
-  if (!player) return false;
-  const time = async () =>
-    ms((await call<{ time: { hours: number; minutes: number; seconds: number; milliseconds?: number } }>(cfg, 'Player.GetProperties', { playerid: player.playerid, properties: ['time'] })).time);
-  const before = await time();
-  await new Promise((r) => setTimeout(r, gapMs));
-  return (await time()) > before;
+export async function isPlaying(cfg: KodiConfig, name: string, call: typeof kodiCall = kodiCall): Promise<'playing' | 'opening' | 'stopped'> {
+  const labels = await call<Record<string, string>>(cfg, 'XBMC.GetInfoLabels', { labels: ['VideoPlayer.ChannelName', 'VideoPlayer.VideoCodec'] });
+  if (labels['VideoPlayer.ChannelName'] !== name) return 'stopped';
+  const full = 'Window.IsActive(fullscreenvideo)';
+  const on = await call<Record<string, boolean>>(cfg, 'XBMC.GetInfoBooleans', { booleans: ['Player.Playing', 'System.HasActiveModalDialog', full] });
+  return labels['VideoPlayer.VideoCodec'] && on['Player.Playing'] && on[full] && !on['System.HasActiveModalDialog'] ? 'playing' : 'opening';
 }
