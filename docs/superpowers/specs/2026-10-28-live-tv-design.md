@@ -1,6 +1,6 @@
 # Live TV: design
 
-Status: agreed with the owner on 2026-10-28, ready to plan.
+Status: agreed with the owner on 2026-10-28; built and merged to main the same day, tried on both TVs and the owner's iPhone (see "First run" at the end).
 
 ## Why
 
@@ -32,13 +32,19 @@ small list both TVs read, and the guide lives in the app only (not in Kodi).
   computer: grid). A **Grid / List** switch next to the title overrides
   that until the screen's shape changes (rotating, resizing). Rotating
   keeps the place: the same channels stay in view.
+- **A phone on its side gets the guide full screen**: no tab bar and no TV
+  bar, a slim top line with the title, the Grid / List switch and the TV a
+  channel starts on (tap it for another TV). Upright, the tabs come back.
+  The owner chose this on 2026-10-28 after finding the grid unusable on a
+  phone on its side with all the bars (about one row left in Safari).
 - **Tapping a channel** (its logo or name in the grid, its row in the list)
   starts it on the TV chosen in the app's existing **Play on** picker.
 - **Tapping a programme** in the grid opens its details: picture, title,
   episode, category, description, times, and **Watch on TV** when it's on
   now.
-- **Watch on phone**: plays the channel in VLC on the phone (see "Playing
-  on the phone").
+- **Watch on device** (called "Watch on phone" until the owner renamed it
+  on 2026-10-28; it works on an iPad too): plays the channel in VLC on the
+  phone or iPad (see "Playing on the phone").
 - Times show in the device's local time. The household is in UTC+7, six
   hours ahead of Paris in winter, so French evening TV falls in the night:
   "what's on now" matters more than evening planning.
@@ -142,7 +148,7 @@ programme on now with a yellow edge.
 
 ### Playing on the phone
 
-- **Watch on phone** gives VLC the channel's own stream address (as VLC
+- **Watch on device** gives VLC the channel's own stream address (as VLC
   for iOS is opened today, `vlc-x-callback://x-callback-url/stream?url=…`).
   The phone pulls the stream straight from its source: the Mac carries no
   video and the phone never gets the whole list. This was the owner's
@@ -186,7 +192,7 @@ programme on now with a yellow edge.
 - Channels from other countries (the design allows more lists later).
 - Moving the app off the M1 (parked, see below).
 - A kids channel list.
-- Android phones for "Watch on phone": it follows the existing VLC handoff,
+- Android phones for "Watch on device": it follows the existing VLC handoff,
   which is VLC for iOS.
 
 ## Anti-goals (would make this a failure even if it works)
@@ -295,3 +301,46 @@ plenty of room (16 GB RAM, about 1.2 GB used, 200 GB free) but a locally
 built add-on would be copied into every backup (about 68 MB today, daily,
 three places). That's a separate project, to discuss on its own; nothing
 in this design depends on it.
+
+## First run (2026-10-28)
+
+What was tried once the feature was merged. "Observed" is what this
+build's session saw itself; "reported" comes from the Kodi session.
+
+- **The list on the NAS** (observed): the app took over
+  `video/IPTV/channels.m3u` at 20:06 with one save of the starter list's
+  25 channels (same order and stream addresses; names now iptv-org's, e.g.
+  "M6 HD", "arte (France)", "TMC HD", "C Star", "Telesambre"). The folder
+  holds only `channels.m3u` and `.nomedia`. The Kodi session reloaded IPTV
+  Simple on both boxes (turning the add-on off and on makes a box reread
+  the file at once; otherwise it rereads it every 60 minutes).
+- **Starting a channel** (observed): TF1 and M6 HD started from the app on
+  the Pi and on the Mi Box, found by name; the Remote tab's card showed the
+  channel without errors.
+- **"Did it start?"** (observed): live TV gives Kodi no playing time (it
+  stays 0, or jumps while a stream opens), so the first check, which waited
+  for the time to move, said every channel had failed. It now asks what the
+  Kodi session measured: the channel's name, a picture, full screen, no busy
+  dialog, Kodi playing. It answers playing, opening or stopped, 13 s after
+  Play and again twice 10 s apart while the channel still opens. Rerun: TF1
+  playing on both boxes, BFM TV stopped (reported as not started).
+- **Kids view** (observed): with the Mi Box in its kids view, the app's
+  Play was refused ("This TV is showing its kids view") and no player
+  opened at all.
+- **Channels that don't play on the TVs** (reported): BFM TV on both boxes
+  (its server answers HTTP 452: IPTV Simple cuts the user agent at its
+  first space); CNews never settles into clean full-screen playback; TFX
+  on the Mi Box (its relay leaves 404 gaps). A relay gap can keep a channel
+  "opening" for 30 s or more before it fails. The owner decides whether to
+  keep these.
+- **Watch on device, on the owner's iPhone at home (UTC+7)** (owner's test,
+  with measurements from the Mac):
+  - TF1: sound, no picture. Its stream is interlaced 1080i H.264
+    (`field_order=tt`, 50 fields/s); VLC for iOS decodes with Apple's
+    hardware decoder by default, which likely explains it (not verified:
+    turning off hardware decoding in VLC's settings is the thing to try).
+  - M6 HD: sound and picture, frozen after 2 s. Its relay delivered about
+    0.6 Mbit/s to the house for a stream of about 4 to 5 Mbit/s: too slow
+    at that distance, nothing the app can fix.
+  - Whether VLC for iOS honours `http-user-agent` in the one-channel
+    playlist is still not known: M6's relay answers without it.
