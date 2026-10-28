@@ -335,13 +335,15 @@ export async function refreshGuides(db: DB, sources: string[], fetchFn: typeof f
       const channels: GuideChannel[] = [];
       const programmes: Programme[] = [];
       const want = wantedIds(db, source);
-      await readXmltv(downloadText(res.body), {
+      const ended = await readXmltv(downloadText(res.body), {
         channel: (c) => void channels.push(c),
         programme: (p) => {
           if (want.has(p.channel.toLowerCase())) programmes.push(p);
         },
       });
       if (!channels.length) throw new Error('not a TV guide');
+      // Cut short: what it had stays rather than half a guide.
+      if (!ended) throw new Error('incomplete download');
       storeGuide(db, source, channels, programmes, now);
       out.push({ source });
     } catch (e) {

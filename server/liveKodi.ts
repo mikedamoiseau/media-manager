@@ -13,13 +13,14 @@ export function findChannel(list: KodiChannel[], want: { name: string; number: n
   return (same.find((c) => c.channelnumber === want.number) ?? same[0])?.channelid;
 }
 
-/** The TV shows its kids view (Lumen's skin setting); undefined when Kodi doesn't answer. */
+/** The TV shows its kids view (Lumen's skin setting); undefined when Kodi answers but can't say. A TV that doesn't answer is an error. */
 export async function kidsViewOn(cfg: KodiConfig, call: typeof kodiCall = kodiCall): Promise<boolean | undefined> {
   const setting = `Skin.HasSetting(${KIDS_VIEW})`;
   try {
     const r = await call<Record<string, boolean>>(cfg, 'XBMC.GetInfoBooleans', { booleans: [setting] }, 3000);
     return r[setting] === true;
-  } catch {
+  } catch (e) {
+    if (e instanceof KodiError && e.code !== 'rpc') throw e;
     return undefined;
   }
 }

@@ -522,13 +522,22 @@ export class Service extends EventEmitter {
       const lists = await refreshCatalog(this.db, fetchFn, now);
       const picked = pickedChannels(this.db).map((c) => c.entry.key);
       // No channel picked yet: the list the TVs read (perhaps made by hand) stays until the owner saves theirs.
-      if (picked.length) this.writeLiveFile();
+      let fileError: string | undefined;
+      try {
+        if (picked.length) this.writeLiveFile();
+      } catch (e) {
+        fileError = (e as Error).message;
+      }
       step('Reading the TV guides');
       const guides = await refreshGuides(this.db, this.settings().liveGuides, fetchFn, now);
       step('Checking your channels');
       await checkStreams(this.db, picked, fetchFn, now);
       saveSettings(this.db, { liveRefreshedAt: now });
-      const failed = [...lists.filter((l) => l.error).map((l) => `the ${l.list} list (${l.error})`), ...guides.filter((g) => g.error).map((g) => `${g.source} (${g.error})`)];
+      const failed = [
+        ...(fileError ? [`the file on the NAS (${fileError})`] : []),
+        ...lists.filter((l) => l.error).map((l) => `the ${l.list} list (${l.error})`),
+        ...guides.filter((g) => g.error).map((g) => `${g.source} (${g.error})`),
+      ];
       return failed.length ? `Refreshed, except ${failed.join(', ')}` : 'Channel lists and guides refreshed';
     });
   }

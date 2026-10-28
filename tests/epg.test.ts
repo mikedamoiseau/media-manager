@@ -64,3 +64,16 @@ test('a guide channel for a playlist channel: id, then aliases, then Pluto, sour
   );
   assert.equal(matchGuide({ key: 'Klara.be@SD', url: 'http://a' }, guides), null);
 });
+
+test('the end of a guide split across two chunks still counts as its end', async () => {
+  const none = { channel() {}, programme() {} };
+  async function* split() {
+    yield '<tv><channel id="a"><display-name>A</display-name></channel>\n</t';
+    yield 'v>\n';
+  }
+  assert.equal(await readXmltv(split(), none), true);
+  async function* cut() {
+    yield '<tv><channel id="a"><display-name>A</display-name></channel>\n';
+  }
+  assert.equal(await readXmltv(cut(), none), false);
+});

@@ -37,12 +37,13 @@ test('a channel on a TV: by its name, case ignored, the number only breaks a tie
   assert.equal(findChannel(twins, { name: 'LCI', number: 9 }), 7);
 });
 
-test("the TV's kids view: on, off, or unknown when Kodi doesn't answer", async () => {
+test("the TV's kids view: on, off, unknown when Kodi can't say, and a TV that doesn't answer is an error", async () => {
   const on = fakeKodi({ 'XBMC.GetInfoBooleans': { [KIDS]: true } });
   assert.equal(await kidsViewOn(CFG, on.call), true);
   assert.deepEqual(on.calls[0], { method: 'XBMC.GetInfoBooleans', params: { booleans: [KIDS] } });
   assert.equal(await kidsViewOn(CFG, fakeKodi({ 'XBMC.GetInfoBooleans': { [KIDS]: false } }).call), false);
-  assert.equal(await kidsViewOn(CFG, fakeKodi({ 'XBMC.GetInfoBooleans': new KodiError('unreachable', 'down') }).call), undefined);
+  assert.equal(await kidsViewOn(CFG, fakeKodi({ 'XBMC.GetInfoBooleans': new KodiError('rpc', 'XBMC.GetInfoBooleans: Failed') }).call), undefined);
+  await assert.rejects(kidsViewOn(CFG, fakeKodi({ 'XBMC.GetInfoBooleans': new KodiError('unreachable', 'down') }).call), KodiError);
 });
 
 test('starting a channel: never in the kids view, nor when it cannot be checked', async () => {
@@ -50,9 +51,14 @@ test('starting a channel: never in the kids view, nor when it cannot be checked'
   assert.equal(await startChannel(CFG, { name: 'TF1', number: 1 }, kids.call), 'kids_view');
   assert.ok(!kids.calls.some((c) => c.method === 'Player.Open'));
 
-  const unknown = fakeKodi({ 'XBMC.GetInfoBooleans': new KodiError('unreachable', 'down'), 'PVR.GetChannels': CHANNELS, 'Player.Open': 'OK' });
+  const unknown = fakeKodi({ 'XBMC.GetInfoBooleans': new KodiError('rpc', 'XBMC.GetInfoBooleans: Failed'), 'PVR.GetChannels': CHANNELS, 'Player.Open': 'OK' });
   assert.equal(await startChannel(CFG, { name: 'TF1', number: 1 }, unknown.call), 'kids_unknown');
   assert.ok(!unknown.calls.some((c) => c.method === 'Player.Open'));
+
+  // A TV that is off: Kodi's own "not reachable", not a word about its kids view; still nothing plays.
+  const off = fakeKodi({ 'XBMC.GetInfoBooleans': new KodiError('unreachable', 'down'), 'PVR.GetChannels': CHANNELS, 'Player.Open': 'OK' });
+  await assert.rejects(startChannel(CFG, { name: 'TF1', number: 1 }, off.call), KodiError);
+  assert.ok(!off.calls.some((c) => c.method === 'Player.Open'));
 });
 
 test("starting a channel the TV hasn't loaded, or on a TV without live TV", async () => {

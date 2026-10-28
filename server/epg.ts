@@ -90,22 +90,26 @@ function programmeOf(el: string): Programme | null {
 
 /**
  * Hands over each channel and programme as soon as its element is complete, keeping only what is not read yet:
- * the whole file is never in memory. Programmes without a channel, a time or a title are skipped.
+ * the whole file is never in memory. Programmes without a channel, a time or a title are skipped. True when the
+ * document ends (`</tv>`): a download cut short gives false.
  */
 export async function readXmltv(
   text: AsyncIterable<string>,
   on: { channel(c: GuideChannel): void; programme(p: Programme): void },
-): Promise<void> {
+): Promise<boolean> {
   const open = /<!--|<(channel|programme)[\s>]/g;
   let buf = '';
+  let ended = false;
   for await (const chunk of text) {
     buf += chunk;
     let pos = 0;
     for (;;) {
       open.lastIndex = pos;
       const m = open.exec(buf);
-      // Nothing begins here: keep a tail long enough to hold the start of the next element.
+      // Nothing begins here: keep a tail long enough to hold the start of the next element. Text between
+      // elements is where the document's own end can be (not one quoted in a comment or a description).
       if (!m) {
+        if (buf.includes('</tv>', pos)) ended = true;
         pos = Math.max(pos, buf.length - 16);
         break;
       }
@@ -137,6 +141,7 @@ export async function readXmltv(
     }
     buf = buf.slice(pos);
   }
+  return ended;
 }
 
 /** Channels the guide still lists under their old names (playlist id without its feed, lower case → guide id). */

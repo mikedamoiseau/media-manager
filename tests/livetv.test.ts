@@ -308,3 +308,46 @@ test('a gzipped guide whose first chunk is a single byte is still unpacked', asy
   assert.equal(res[0]!.error, undefined);
   assert.deepEqual(liveGuide(db, [X], 0, at(23))[0]!.programmes.map((p) => p.title), ['Le 13h']);
 });
+
+test('a guide cut off before its end keeps what the source had', async () => {
+  const db = catalog();
+  setPicks(db, ['TF1.fr@SD']);
+  storeGuide(db, X, [{ id: 'TF1.fr', name: 'TF1' }], [prog('TF1.fr', at(9), at(10), 'Kept')], at(8));
+  const { fn } = fakeFetch({ [X]: new Response(GUIDE.slice(0, GUIDE.indexOf('</tv>'))) });
+  const res = await refreshGuides(db, [X], fn, at(10));
+  assert.match(res[0]!.error ?? '', /incomplete/);
+  assert.deepEqual(liveGuide(db, [X], 0, at(23))[0]!.programmes.map((p) => p.title), ['Kept']);
+});
+
+test("a guide's end is its own closing tag, not one quoted in a comment or a description", async () => {
+  const db = catalog();
+  setPicks(db, ['TF1.fr@SD']);
+  storeGuide(db, X, [{ id: 'TF1.fr', name: 'TF1' }], [prog('TF1.fr', at(9), at(10), 'Kept')], at(8));
+  const quoted = GUIDE.replace('<title>Le 13h</title>', '<title>Le 13h</title><desc><![CDATA[</tv>]]></desc>').replace('<channel id="Nobody.fr">', '<!-- </tv> --><channel id="Nobody.fr">');
+  const { fn } = fakeFetch({ [X]: new Response(quoted.slice(0, quoted.lastIndexOf('</tv>'))) });
+  const res = await refreshGuides(db, [X], fn, at(10));
+  assert.match(res[0]!.error ?? '', /incomplete/);
+  assert.deepEqual(liveGuide(db, [X], 0, at(23))[0]!.programmes.map((p) => p.title), ['Kept']);
+});
+
+test('a NAS file that cannot be written does not stop the lists, the guides or the checks', async () => {
+  const tmp = mkdtempSync(join(tmpdir(), 'live-'));
+  mkdirSync(join(tmp, 'share'));
+  writeFileSync(join(tmp, 'share', 'IPTV'), 'a file where the folder goes');
+  const db = openDb(':memory:');
+  saveSettings(db, { liveFile: join(tmp, 'share', 'IPTV', 'channels.m3u'), liveGuides: [X] });
+  saveCatalog(db, [{ list: 'fr', entries: [TF1] }], at(1));
+  setPicks(db, ['TF1.fr@SD']);
+  const svc = new Service(db, join(tmp, 'data'));
+  const { fn } = fakeFetch({
+    [LIVE_LISTS[0]!.url]: new Response(M3U('#EXTINF:-1 tvg-id="TF1.fr@SD" group-title="General",TF1', 'http://s/TF1.fr@SD.m3u8')),
+    [LIVE_LISTS[1]!.url]: new Response(M3U('#EXTINF:-1 tvg-id="BX1.be@SD",BX1', 'http://s/bx1')),
+    [X]: new Response(GUIDE),
+    'http://s/TF1.fr@SD.m3u8': new Response('#EXTM3U\n'),
+  });
+  await svc.refreshLiveNow(fn);
+  assert.ok(getSettings(db).liveRefreshedAt > 0, 'the refresh went on');
+  assert.deepEqual(liveGuide(db, [X], 0, at(23))[0]!.programmes.map((p) => p.title), ['Le 13h']);
+  assert.equal(liveCatalog(db, [X]).find((r) => r.key === 'TF1.fr@SD')!.ok, true);
+  assert.match(svc.status.live.message ?? '', /the file on the NAS/);
+});
