@@ -269,6 +269,55 @@ export const MIGRATIONS: string[] = [
     at INTEGER NOT NULL
   );
   `,
+  `
+  -- Live TV. iptv-org's French and Belgian channels by tvg-id with its feed (TF1.fr@SD); the first list wins a
+  -- channel both have. A channel no longer listed keeps its row (seen_at stays where it was).
+  CREATE TABLE live_catalog (
+    key TEXT PRIMARY KEY,
+    list TEXT NOT NULL,                 -- fr|be
+    name TEXT NOT NULL,                 -- iptv-org's name without resolution or tags
+    logo TEXT NOT NULL,
+    grp TEXT NOT NULL,
+    url TEXT NOT NULL,
+    opts TEXT NOT NULL,                 -- JSON: the #EXTVLCOPT / #KODIPROP lines
+    seen_at INTEGER NOT NULL,           -- the last refresh of its list that had it
+    ok INTEGER,                         -- its stream answered (1) or not (0); NULL: not checked since its address changed
+    checked_at INTEGER
+  );
+  -- When each list was last read: a channel seen before that is no longer listed.
+  CREATE TABLE live_lists (
+    list TEXT PRIMARY KEY,
+    refreshed_at INTEGER NOT NULL
+  );
+
+  -- The owner's channels in their order: position 1..n is the channel number on the TVs.
+  -- guide: NULL automatic, '' no guide, 'source<TAB>id' the owner's pick.
+  CREATE TABLE live_channels (
+    key TEXT PRIMARY KEY,
+    position INTEGER NOT NULL,
+    guide TEXT
+  );
+
+  -- The guide: each source's channels (to pick from), and the programmes of the channels in use.
+  CREATE TABLE epg_channels (
+    source TEXT NOT NULL,
+    id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    PRIMARY KEY (source, id)
+  );
+  CREATE TABLE epg_programmes (
+    source TEXT NOT NULL,
+    channel TEXT NOT NULL,
+    start INTEGER NOT NULL,
+    stop INTEGER NOT NULL,
+    title TEXT NOT NULL,
+    sub TEXT,
+    category TEXT,
+    descr TEXT,
+    icon TEXT,
+    PRIMARY KEY (source, channel, start)
+  );
+  `,
 ];
 
 export function openDb(file: string): DB {
@@ -325,6 +374,12 @@ export interface Settings {
   sheetImportedAt: number;
   /** Whose cinemas the "At the cinema" row follows (ISO 3166-1 code) */
   cinemaCountry: string;
+  /** The live TV channel list both TVs read, on the NAS share (next to MEDIA, never inside) */
+  liveFile: string;
+  /** TV guides (XMLTV), the first wins a channel several have */
+  liveGuides: string[];
+  /** When the channel lists and guides were last refreshed */
+  liveRefreshedAt: number;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -336,6 +391,9 @@ export const DEFAULT_SETTINGS: Settings = {
   sheetId: '',
   sheetImportedAt: 0,
   cinemaCountry: 'TH',
+  liveFile: '/Volumes/video/IPTV/channels.m3u',
+  liveGuides: ['https://xmltvfr.fr/xmltv/xmltv.xml.gz', 'https://i.mjh.nz/PlutoTV/fr.xml.gz'],
+  liveRefreshedAt: 0,
 };
 
 export function getSettings(db: DB): Settings {
