@@ -256,6 +256,8 @@ export interface CatalogRow {
   listed: boolean;
   position: number | null;
   guide: { mode: 'auto' | 'manual' | 'none'; source?: string; id?: string; name?: string };
+  /** The owner's own stream address for it; null: iptv-org's */
+  stream: string | null;
 }
 
 /** A person's likes, suggestions and progress (see server/profiles.ts). */

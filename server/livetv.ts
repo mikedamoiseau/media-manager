@@ -38,11 +38,16 @@ export interface CatalogRow {
   listed: boolean;
   position: number | null;
   guide: { mode: 'auto' | 'manual' | 'none'; source?: string; id?: string; name?: string };
+  /** The owner's own stream address for it; null: iptv-org's */
+  stream: string | null;
 }
 
 type CatalogDbRow = { key: string; list: string; name: string; logo: string; grp: string; url: string; opts: string; seen_at: number; ok: number | null };
 
 const entryOf = (r: CatalogDbRow): M3uEntry => ({ key: r.key, name: r.name, logo: r.logo, group: r.grp, opts: JSON.parse(r.opts) as string[], url: r.url });
+
+/** The entry the TVs and VLC get: at the owner's own address when they set one, then without iptv-org's request headers. */
+const playedOf = (r: CatalogDbRow & { own: string | null }): M3uEntry => (r.own ? { ...entryOf(r), url: r.own, opts: [] } : entryOf(r));
 
 /** iptv-org's channels, list by list. A channel whose address changed is checked again before it counts as answering. */
 export function saveCatalog(db: DB, lists: Array<{ list: string; entries: M3uEntry[] }>, now: number): void {
@@ -65,16 +70,27 @@ export function saveCatalog(db: DB, lists: Array<{ list: string; entries: M3uEnt
   });
 }
 
-/** The owner's channels, in this order. Their guide picks stay. */
+/** The owner's channels, in this order. Their guide picks and own stream addresses stay. */
 export function setPicks(db: DB, keys: string[]): void {
   if (new Set(keys).size !== keys.length) throw new LiveError('A channel is in the list twice');
   const known = db.prepare('SELECT 1 FROM live_catalog WHERE key = ?');
   for (const k of keys) if (!known.get(k)) throw new LiveError(`Unknown channel: ${k}`);
-  const guides = new Map((db.prepare('SELECT key, guide FROM live_channels').all() as Array<{ key: string; guide: string | null }>).map((r) => [r.key, r.guide]));
+  const kept = new Map(
+    (db.prepare('SELECT key, guide, url FROM live_channels').all() as Array<{ key: string; guide: string | null; url: string | null }>).map((r) => [r.key, r]),
+  );
   tx(db, () => {
     db.exec('DELETE FROM live_channels');
-    const ins = db.prepare('INSERT INTO live_channels(key, position, guide) VALUES (?, ?, ?)');
-    keys.forEach((k, i) => ins.run(k, i + 1, guides.get(k) ?? null));
+    const ins = db.prepare('INSERT INTO live_channels(key, position, guide, url) VALUES (?, ?, ?, ?)');
+    keys.forEach((k, i) => ins.run(k, i + 1, kept.get(k)?.guide ?? null, kept.get(k)?.url ?? null));
+  });
+}
+
+/** The owner's own stream address for a channel of theirs, or back to iptv-org's (null). Not checked yet either way. */
+export function setStream(db: DB, key: string, url: string | null): void {
+  tx(db, () => {
+    const r = db.prepare('UPDATE live_channels SET url = ? WHERE key = ?').run(url, key);
+    if (!r.changes) throw new LiveError('Pick the channel first');
+    db.prepare('UPDATE live_catalog SET ok = NULL, checked_at = NULL WHERE key = ?').run(key);
   });
 }
 
@@ -86,12 +102,13 @@ export function setGuidePick(db: DB, key: string, guide: { source: string; id: s
 }
 
 /** The owner's channels as the TVs number and name them. */
-export function pickedChannels(db: DB): Array<{ number: number; name: string; entry: M3uEntry; guide: string | null }> {
-  const rows = db.prepare(`SELECT c.*, p.guide FROM live_channels p JOIN live_catalog c ON c.key = p.key ORDER BY p.position`).all() as Array<
-    CatalogDbRow & { guide: string | null }
+export function pickedChannels(db: DB): Array<{ number: number; name: string; entry: M3uEntry; guide: string | null; listedUrl: string }> {
+  const rows = db.prepare(`SELECT c.*, p.guide, p.url AS own FROM live_channels p JOIN live_catalog c ON c.key = p.key ORDER BY p.position`).all() as Array<
+    CatalogDbRow & { guide: string | null; own: string | null }
   >;
   const names = uniqueNames(rows.map((r) => r.name));
-  return rows.map((r, i) => ({ number: i + 1, name: names[i]!, entry: entryOf(r), guide: r.guide }));
+  // listedUrl: iptv-org's address, which a guide is matched on (a Pluto channel's id is in it).
+  return rows.map((r, i) => ({ number: i + 1, name: names[i]!, entry: playedOf(r), guide: r.guide, listedUrl: r.url }));
 }
 
 /** The list both TVs read. */
@@ -155,7 +172,7 @@ export function liveGuide(db: DB, sources: string[], from: number, to: number): 
   const q = db.prepare(`SELECT start, stop, title, sub, category, descr, icon FROM epg_programmes
     WHERE source = ? AND channel = ? AND stop > ? AND start < ? ORDER BY start`);
   return pickedChannels(db).map((c) => {
-    const g = guide(c.entry.key, c.entry.url, c.guide);
+    const g = guide(c.entry.key, c.listedUrl, c.guide);
     const rows = g.source && g.id ? (q.all(g.source, g.id, from, to) as Array<Record<string, string | number | null>>) : [];
     const programmes = rows.map((r) => Object.fromEntries(Object.entries(r).filter(([, v]) => v !== null)) as Omit<Programme, 'channel'>);
     return { key: c.entry.key, number: c.number, name: c.name, logo: c.entry.logo, url: c.entry.url, vlc: c.entry.opts.length ? 'playlist' : 'direct', programmes };
@@ -165,9 +182,9 @@ export function liveGuide(db: DB, sources: string[], from: number, to: number): 
 /** Every channel the owner can pick, lists in their order, with where the owner put it and its guide. */
 export function liveCatalog(db: DB, sources: string[]): CatalogRow[] {
   const guide = resolver(db, sources);
-  const rows = db.prepare(`SELECT c.*, p.position, p.guide, c.seen_at >= COALESCE(l.refreshed_at, 0) AS listed
+  const rows = db.prepare(`SELECT c.*, p.position, p.guide, p.url AS own, c.seen_at >= COALESCE(l.refreshed_at, 0) AS listed
     FROM live_catalog c LEFT JOIN live_channels p ON p.key = c.key LEFT JOIN live_lists l ON l.list = c.list`).all() as Array<
-    CatalogDbRow & { position: number | null; guide: string | null; listed: number }
+    CatalogDbRow & { position: number | null; guide: string | null; own: string | null; listed: number }
   >;
   const order = (list: string) => {
     const i = LIVE_LISTS.findIndex((l) => l.list === list);
@@ -184,6 +201,7 @@ export function liveCatalog(db: DB, sources: string[]): CatalogRow[] {
     listed: r.listed === 1,
     position: r.position,
     guide: guide(r.key, r.url, r.guide),
+    stream: r.own,
   }));
 }
 
@@ -355,12 +373,16 @@ export async function refreshGuides(db: DB, sources: string[], fetchFn: typeof f
 
 /** Whether each channel's stream answers, a few at a time. */
 export async function checkStreams(db: DB, keys: string[], fetchFn: typeof fetch, now: number): Promise<void> {
-  const q = db.prepare('SELECT * FROM live_catalog WHERE key = ?');
-  const set = db.prepare('UPDATE live_catalog SET ok = ?, checked_at = ? WHERE key = ?');
-  const rows = keys.map((k) => q.get(k) as CatalogDbRow | undefined).filter((r): r is CatalogDbRow => !!r);
+  const q = db.prepare('SELECT c.*, p.url AS own FROM live_catalog c LEFT JOIN live_channels p ON p.key = c.key WHERE c.key = ?');
+  // Only while the channel still has the address that was checked (the owner may have changed it meanwhile).
+  const set = db.prepare(`UPDATE live_catalog SET ok = ?, checked_at = ? WHERE key = ?
+    AND COALESCE((SELECT url FROM live_channels WHERE key = live_catalog.key), live_catalog.url) = ?`);
+  type Row = CatalogDbRow & { own: string | null };
+  const rows = keys.map((k) => q.get(k) as Row | undefined).filter((r): r is Row => !!r);
   await pool(rows, 6, async (r) => {
-    const ok = await streamAnswers(entryOf(r), fetchFn);
-    set.run(ok ? 1 : 0, now, r.key);
+    const entry = playedOf(r);
+    const ok = await streamAnswers(entry, fetchFn);
+    set.run(ok ? 1 : 0, now, r.key, entry.url);
   });
 }
 

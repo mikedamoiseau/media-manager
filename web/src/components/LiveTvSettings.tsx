@@ -28,7 +28,8 @@ export function LiveTvSettings({ activity, sources, onSources }: { activity: Rea
   const [rows, setRows] = useState<CatalogRow[] | null>(null);
   const [order, setOrder] = useState<string[]>([]);
   const [adding, setAdding] = useState(false);
-  const [guideFor, setGuideFor] = useState<CatalogRow | null>(null);
+  // The channel whose sheet is open (its row is read fresh after each save)
+  const [sheetFor, setSheetFor] = useState<string | null>(null);
   const [dragging, setDragging] = useState<string | null>(null);
   // The order as the owner sees it: pointer events read it before React renders.
   const orderRef = useRef<string[]>([]);
@@ -139,12 +140,13 @@ export function LiveTvSettings({ activity, sources, onSources }: { activity: Rea
                   <IconMenu />
                 </button>
                 <RowLogo row={r} />
-                <button className="live-pick-text" onClick={() => setGuideFor(r)} aria-label={`${r.name}: ${guideLabel(r)}. Change the guide`}>
+                <button className="live-pick-text" onClick={() => setSheetFor(key)} aria-label={`${r.name}: ${guideLabel(r)}. Change its guide or stream`}>
                   <strong>
                     {i + 1} · {r.name}
                   </strong>
                   <span className={`small${r.listed ? ' muted' : ' error-text'}`}>{guideLabel(r)}</span>
                   <StreamState ok={r.ok} />
+                  {r.stream && <span className="muted small">Own stream address</span>}
                 </button>
                 <button className="icon-btn" aria-label={`Remove ${r.name}`} onClick={() => save(orderRef.current.filter((k) => k !== key))}>
                   <IconClose />
@@ -176,7 +178,7 @@ export function LiveTvSettings({ activity, sources, onSources }: { activity: Rea
       {adding && rows && (
         <AddChannels rows={rows} picked={picked} onToggle={(key) => save(picked.has(key) ? orderRef.current.filter((k) => k !== key) : [...orderRef.current, key])} onClose={() => setAdding(false)} />
       )}
-      {guideFor && <GuidePick row={guideFor} onPicked={() => void load()} onClose={() => setGuideFor(null)} />}
+      {sheetFor && byKey.get(sheetFor) && <ChannelSheet row={byKey.get(sheetFor)!} onSaved={() => void load()} onClose={() => setSheetFor(null)} />}
     </section>
   );
 }
@@ -235,8 +237,8 @@ function AddChannels({ rows, picked, onToggle, onClose }: { rows: CatalogRow[]; 
   );
 }
 
-/** A channel's guide: found automatically, none, or one picked from the guides' channels. */
-function GuidePick({ row, onPicked, onClose }: { row: CatalogRow; onPicked: () => void; onClose: () => void }) {
+/** One of the owner's channels: where its stream comes from, and its guide (found automatically, none, or one picked from the guides' channels). */
+function ChannelSheet({ row, onSaved, onClose }: { row: CatalogRow; onSaved: () => void; onClose: () => void }) {
   const [all, setAll] = useState<GuideChannel[] | null>(null);
   const [q, setQ] = useState('');
   useEffect(() => {
@@ -249,7 +251,7 @@ function GuidePick({ row, onPicked, onClose }: { row: CatalogRow; onPicked: () =
     try {
       await api.put(`/api/livetv/channels/${encodeURIComponent(row.key)}/guide`, { guide });
       toast('Guide saved');
-      onPicked();
+      onSaved();
       onClose();
     } catch (e) {
       toast((e as Error).message, 'error');
@@ -260,7 +262,9 @@ function GuidePick({ row, onPicked, onClose }: { row: CatalogRow; onPicked: () =
   const host = (url: string) => new URL(url).hostname.replace(/^www\./, '');
   const mine = (g: GuideChannel) => row.guide.mode === 'manual' && row.guide.source === g.source && row.guide.id === g.id;
   return (
-    <Sheet title={`Guide for ${row.name}`} onClose={onClose} wide>
+    <Sheet title={row.name} onClose={onClose} wide>
+      <OwnStream key={row.stream ?? ''} row={row} onSaved={onSaved} />
+      <h3 className="field-label">Guide</h3>
       <p className="muted">Now: {guideLabel(row)}</p>
       <div className="tool-row">
         <button className="btn small" aria-pressed={row.guide.mode === 'auto'} onClick={() => void pick(null)}>
@@ -290,6 +294,51 @@ function GuidePick({ row, onPicked, onClose }: { row: CatalogRow; onPicked: () =
         {all && nq && !shown.length && <li className="muted">No guide channel matches.</li>}
       </ul>
     </Sheet>
+  );
+}
+
+/** Where a channel's stream comes from: iptv-org's address, or one the owner found that works (sent without request headers). */
+function OwnStream({ row, onSaved }: { row: CatalogRow; onSaved: () => void }) {
+  const [url, setUrl] = useState(row.stream ?? '');
+  const [busy, setBusy] = useState(false);
+  const save = async (next: string | null) => {
+    setBusy(true);
+    try {
+      const r = await api.put<{ file: 'written' | 'same' | 'not_mounted'; ok: boolean }>(`/api/livetv/channels/${encodeURIComponent(row.key)}/stream`, { url: next });
+      if (r.file === 'not_mounted') toast("Saved, but the NAS isn't mounted: the TVs keep the old list", 'error');
+      else if (!r.ok) toast("Saved on the NAS, but this stream doesn't answer", 'error');
+      else toast('Saved on the NAS: the stream answers');
+      onSaved();
+    } catch (e) {
+      toast((e as Error).message, 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <form
+      className="live-sources"
+      onSubmit={(e) => {
+        e.preventDefault();
+        void save(url.trim());
+      }}
+    >
+      <label className="field-label" htmlFor="live-own">
+        Stream address
+      </label>
+      <p className="muted small">{row.stream ? 'Your own address, sent without request headers.' : "iptv-org's address. Paste another one if it stops working."}</p>
+      <input id="live-own" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://…/master.m3u8" inputMode="url" autoComplete="off" spellCheck={false} />
+      <div className="tool-row">
+        <button className="btn small primary" disabled={busy || !url.trim() || url.trim() === row.stream}>
+          Use this address
+        </button>
+        {row.stream && (
+          <button type="button" className="btn small" disabled={busy} onClick={() => void save(null)}>
+            Back to iptv-org's
+          </button>
+        )}
+      </div>
+    </form>
   );
 }
 

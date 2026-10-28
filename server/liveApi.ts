@@ -66,6 +66,18 @@ export function liveTvRoutes(api: Hono, svc: Service, tvOf: (c: Context) => { cf
     return c.json({ ok: true });
   });
 
+  /** The owner's own stream address for a channel of theirs (null: back to iptv-org's). */
+  api.put('/livetv/channels/:key/stream', async (c) => {
+    const { url } = (await c.req.json().catch(() => ({}))) as { url?: unknown };
+    if (url !== null && !(typeof url === 'string' && /^https?:\/\/[^\s]+$/i.test(url.trim()))) return c.json({ error: 'A stream address starts with http:// or https://' }, 400);
+    try {
+      return c.json(await svc.setLiveStream(c.req.param('key'), url === null ? null : url.trim()));
+    } catch (e) {
+      if (e instanceof LiveError) return c.json({ error: e.message }, 400);
+      throw e;
+    }
+  });
+
   api.post('/livetv/refresh', (c) => {
     void svc.refreshLive();
     return c.json({ started: true });

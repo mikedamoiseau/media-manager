@@ -4,7 +4,7 @@ import { openDb, getSettings } from '../server/db.ts';
 import type { M3uEntry } from '../server/iptv.ts';
 import type { Programme } from '../server/epg.ts';
 import {
-  LiveError, saveCatalog, setPicks, setGuidePick, pickedChannels, channelFileText, storeGuide, liveGuide, liveCatalog, guideOf,
+  LiveError, saveCatalog, setPicks, setGuidePick, setStream, pickedChannels, channelFileText, storeGuide, liveGuide, liveCatalog, guideOf,
 } from '../server/livetv.ts';
 
 const X = 'https://xmltvfr.fr/xmltv/xmltv.xml.gz';
@@ -350,4 +350,50 @@ test('a NAS file that cannot be written does not stop the lists, the guides or t
   assert.deepEqual(liveGuide(db, [X], 0, at(23))[0]!.programmes.map((p) => p.title), ['Le 13h']);
   assert.equal(liveCatalog(db, [X]).find((r) => r.key === 'TF1.fr@SD')!.ok, true);
   assert.match(svc.status.live.message ?? '', /the file on the NAS/);
+});
+
+test("the owner's own stream address: written without request headers, kept when reordered, cleared", () => {
+  const db = catalog();
+  setPicks(db, ['M6.fr@HD', 'TF1.fr@SD']);
+  setStream(db, 'M6.fr@HD', 'https://own/m6.m3u8');
+  const m6 = pickedChannels(db)[0]!;
+  assert.equal(m6.entry.url, 'https://own/m6.m3u8');
+  assert.deepEqual(m6.entry.opts, [], "iptv-org's headers were for iptv-org's address");
+  assert.match(channelFileText(db), /https:\/\/own\/m6\.m3u8/);
+  assert.doesNotMatch(channelFileText(db), /EXTVLCOPT/);
+  assert.equal(liveGuide(db, [X], 0, at(23))[0]!.vlc, 'direct');
+  assert.equal(liveCatalog(db, [X]).find((r) => r.key === 'M6.fr@HD')!.stream, 'https://own/m6.m3u8');
+  assert.equal(liveCatalog(db, [X]).find((r) => r.key === 'TF1.fr@SD')!.stream, null);
+  setPicks(db, ['TF1.fr@SD', 'M6.fr@HD']);
+  assert.equal(pickedChannels(db)[1]!.entry.url, 'https://own/m6.m3u8', 'kept when reordered');
+  setStream(db, 'M6.fr@HD', null);
+  assert.equal(pickedChannels(db)[1]!.entry.url, M6.url);
+  assert.deepEqual(pickedChannels(db)[1]!.entry.opts, M6.opts);
+  assert.throws(() => setStream(db, 'BX1.be@SD', 'https://x/bx1.m3u8'), LiveError, 'not one of the owner channels');
+});
+
+test("a stream check asks the owner's own address, which starts unchecked", async () => {
+  const db = catalog();
+  setPicks(db, ['M6.fr@HD']);
+  const old = fakeFetch({ [M6.url]: new Response('#EXTM3U\n') });
+  await checkStreams(db, ['M6.fr@HD'], old.fn, at(2));
+  setStream(db, 'M6.fr@HD', 'https://own/m6.m3u8');
+  assert.equal(liveCatalog(db, [X]).find((r) => r.key === 'M6.fr@HD')!.ok, null, 'a new address is not checked yet');
+  const { fn, calls } = fakeFetch({ 'https://own/m6.m3u8': new Response('#EXTM3U\n') });
+  await checkStreams(db, ['M6.fr@HD'], fn, at(3));
+  assert.deepEqual(calls.map((c) => c.url), ['https://own/m6.m3u8']);
+  assert.equal(liveCatalog(db, [X]).find((r) => r.key === 'M6.fr@HD')!.ok, true);
+});
+
+test('a check of an old address says nothing about the new one', async () => {
+  const db = catalog();
+  setPicks(db, ['M6.fr@HD']);
+  let answer!: () => void;
+  const slow = fakeFetch({ [M6.url]: () => new Promise<Response>((r) => (answer = () => r(new Response('#EXTM3U\n')))) });
+  const checking = checkStreams(db, ['M6.fr@HD'], slow.fn, at(2));
+  await new Promise((r) => setTimeout(r, 0));
+  setStream(db, 'M6.fr@HD', 'https://own/m6.m3u8');
+  answer();
+  await checking;
+  assert.equal(liveCatalog(db, [X]).find((r) => r.key === 'M6.fr@HD')!.ok, null, 'the new address is still unchecked');
 });

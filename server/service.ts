@@ -16,7 +16,7 @@ import { lanTransport } from './net.ts';
 import { KodiEvents, type KodiInput, type PlayerEvent } from './kodiEvents.ts';
 import { TvOwners, notePlay, kodiStates, attributeKodiChanges } from './owners.ts';
 import { pickTv, addTv, editTv, tvNumber, firstTvChanged, firstRun } from './tvs.ts';
-import { refreshCatalog, refreshGuides, checkStreams, writeChannelFile, channelFileText, pickedChannels, setPicks } from './livetv.ts';
+import { refreshCatalog, refreshGuides, checkStreams, writeChannelFile, channelFileText, pickedChannels, setPicks, setStream } from './livetv.ts';
 
 export interface TaskStatus {
   running: boolean;
@@ -506,6 +506,14 @@ export class Service extends EventEmitter {
   saveLivePicks(keys: string[]): 'written' | 'same' | 'not_mounted' {
     setPicks(this.db, keys);
     return this.writeLiveFile();
+  }
+
+  /** A channel of the owner's at their own stream address (or back to iptv-org's): the file on the NAS, then whether it answers. */
+  async setLiveStream(key: string, url: string | null, fetchFn: typeof fetch = fetch): Promise<{ file: 'written' | 'same' | 'not_mounted'; ok: boolean }> {
+    setStream(this.db, key, url);
+    const file = this.writeLiveFile();
+    await checkStreams(this.db, [key], fetchFn, Date.now());
+    return { file, ok: (this.db.prepare('SELECT ok FROM live_catalog WHERE key = ?').get(key) as { ok: number | null }).ok === 1 };
   }
 
   /** iptv-org's lists, the file on the NAS, the guides, then whether the owner's channels answer. */

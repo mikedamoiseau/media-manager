@@ -122,3 +122,21 @@ test('new guide sources are fetched at once', async () => {
   await app.request('/api/settings', json('PUT', { liveGuides: [X, 'https://b/g.xml'] }));
   assert.equal(refreshes, 1);
 });
+
+test("a channel's own stream address: http(s) only, one of the owner's channels, written and checked", async () => {
+  const { svc, app, json } = setup();
+  svc.saveLivePicks(['M6.fr@HD']);
+  const url = (key: string) => `/api/livetv/channels/${encodeURIComponent(key)}/stream`;
+  assert.equal((await app.request(url('M6.fr@HD'), json('PUT', { url: 'ftp://x/m6' }))).status, 400);
+  assert.equal((await app.request(url('M6.fr@HD'), json('PUT', { url: 42 }))).status, 400);
+  assert.equal((await app.request(url('TF1.fr@SD'), json('PUT', { url: 'https://own/tf1.m3u8' }))).status, 400, 'not picked');
+  // A local address nothing answers on: checked at once, without reaching out.
+  const r = await app.request(url('M6.fr@HD'), json('PUT', { url: 'http://127.0.0.1:9/m6.m3u8' }));
+  assert.equal(r.status, 200);
+  assert.deepEqual(await r.json(), { file: 'not_mounted', ok: false });
+  const vlc = await (await app.request(path('M6.fr@HD', '/vlc.m3u'))).text();
+  assert.match(vlc, /http:\/\/127\.0\.0\.1:9\/m6\.m3u8/);
+  assert.doesNotMatch(vlc, /EXTVLCOPT/);
+  assert.equal((await app.request(url('M6.fr@HD'), json('PUT', { url: null }))).status, 200);
+  assert.match(await (await app.request(path('M6.fr@HD', '/vlc.m3u'))).text(), /EXTVLCOPT/, "back to iptv-org's");
+});

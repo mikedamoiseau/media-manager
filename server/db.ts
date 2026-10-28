@@ -318,6 +318,8 @@ export const MIGRATIONS: string[] = [
     PRIMARY KEY (source, channel, start)
   );
   `,
+  // 12: the owner's own stream address for a channel of theirs (written without request headers); NULL: iptv-org's.
+  `ALTER TABLE live_channels ADD COLUMN url TEXT;`,
 ];
 
 export function openDb(file: string): DB {
