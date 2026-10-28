@@ -7,12 +7,11 @@ discussion before it is built.
 |---|---------|------|--------|
 | 1 | Who's watching (profiles) | Medium | Done: [design](superpowers/specs/2026-10-26-profiles-design.md) |
 | 2 | Kids mode | Medium | Done in the app: [design](superpowers/specs/2026-10-26-kids-mode-design.md) |
-| 3 | What do we watch tonight? | Medium | Idea |
-| 4 | Series tracker | Medium | Idea |
-| 5 | Trailer on the TV | Small | Already in the app |
-| 6 | Up next queue and sleep timer | Small to medium | Idea |
-| 7 | Coming soon | Medium | Idea |
-| 8 | Your year in film | Small to medium | Idea |
+| 3 | Series tracker | Medium | Idea |
+| 4 | Trailer on the TV | Small | Already in the app |
+| 5 | Up next queue and sleep timer | Small to medium | Idea |
+| 6 | Coming soon | Medium | Idea |
+| 7 | Your year in film | Small to medium | Idea |
 
 ## 1. Who's watching (profiles)
 
@@ -42,35 +41,29 @@ may watch carry the tag `Cinematheque Kids` in Kodi's library; the kids view
 on the TV itself is the Lumen skin's to build. While a TV is in that kids view
 (Lumen's `CinemathequeKids` setting), what plays there counts as the kid's.
 
-## 3. What do we watch tonight?
-
-Two phones swipe through a shortlist built from unwatched films, a chosen
-length (for example under 2 hours) and titles both people rated well. When
-both say yes to the same film, it shows up with a Play on TV button.
-
-## 4. Series tracker
+## 3. Series tracker
 
 For each series on the NAS, compare the episodes on disk with TMDB and show
 what is missing ("S02E05–E08 missing") or new ("Season 3 is out"). Missing
 episodes feed a list of episodes to get, like "Films to get" does for films.
 
-## 5. Trailer on the TV
+## 4. Trailer on the TV
 
 Already in the app: a title page's trailer has "Play trailer on TV", through
 Kodi's YouTube add-on. Each Kodi box needs that add-on.
 
-## 6. Up next queue and sleep timer
+## 5. Up next queue and sleep timer
 
 Line up a few episodes or films to play one after another on a chosen TV.
 Add "stop after this episode" or "stop in 45 minutes".
 
-## 7. Coming soon
+## 6. Coming soon
 
 A row of sequels to films you own or liked, new seasons of your series, and
 upcoming cinema releases in your country. Each can have a "remind me" that
 adds it to the to-get lists once it is out.
 
-## 8. Your year in film
+## 7. Your year in film
 
 Hours watched, favourite genres, most-watched actors, and which TV gets used
 most.
