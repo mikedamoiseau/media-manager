@@ -358,14 +358,14 @@ function Details({ ch, p, now, onPlay, onClose }: Open & { now: number; onPlay: 
           {isIOS && (
             <a className="btn big" href={liveVlcHref(location.origin, ch, vlcBack())}>
               <IconDevice size={20} />
-              Watch on phone
+              Watch on device
             </a>
           )}
         </div>
       )}
       {onNow && isIOS && (
         <p className="hint">
-          Watch on phone plays the channel in the free{' '}
+          Watch on device plays the channel in the free{' '}
           <a href={VLC_APP_STORE} target="_blank" rel="noreferrer">
             VLC app
           </a>
