@@ -331,8 +331,13 @@ build's session saw itself; "reported" comes from the Kodi session.
   (its server answers HTTP 452: IPTV Simple cuts the user agent at its
   first space); CNews never settles into clean full-screen playback; TFX
   on the Mi Box (its relay leaves 404 gaps). A relay gap can keep a channel
-  "opening" for 30 s or more before it fails. The owner decides whether to
-  keep these.
+  "opening" for 30 s or more before it fails. The owner kept CNews and
+  TFX. For BFM TV, the same day, the app gained an "own stream address"
+  per channel (Settings › Live TV, a channel's sheet): BFM TV now uses
+  NextRadioTV's own address (from iptv-org's raw France source file, not
+  in the published list), written without a user agent, and plays on both
+  boxes (reported: 6 plays out of 6, full screen in 2 to 4 s). The list
+  then stood at Pi 24/25 and Mi Box 23/25.
 - **Watch on device, on the owner's iPhone at home (UTC+7)** (owner's test,
   with measurements from the Mac):
   - TF1: sound, no picture. Its stream is interlaced 1080i H.264
