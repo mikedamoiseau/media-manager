@@ -152,14 +152,20 @@ export const GUIDE_ALIASES: Record<string, string> = {
  * "TF1.fr"), then an old name, then a Pluto TV id read from its stream address ("…/plu-<id>.m3u8").
  */
 export function matchGuide(entry: { key: string; url: string }, guides: GuideIds[]): { source: string; id: string } | null {
-  const base = entry.key.replace(/@.*$/, '').toLowerCase();
-  const alias = GUIDE_ALIASES[base]?.toLowerCase();
-  const pluto = /plu-([0-9a-f]{24})/.exec(entry.url)?.[1];
+  const candidates = guideCandidates(entry);
   for (const g of guides) {
-    for (const k of [base, alias, pluto]) {
-      const id = k ? g.ids.get(k) : undefined;
+    for (const k of candidates) {
+      const id = g.ids.get(k);
       if (id) return { source: g.source, id };
     }
   }
   return null;
+}
+
+/** The guide ids a playlist channel may have, lower case, in the order they are tried. */
+export function guideCandidates(entry: { key: string; url: string }): string[] {
+  const base = entry.key.replace(/@.*$/, '').toLowerCase();
+  const alias = GUIDE_ALIASES[base]?.toLowerCase();
+  const pluto = /plu-([0-9a-f]{24})/.exec(entry.url)?.[1];
+  return [base, alias, pluto].filter((k): k is string => !!k);
 }

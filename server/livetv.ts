@@ -1,6 +1,11 @@
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { Readable } from 'node:stream';
+import { createGunzip } from 'node:zlib';
 import { type DB, tx } from './db.ts';
-import { buildM3u, uniqueNames, type M3uEntry } from './iptv.ts';
-import { matchGuide, type GuideChannel, type GuideIds, type Programme } from './epg.ts';
+import { buildM3u, parseM3u, uniqueNames, type M3uEntry } from './iptv.ts';
+import { guideCandidates, matchGuide, readXmltv, type GuideChannel, type GuideIds, type Programme } from './epg.ts';
+import { pool } from './scanner.ts';
 
 /** The channel lists the owner picks from, in this order: the first wins a channel both have. */
 export const LIVE_LISTS = [
@@ -180,4 +185,179 @@ export function liveCatalog(db: DB, sources: string[]): CatalogRow[] {
     position: r.position,
     guide: guide(r.key, r.url, r.guide),
   }));
+}
+
+// ---------- refresh, stream checks, the file on the NAS ----------
+
+/**
+ * The list both TVs read, on the NAS share. Not mounted (the share's folder is missing): nothing is written,
+ * not even a folder, which would sit on the Mac's own disk in the share's place. Written whole (a temporary
+ * file renamed), so Kodi never reads half of it; not again when unchanged.
+ */
+export function writeChannelFile(file: string, text: string): 'written' | 'same' | 'not_mounted' {
+  const dir = dirname(file);
+  if (!existsSync(dirname(dir))) return 'not_mounted';
+  if (!existsSync(dir)) mkdirSync(dir);
+  // Kodi doesn't scan a folder holding .nomedia: the list is never taken for a title.
+  if (!existsSync(join(dir, '.nomedia'))) writeFileSync(join(dir, '.nomedia'), '');
+  if (existsSync(file) && readFileSync(file, 'utf8') === text) return 'same';
+  const tmp = `${file}.tmp`;
+  writeFileSync(tmp, text);
+  renameSync(tmp, file);
+  return 'written';
+}
+
+/** A #EXTVLCOPT value of a channel (http-user-agent, http-referrer). */
+function vlcOpt(entry: M3uEntry, name: string): string | undefined {
+  for (const l of entry.opts) {
+    const m = /^#EXTVLCOPT:([\w-]+)=(.*)$/.exec(l);
+    if (m?.[1] === name) return m[2];
+  }
+  return undefined;
+}
+
+/**
+ * The channel's stream answers: an HLS playlist, or a raw stream (France 3's relay sends MPEG-TS: typed as
+ * video or binary, or starting with its sync byte), asked with the channel's own headers. An empty answer or a
+ * text one (an error page) doesn't count. Only the first bytes are read: a raw stream never ends.
+ */
+export async function streamAnswers(entry: M3uEntry, fetchFn: typeof fetch = fetch, timeoutMs = 8000): Promise<boolean> {
+  const ctrl = new AbortController();
+  const headers: Record<string, string> = {};
+  const ua = vlcOpt(entry, 'http-user-agent');
+  const referrer = vlcOpt(entry, 'http-referrer');
+  if (ua) headers['user-agent'] = ua;
+  if (referrer) headers.referer = referrer;
+  const check = async () => {
+    const res = await fetchFn(entry.url, { headers, signal: ctrl.signal });
+    if (!res.ok || !res.body) return false;
+    const reader = res.body.getReader();
+    const parts: Uint8Array[] = [];
+    let size = 0;
+    while (size < 4096) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      parts.push(value);
+      size += value.length;
+    }
+    void reader.cancel().catch(() => {});
+    if (!size) return false;
+    const head = Buffer.concat(parts);
+    const type = res.headers.get('content-type') ?? '';
+    return head.toString('latin1').includes('#EXTM3U') || /^(video|audio)\/|octet-stream|mp2t/.test(type) || head[0] === 0x47;
+  };
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([check(), new Promise<boolean>((r) => (timer = setTimeout(() => r(false), timeoutMs)))]);
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+    ctrl.abort();
+  }
+}
+
+/**
+ * iptv-org's lists again. A list that fails, or comes back empty, leaves its channels as they were, and keeps
+ * the channels it owns: the next list can't take them over.
+ */
+export async function refreshCatalog(db: DB, fetchFn: typeof fetch, now: number): Promise<Array<{ list: string; error?: string }>> {
+  const got: Array<{ list: string; entries: M3uEntry[] }> = [];
+  const out: Array<{ list: string; error?: string }> = [];
+  const owned = db.prepare('SELECT key FROM live_catalog WHERE list = ?');
+  const kept = new Set<string>();
+  for (const { list, url } of LIVE_LISTS) {
+    try {
+      const res = await fetchFn(url, { signal: AbortSignal.timeout(60_000) });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const entries = parseM3u(await res.text());
+      if (!entries.length) throw new Error('no channel in the list');
+      got.push({ list, entries: entries.filter((e) => !kept.has(e.key)) });
+      out.push({ list });
+    } catch (e) {
+      for (const r of owned.all(list) as Array<{ key: string }>) kept.add(r.key);
+      out.push({ list, error: (e as Error).message });
+    }
+  }
+  if (got.length) saveCatalog(db, got, now);
+  return out;
+}
+
+/** A download as text, unpacked when it is gzip (the guides come as .xml.gz). */
+async function* downloadText(body: ReadableStream<Uint8Array>): AsyncIterable<string> {
+  const src = Readable.fromWeb(body as Parameters<typeof Readable.fromWeb>[0]);
+  const it = src[Symbol.asyncIterator]() as AsyncIterator<Buffer>;
+  // Gzip is told by its first two bytes, which the network may hand over in two pieces.
+  let head = Buffer.alloc(0);
+  let n = await it.next();
+  while (!n.done) {
+    head = Buffer.concat([head, n.value]);
+    if (head.length >= 2) break;
+    n = await it.next();
+  }
+  if (!head.length) return;
+  const gzip = head[0] === 0x1f && head[1] === 0x8b;
+  const raw = Readable.from((async function* () {
+    yield head;
+    if (n.done) return;
+    for (let m = await it.next(); !m.done; m = await it.next()) yield m.value;
+  })());
+  const out = gzip ? raw.pipe(createGunzip()) : raw;
+  out.setEncoding('utf8');
+  for await (const chunk of out) yield chunk as string;
+}
+
+/**
+ * The guide ids (lower case) a channel of the catalog could match in `source`, and the owner's picks there:
+ * known before the guide is read, so the order of its elements doesn't matter.
+ */
+function wantedIds(db: DB, source: string): Set<string> {
+  const want = new Set<string>();
+  for (const r of db.prepare('SELECT key, url FROM live_catalog').all() as Array<{ key: string; url: string }>) {
+    for (const id of guideCandidates(r)) want.add(id);
+  }
+  for (const r of db.prepare("SELECT guide FROM live_channels WHERE guide LIKE ? || char(9) || '%'").all(source) as Array<{ guide: string }>) {
+    want.add(r.guide.slice(source.length + 1).toLowerCase());
+  }
+  return want;
+}
+
+/**
+ * Each guide again, in its place. Only the programmes of guide channels in use are kept (the big one has
+ * 210,000). A source that fails, or sends something else than a guide, keeps what it had.
+ */
+export async function refreshGuides(db: DB, sources: string[], fetchFn: typeof fetch, now: number): Promise<Array<{ source: string; error?: string }>> {
+  const out: Array<{ source: string; error?: string }> = [];
+  for (const source of sources) {
+    try {
+      const res = await fetchFn(source, { signal: AbortSignal.timeout(180_000) });
+      if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
+      const channels: GuideChannel[] = [];
+      const programmes: Programme[] = [];
+      const want = wantedIds(db, source);
+      await readXmltv(downloadText(res.body), {
+        channel: (c) => void channels.push(c),
+        programme: (p) => {
+          if (want.has(p.channel.toLowerCase())) programmes.push(p);
+        },
+      });
+      if (!channels.length) throw new Error('not a TV guide');
+      storeGuide(db, source, channels, programmes, now);
+      out.push({ source });
+    } catch (e) {
+      out.push({ source, error: (e as Error).message });
+    }
+  }
+  return out;
+}
+
+/** Whether each channel's stream answers, a few at a time. */
+export async function checkStreams(db: DB, keys: string[], fetchFn: typeof fetch, now: number): Promise<void> {
+  const q = db.prepare('SELECT * FROM live_catalog WHERE key = ?');
+  const set = db.prepare('UPDATE live_catalog SET ok = ?, checked_at = ? WHERE key = ?');
+  const rows = keys.map((k) => q.get(k) as CatalogDbRow | undefined).filter((r): r is CatalogDbRow => !!r);
+  await pool(rows, 6, async (r) => {
+    const ok = await streamAnswers(entryOf(r), fetchFn);
+    set.run(ok ? 1 : 0, now, r.key);
+  });
 }

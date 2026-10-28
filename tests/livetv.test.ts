@@ -122,3 +122,189 @@ test("the owner's guide pick: none, back to automatic, or another guide channel"
   assert.equal(liveCatalog(db, [X]).find((r) => r.key === 'TF1.fr@SD')!.guide.mode, 'auto');
   assert.throws(() => setGuidePick(db, 'BX1.be@SD', 'none'), LiveError, 'only a picked channel');
 });
+
+// ---------- refresh, stream checks, the file on the NAS ----------
+
+import { mkdtempSync, mkdirSync, existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { gzipSync } from 'node:zlib';
+import { writeChannelFile, streamAnswers, refreshCatalog, refreshGuides, checkStreams, LIVE_LISTS } from '../server/livetv.ts';
+
+/** A fetch that answers from a table: a Response, or a function of the request. */
+function fakeFetch(table: Record<string, Response | ((init?: RequestInit) => Response | Promise<Response>)>) {
+  const calls: Array<{ url: string; init?: RequestInit }> = [];
+  const fn = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input);
+    calls.push({ url, init });
+    const r = table[url];
+    if (!r) return new Response('not here', { status: 404 });
+    return typeof r === 'function' ? r(init) : r.clone();
+  }) as typeof fetch;
+  return { fn, calls };
+}
+
+test('the file on the NAS: never written when the share is not mounted', () => {
+  const tmp = mkdtempSync(join(tmpdir(), 'live-'));
+  assert.equal(writeChannelFile(join(tmp, 'missing-share', 'IPTV', 'channels.m3u'), 'x'), 'not_mounted');
+  assert.equal(existsSync(join(tmp, 'missing-share')), false);
+});
+
+test('the file on the NAS: its folder with .nomedia, written whole, not again when unchanged', () => {
+  const tmp = mkdtempSync(join(tmpdir(), 'live-'));
+  mkdirSync(join(tmp, 'share'));
+  const file = join(tmp, 'share', 'IPTV', 'channels.m3u');
+  assert.equal(writeChannelFile(file, '#EXTM3U\none\n'), 'written');
+  assert.equal(readFileSync(join(tmp, 'share', 'IPTV', '.nomedia'), 'utf8'), '');
+  assert.equal(readFileSync(file, 'utf8'), '#EXTM3U\none\n');
+  assert.deepEqual(readdirSync(join(tmp, 'share', 'IPTV')).sort(), ['.nomedia', 'channels.m3u'], 'no temporary file left');
+  assert.equal(writeChannelFile(file, '#EXTM3U\none\n'), 'same');
+  assert.equal(writeChannelFile(file, '#EXTM3U\ntwo\n'), 'written');
+  assert.equal(readFileSync(file, 'utf8'), '#EXTM3U\ntwo\n');
+});
+
+test('a stream answers: an HLS playlist or a raw stream, with the channel headers', async () => {
+  const e = (url: string, opts: string[] = []) => ({ key: 'K', name: 'K', logo: '', group: '', opts, url });
+  const { fn, calls } = fakeFetch({
+    'http://hls': new Response('#EXTM3U\n#EXT-X-VERSION:3\n', { headers: { 'content-type': 'application/vnd.apple.mpegurl' } }),
+    'http://ts': new Response(new Uint8Array(9000), { headers: { 'content-type': 'application/octet-stream' } }),
+    'http://html': new Response('<html>blocked</html>', { headers: { 'content-type': 'text/html' } }),
+    'http://403': new Response('no', { status: 403 }),
+    'http://never': () => new Promise<Response>(() => {}),
+  });
+  assert.equal(await streamAnswers(e('http://hls', ['#EXTVLCOPT:http-user-agent=UA/1', '#EXTVLCOPT:http-referrer=https://r/']), fn), true);
+  assert.equal(new Headers(calls[0]!.init?.headers).get('user-agent'), 'UA/1');
+  assert.equal(new Headers(calls[0]!.init?.headers).get('referer'), 'https://r/');
+  assert.equal(await streamAnswers(e('http://ts'), fn), true, "France 3's raw MPEG-TS");
+  assert.equal(await streamAnswers(e('http://html'), fn), false);
+  assert.equal(await streamAnswers(e('http://403'), fn), false);
+  const t = Date.now();
+  assert.equal(await streamAnswers(e('http://never'), fn, 50), false);
+  assert.ok(Date.now() - t < 1000, 'gives up at its timeout');
+});
+
+const M3U = (...lines: string[]) => ['#EXTM3U', ...lines].join('\n');
+
+test('a list that fails to download leaves its channels as they were', async () => {
+  const db = catalog();
+  const { fn } = fakeFetch({
+    [LIVE_LISTS[0]!.url]: new Response('down', { status: 500 }),
+    [LIVE_LISTS[1]!.url]: new Response(M3U('#EXTINF:-1 tvg-id="BX1.be@SD" tvg-logo="" group-title="General",BX1 (720p)', 'http://new/bx1.m3u8', '#EXTINF:-1 tvg-id="LCI.fr@SD" tvg-logo="" group-title="News",LCI', 'http://be/lci2.m3u8')),
+  });
+  const res = await refreshCatalog(db, fn, at(5));
+  assert.ok(res.find((r) => r.list === 'fr')!.error);
+  setPicks(db, ['TF1.fr@SD', 'BX1.be@SD', 'LCI.fr@SD']);
+  const picked = pickedChannels(db);
+  assert.equal(picked[0]!.entry.url, 'http://s/TF1.fr@SD.m3u8', 'fr rows untouched');
+  assert.equal(picked[1]!.entry.url, 'http://new/bx1.m3u8', 'be rows updated');
+  assert.equal(picked[2]!.entry.url, 'http://s/LCI.fr@SD.m3u8', 'still the first list’s channel');
+  assert.equal(liveCatalog(db, [X]).find((r) => r.key === 'TF1.fr@SD')!.listed, true, 'a failed list says nothing about its channels');
+});
+
+test('a list that downloads empty counts as failed', async () => {
+  const db = catalog();
+  const { fn } = fakeFetch({ [LIVE_LISTS[0]!.url]: new Response('#EXTM3U\n'), [LIVE_LISTS[1]!.url]: new Response('') });
+  const res = await refreshCatalog(db, fn, at(5));
+  assert.ok(res.every((r) => r.error));
+  assert.equal(liveCatalog(db, [X]).filter((r) => r.listed).length, 5);
+});
+
+const GUIDE = `<?xml version="1.0"?><tv>
+<channel id="TF1.fr"><display-name>TF1</display-name></channel>
+<channel id="Nobody.fr"><display-name>Nobody</display-name></channel>
+<programme start="20261028120000 +0100" stop="20261028124500 +0100" channel="TF1.fr"><title>Le 13h</title></programme>
+<programme start="20261028120000 +0100" stop="20261028124500 +0100" channel="Nobody.fr"><title>Unseen</title></programme>
+</tv>`;
+
+test('guides: gzipped or not, only the channels in use, a source that fails keeps what it had', async () => {
+  const db = catalog();
+  setPicks(db, ['TF1.fr@SD']);
+  const B = 'https://b/guide.xml';
+  storeGuide(db, B, [{ id: 'TF1.fr', name: 'TF1' }], [prog('TF1.fr', at(9), at(10), 'Kept')], at(8));
+  const { fn } = fakeFetch({ [X]: new Response(gzipSync(GUIDE)), [B]: new Response('down', { status: 500 }) });
+  const res = await refreshGuides(db, [X, B], fn, at(10));
+  assert.deepEqual(res.map((r) => [r.source, !!r.error]), [[X, false], [B, true]]);
+  assert.deepEqual(liveGuide(db, [X], 0, at(23))[0]!.programmes.map((p) => p.title), ['Le 13h']);
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM epg_programmes WHERE channel = 'Nobody.fr'").get()!.n, 0, 'no channel uses it');
+  assert.deepEqual(liveGuide(db, [B], 0, at(23))[0]!.programmes.map((p) => p.title), ['Kept']);
+  assert.deepEqual(liveCatalog(db, [X]).find((r) => r.key === 'BX1.be@SD')!.guide, { mode: 'auto' });
+
+  const html = fakeFetch({ [X]: new Response('<html>maintenance</html>', { headers: { 'content-type': 'text/html' } }) });
+  const again = await refreshGuides(db, [X], html.fn, at(11));
+  assert.ok(again[0]!.error, 'not a guide');
+  assert.deepEqual(liveGuide(db, [X], 0, at(23))[0]!.programmes.map((p) => p.title), ['Le 13h'], 'kept');
+});
+
+test('stream checks are noted per channel', async () => {
+  const db = catalog();
+  const { fn } = fakeFetch({ 'http://s/TF1.fr@SD.m3u8': new Response('#EXTM3U\n'), 'http://s/M6.fr@HD.m3u8': new Response('no', { status: 403 }) });
+  await checkStreams(db, ['TF1.fr@SD', 'M6.fr@HD'], fn, at(3));
+  const rows = liveCatalog(db, [X]);
+  assert.equal(rows.find((r) => r.key === 'TF1.fr@SD')!.ok, true);
+  assert.equal(rows.find((r) => r.key === 'M6.fr@HD')!.ok, false);
+  assert.equal(rows.find((r) => r.key === 'BX1.be@SD')!.ok, null);
+});
+
+import { Service } from '../server/service.ts';
+import { saveSettings } from '../server/db.ts';
+
+test("the daily refresh leaves the NAS file alone until the owner has picked channels", async () => {
+  const tmp = mkdtempSync(join(tmpdir(), 'live-'));
+  mkdirSync(join(tmp, 'share', 'IPTV'), { recursive: true });
+  const file = join(tmp, 'share', 'IPTV', 'channels.m3u');
+  writeFileSync(file, '#EXTM3U\n#EXTINF:-1,Starter\nhttp://starter\n');
+  const db = openDb(':memory:');
+  saveSettings(db, { liveFile: file, liveGuides: [X] });
+  const svc = new Service(db, join(tmp, 'data'));
+  const lists = M3U('#EXTINF:-1 tvg-id="TF1.fr@SD" tvg-logo="" group-title="General",TF1', 'http://s/tf1.m3u8');
+  const { fn } = fakeFetch({ [LIVE_LISTS[0]!.url]: new Response(lists), [LIVE_LISTS[1]!.url]: new Response(M3U('#EXTINF:-1 tvg-id="BX1.be@SD",BX1', 'http://s/bx1')), [X]: new Response(GUIDE) });
+  await svc.refreshLiveNow(fn);
+  assert.equal(readFileSync(file, 'utf8'), '#EXTM3U\n#EXTINF:-1,Starter\nhttp://starter\n', 'no picks yet: the list the TVs use stays');
+  assert.equal(svc.saveLivePicks(['TF1.fr@SD']), 'written');
+  assert.match(readFileSync(file, 'utf8'), /tvg-name="TF1"/);
+  assert.ok(getSettings(db).liveRefreshedAt > 0);
+});
+
+test('a stream that answers with nothing or a text error does not count', async () => {
+  const e = (url: string) => ({ key: 'K', name: 'K', logo: '', group: '', opts: [], url });
+  const { fn } = fakeFetch({
+    'http://empty': new Response('', { headers: { 'content-type': 'application/octet-stream' } }),
+    'http://text': new Response('Stream offline', { headers: { 'content-type': 'text/plain' } }),
+    'http://ts-untyped': new Response(new Uint8Array([0x47, 0x40, 0x11, 0x10, ...new Array(400).fill(0)])),
+  });
+  assert.equal(await streamAnswers(e('http://empty'), fn), false);
+  assert.equal(await streamAnswers(e('http://text'), fn), false);
+  assert.equal(await streamAnswers(e('http://ts-untyped'), fn), true, 'MPEG-TS sync byte');
+});
+
+test('a guide that lists a channel after programmes still keeps its programmes', async () => {
+  const db = catalog();
+  setPicks(db, ['TF1.fr@SD', 'M6.fr@HD']);
+  const xml = `<tv><channel id="TF1.fr"><display-name>TF1</display-name></channel>
+<programme start="20261028120000 +0100" stop="20261028124500 +0100" channel="TF1.fr"><title>Le 13h</title></programme>
+<channel id="M6.fr"><display-name>M6</display-name></channel>
+<programme start="20261028124500 +0100" stop="20261028131000 +0100" channel="M6.fr"><title>Le 12.45</title></programme></tv>`;
+  const { fn } = fakeFetch({ [X]: new Response(xml) });
+  await refreshGuides(db, [X], fn, at(10));
+  assert.deepEqual(liveGuide(db, [X], 0, at(23)).map((c) => c.programmes.map((p) => p.title)), [['Le 13h'], ['Le 12.45']]);
+});
+
+test('a gzipped guide whose first chunk is a single byte is still unpacked', async () => {
+  const db = catalog();
+  setPicks(db, ['TF1.fr@SD']);
+  const gz = gzipSync(GUIDE);
+  // Chunks on separate ticks, as the network delivers them: the first holds one byte.
+  const parts = [gz.subarray(0, 1), gz.subarray(1, 5), gz.subarray(5)];
+  const body = new ReadableStream<Uint8Array>({
+    async pull(c) {
+      await new Promise((r) => setTimeout(r, 5));
+      const p = parts.shift();
+      if (p) c.enqueue(p);
+      else c.close();
+    },
+  });
+  const { fn } = fakeFetch({ [X]: () => new Response(body) });
+  const res = await refreshGuides(db, [X], fn, at(10));
+  assert.equal(res[0]!.error, undefined);
+  assert.deepEqual(liveGuide(db, [X], 0, at(23))[0]!.programmes.map((p) => p.title), ['Le 13h']);
+});

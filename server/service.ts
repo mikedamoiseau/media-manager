@@ -16,6 +16,7 @@ import { lanTransport } from './net.ts';
 import { KodiEvents, type KodiInput, type PlayerEvent } from './kodiEvents.ts';
 import { TvOwners, notePlay, kodiStates, attributeKodiChanges } from './owners.ts';
 import { pickTv, addTv, editTv, tvNumber, firstTvChanged, firstRun } from './tvs.ts';
+import { refreshCatalog, refreshGuides, checkStreams, writeChannelFile, channelFileText, pickedChannels, setPicks } from './livetv.ts';
 
 export interface TaskStatus {
   running: boolean;
@@ -37,6 +38,8 @@ export interface Status {
   /** A parents' code is set (needed before a kids profile; asked to leave kids mode) */
   kidsCode: boolean;
   metadata: TaskStatus;
+  /** Live TV: the channel lists, the guides, and the file on the NAS as last written */
+  live: TaskStatus & { file?: 'written' | 'same' | 'not_mounted' };
   tmdbConfigured: boolean;
   counts: Record<string, number>;
 }
@@ -79,6 +82,7 @@ export class Service extends EventEmitter {
   private libraryTimer?: NodeJS.Timeout;
   private kodiResyncTimer?: NodeJS.Timeout;
   private kidsTimer?: NodeJS.Timeout;
+  private liveTimer?: NodeJS.Timeout;
   /** Each TV's event connection, and the address it is for */
   private events = new Map<string, { host: string; ev: KodiEvents }>();
   private playerEvents = new Map<string, Promise<void>>();
@@ -100,6 +104,7 @@ export class Service extends EventEmitter {
       profiles: listProfiles(db),
       kidsCode: hasParentsCode(db),
       metadata: { running: false },
+      live: { running: false, lastAt: s.liveRefreshedAt || undefined },
       tmdbConfigured: !!s.tmdbKey,
       counts: {},
     };
@@ -281,7 +286,7 @@ export class Service extends EventEmitter {
     this.status.counts = counts;
   }
 
-  private async task(key: 'scan' | 'sheet' | 'kodi' | 'metadata', fn: (st: TaskStatus) => Promise<string | void>): Promise<boolean> {
+  private async task(key: 'scan' | 'sheet' | 'kodi' | 'metadata' | 'live', fn: (st: TaskStatus) => Promise<string | void>): Promise<boolean> {
     const st = this.status[key];
     if (st.running) return false;
     st.running = true;
@@ -487,6 +492,58 @@ export class Service extends EventEmitter {
     }
   }
 
+  // ---------- live TV ----------
+
+  /** The owner's channels into the file both TVs read; the outcome shows in Settings. */
+  writeLiveFile(): 'written' | 'same' | 'not_mounted' {
+    const file = writeChannelFile(this.settings().liveFile, channelFileText(this.db));
+    this.status.live.file = file;
+    this.emitStatus();
+    return file;
+  }
+
+  /** The owner's channels, in their order, then the file on the NAS. */
+  saveLivePicks(keys: string[]): 'written' | 'same' | 'not_mounted' {
+    setPicks(this.db, keys);
+    return this.writeLiveFile();
+  }
+
+  /** iptv-org's lists, the file on the NAS, the guides, then whether the owner's channels answer. */
+  readonly refreshLive = oneAtATime(() => this.refreshLiveNow());
+
+  async refreshLiveNow(fetchFn: typeof fetch = fetch): Promise<void> {
+    await this.task('live', async (st) => {
+      const now = Date.now();
+      const step = (m: string) => {
+        st.message = m;
+        this.emitStatus();
+      };
+      step('Reading the channel lists');
+      const lists = await refreshCatalog(this.db, fetchFn, now);
+      const picked = pickedChannels(this.db).map((c) => c.entry.key);
+      // No channel picked yet: the list the TVs read (perhaps made by hand) stays until the owner saves theirs.
+      if (picked.length) this.writeLiveFile();
+      step('Reading the TV guides');
+      const guides = await refreshGuides(this.db, this.settings().liveGuides, fetchFn, now);
+      step('Checking your channels');
+      await checkStreams(this.db, picked, fetchFn, now);
+      saveSettings(this.db, { liveRefreshedAt: now });
+      const failed = [...lists.filter((l) => l.error).map((l) => `the ${l.list} list (${l.error})`), ...guides.filter((g) => g.error).map((g) => `${g.source} (${g.error})`)];
+      return failed.length ? `Refreshed, except ${failed.join(', ')}` : 'Channel lists and guides refreshed';
+    });
+  }
+
+  /** Whether every channel of the lists answers (from Settings). */
+  readonly checkLiveStreams = oneAtATime(async () => {
+    await this.task('live', async (st) => {
+      st.message = 'Checking every channel';
+      this.emitStatus();
+      const keys = (this.db.prepare('SELECT key FROM live_catalog').all() as Array<{ key: string }>).map((r) => r.key);
+      await checkStreams(this.db, keys, fetch, Date.now());
+      return `${keys.length} channels checked`;
+    });
+  });
+
   schedule(): void {
     clearInterval(this.timer);
     const min = Math.max(1, this.settings().scanIntervalMin || 10);
@@ -498,11 +555,19 @@ export class Service extends EventEmitter {
     this.schedule();
     this.connectTvs();
     void this.scan();
+    // Live TV once a day: looked at every hour, so a Mac that slept through it catches up.
+    const liveDue = () => {
+      if (Date.now() - this.settings().liveRefreshedAt > 24 * 3600_000) void this.refreshLive();
+    };
+    liveDue();
+    this.liveTimer = setInterval(liveDue, 3600_000);
+    this.liveTimer.unref();
   }
 
   stop(): void {
     this.stopRequested = true;
     clearInterval(this.timer);
+    clearInterval(this.liveTimer);
     clearTimeout(this.kodiResyncTimer);
     for (const e of this.events.values()) e.ev.stop();
   }
