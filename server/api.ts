@@ -27,6 +27,7 @@ import type { MediaType } from './scanner.ts';
 import { ProfileError, listProfiles, addProfile, editProfile, removeProfile, profileOf, type ProfileInput } from './profiles.ts';
 import { KidsError, setParentsCode, checkParentsCode, kidsProfile, kidsProfiles, allowedItems, itemKey, itemOverride, setItemOverride, kidsRoute, KIDS_REMOTE, isBedtime, type Override } from './kids.ts';
 import { notePlay } from './owners.ts';
+import { liveTvRoutes } from './liveApi.ts';
 
 function sendFile(file: string, maxAge = 31536000): Response {
   const st = statSync(file);
@@ -254,6 +255,10 @@ export function createApi(svc: Service): Hono {
   }
 
   type Episode = { id: number; path: string; kodi_id: number | null };
+
+  // ---------- live TV ----------
+
+  liveTvRoutes(api, svc, kodi);
 
   /**
    * The original video file with byte ranges, so a player on the phone (VLC) can seek. kind "item": a film,
@@ -718,6 +723,12 @@ export function createApi(svc: Service): Hono {
       if (!/^[A-Z]{2}$/.test(body.cinemaCountry)) return c.json({ error: 'Unknown country' }, 400);
       patch.cinemaCountry = body.cinemaCountry;
     }
+    if (body.liveGuides !== undefined) {
+      const ok = Array.isArray(body.liveGuides) && body.liveGuides.every((u) => typeof u === 'string' && /^https:\/\/\S+$/.test(u));
+      if (!ok) return c.json({ error: 'Guide sources must be https addresses' }, 400);
+      patch.liveGuides = body.liveGuides;
+    }
+    const newGuides = !!patch.liveGuides && JSON.stringify(patch.liveGuides) !== JSON.stringify(svc.settings().liveGuides);
     if (patch.sheetId !== undefined) patch.sheetId = sheetIdFrom(String(patch.sheetId));
     const newSheet = !!patch.sheetId && patch.sheetId !== svc.settings().sheetId;
     let newKey = false;
@@ -730,6 +741,7 @@ export function createApi(svc: Service): Hono {
     const s = svc.updateSettings(patch);
     if (newKey) void svc.metadata();
     if (newSheet) void svc.importSheet();
+    if (newGuides) void svc.refreshLiveGuides();
     return c.json(publicSettings(s));
   });
 

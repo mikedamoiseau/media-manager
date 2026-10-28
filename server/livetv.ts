@@ -361,3 +361,18 @@ export async function checkStreams(db: DB, keys: string[], fetchFn: typeof fetch
     set.run(ok ? 1 : 0, now, r.key);
   });
 }
+
+/** Every channel of the guides, to pick a channel's guide by hand: sources in their order, then by name. */
+export function guideChannels(db: DB, sources: string[]): Array<{ source: string; id: string; name: string }> {
+  const q = db.prepare('SELECT source, id, name FROM epg_channels WHERE source = ?');
+  return sources.flatMap((s) =>
+    (q.all(s) as Array<{ source: string; id: string; name: string }>)
+      .map((r) => ({ source: r.source, id: r.id, name: r.name }))
+      .sort((a, b) => a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' })),
+  );
+}
+
+/** A channel of that guide, as last read. */
+export function hasGuideChannel(db: DB, source: string, id: string): boolean {
+  return !!db.prepare('SELECT 1 FROM epg_channels WHERE source = ? AND id = ?').get(source, id);
+}

@@ -1,0 +1,101 @@
+import type { Context, Hono } from 'hono';
+import type { Service } from './service.ts';
+import type { KodiConfig } from './kodi.ts';
+import { LiveError, liveGuide, liveCatalog, guideChannels, hasGuideChannel, pickedChannels, setGuidePick } from './livetv.ts';
+import { channelPlaylist } from './iptv.ts';
+import { startChannel, isPlaying } from './liveKodi.ts';
+
+const HOUR = 3600_000;
+
+/** Why a channel didn't start on a TV, as the owner reads it. */
+const REFUSED = {
+  kids_view: { status: 409, error: 'This TV is showing its kids view' },
+  kids_unknown: { status: 503, error: "Couldn't check whether this TV is in its kids view" },
+  not_loaded: { status: 409, error: "This TV hasn't loaded the new channel list yet" },
+  no_live_tv: { status: 409, error: "This TV couldn't give its channels: is live TV set up on it?" },
+} as const;
+
+/**
+ * Live TV: the guide, the owner's channels, and playing one on a TV or in VLC. Added after the kids guard:
+ * none of these is open to a kids profile, and a live TV play is never a play of the library (no owner, no
+ * history).
+ */
+export function liveTvRoutes(api: Hono, svc: Service, tvOf: (c: Context) => { cfg: KodiConfig; tv: string }): void {
+  const db = svc.db;
+  const sources = () => svc.settings().liveGuides;
+  const picked = (key: string) => pickedChannels(db).find((c) => c.entry.key === key);
+
+  api.get('/livetv/guide', (c) => {
+    const now = Date.now();
+    const from = Number(c.req.query('from')) || now - 2 * HOUR;
+    const to = Math.min(Number(c.req.query('to')) || now + 24 * HOUR, from + 72 * HOUR);
+    return c.json({ channels: liveGuide(db, sources(), from, to), refreshedAt: svc.settings().liveRefreshedAt });
+  });
+
+  api.get('/livetv/catalog', (c) => c.json({ rows: liveCatalog(db, sources()), file: svc.status.live.file }));
+
+  api.get('/livetv/guide-channels', (c) => c.json({ channels: guideChannels(db, sources()) }));
+
+  api.put('/livetv/channels', async (c) => {
+    const { keys } = (await c.req.json().catch(() => ({}))) as { keys?: unknown };
+    if (!Array.isArray(keys) || !keys.every((k) => typeof k === 'string')) return c.json({ error: 'A list of channels is expected' }, 400);
+    try {
+      return c.json({ file: svc.saveLivePicks(keys) });
+    } catch (e) {
+      if (e instanceof LiveError) return c.json({ error: e.message }, 400);
+      throw e;
+    }
+  });
+
+  api.put('/livetv/channels/:key/guide', async (c) => {
+    const { guide } = (await c.req.json().catch(() => ({}))) as { guide?: unknown };
+    const manual = typeof guide === 'object' && guide !== null && typeof (guide as { source?: unknown }).source === 'string' && typeof (guide as { id?: unknown }).id === 'string';
+    if (!(guide === null || guide === 'none' || manual)) return c.json({ error: 'A guide channel, "none" or null is expected' }, 400);
+    if (manual) {
+      const g = guide as { source: string; id: string };
+      if (!sources().includes(g.source) || !hasGuideChannel(db, g.source, g.id)) return c.json({ error: 'No such channel in the guides' }, 400);
+    }
+    try {
+      setGuidePick(db, c.req.param('key'), manual ? { source: (guide as { source: string }).source, id: (guide as { id: string }).id } : (guide as 'none' | null));
+    } catch (e) {
+      if (e instanceof LiveError) return c.json({ error: e.message }, 400);
+      throw e;
+    }
+    // A guide channel no channel used until now: its programmes weren't kept at the last refresh.
+    if (manual) void svc.refreshLiveGuides();
+    return c.json({ ok: true });
+  });
+
+  api.post('/livetv/refresh', (c) => {
+    void svc.refreshLive();
+    return c.json({ started: true });
+  });
+
+  api.post('/livetv/check', (c) => {
+    void svc.checkLiveStreams();
+    return c.json({ started: true });
+  });
+
+  api.post('/livetv/:key/play', async (c) => {
+    const ch = picked(c.req.param('key'));
+    if (!ch) return c.json({ error: 'Not one of your channels' }, 404);
+    const r = await startChannel(tvOf(c).cfg, { name: ch.name, number: ch.number });
+    if (r === 'started') return c.json({ ok: true });
+    const why = REFUSED[r];
+    return c.json({ error: why.error, code: r }, why.status);
+  });
+
+  /** Whether the TV really plays that channel (asked a few seconds after Play). */
+  api.get('/livetv/:key/playing', async (c) => {
+    const ch = picked(c.req.param('key'));
+    if (!ch) return c.json({ error: 'Not one of your channels' }, 404);
+    return c.json({ playing: await isPlaying(tvOf(c).cfg, ch.name) });
+  });
+
+  /** For VLC on the phone: the channel with the request headers a bare link can't carry. No video goes through here. */
+  api.get('/livetv/:key/vlc.m3u', (c) => {
+    const ch = picked(c.req.param('key'));
+    if (!ch) return c.json({ error: 'Not one of your channels' }, 404);
+    return c.body(channelPlaylist(ch.name, ch.entry), 200, { 'content-type': 'audio/x-mpegurl', 'cache-control': 'no-store' });
+  });
+}

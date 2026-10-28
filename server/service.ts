@@ -533,6 +533,17 @@ export class Service extends EventEmitter {
     });
   }
 
+  /** The guides alone: a guide channel the owner just picked by hand may not have been kept the last time. */
+  readonly refreshLiveGuides = oneAtATime(async () => {
+    await this.task('live', async (st) => {
+      st.message = 'Reading the TV guides';
+      this.emitStatus();
+      const guides = await refreshGuides(this.db, this.settings().liveGuides, fetch, Date.now());
+      const failed = guides.filter((g) => g.error).map((g) => `${g.source} (${g.error})`);
+      return failed.length ? `Guides read, except ${failed.join(', ')}` : 'Guides read';
+    });
+  });
+
   /** Whether every channel of the lists answers (from Settings). */
   readonly checkLiveStreams = oneAtATime(async () => {
     await this.task('live', async (st) => {
