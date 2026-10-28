@@ -80,7 +80,7 @@ export function App() {
   }
 
   return (
-    <div className={`app${kids ? ' is-kids' : ''}`}>
+    <div className={`app${kids ? ' is-kids' : ''}${tab === 'live' && !params ? ' on-live' : ''}`}>
       {!isOnline && <div className="offline">Reconnecting to the media server…</div>}
       <main className="pages">
         <section className="page" hidden={tab !== 'library'}>

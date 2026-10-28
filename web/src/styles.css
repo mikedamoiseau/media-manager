@@ -2801,14 +2801,52 @@ select option {
 }
 
 /* A phone on its side: room for the grid. */
-@media (max-height: 500px) {
+/* The TV a channel starts on, in the top line when the TV bar is hidden. */
+.live-tv-chip {
+  display: none;
+  align-items: center;
+  gap: 4px;
+  height: 30px;
+  padding: 0 10px;
+  border-radius: 999px;
+  box-shadow: inset 0 0 0 1px var(--line);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.live-tv-chip:disabled {
+  opacity: 1;
+}
+
+/* A phone on its side: the guide takes the whole screen (upright, the tabs and the TV bar come back). A short
+   window on a computer keeps them: it has no "upright" to go back to. */
+@media (max-height: 500px) and (orientation: landscape) and (pointer: coarse) {
+  .app.on-live .chrome {
+    display: none;
+  }
+
+  .app.on-live .live-scroll {
+    padding-bottom: calc(var(--safe-bottom) + 8px);
+  }
+
+  .live-tv-chip {
+    display: inline-flex;
+  }
+
   .live-head {
-    padding-top: calc(var(--safe-top) + 8px);
-    padding-bottom: 8px;
+    padding: calc(var(--safe-top) + 6px) max(var(--gutter), env(safe-area-inset-right, 0px)) 6px max(var(--gutter), env(safe-area-inset-left, 0px));
   }
 
   .live-head h1 {
-    font-size: 30px;
+    font-size: 24px;
+  }
+
+  .live-head .segmented button {
+    height: 28px;
+  }
+
+  .live .lg {
+    --lg-row: 50px;
   }
 }
 
@@ -2837,13 +2875,18 @@ select option {
   --lg-ch: 140px;
   --lg-row: 58px;
   position: relative;
-  width: calc(var(--lg-ch) + var(--lg-w));
+  width: calc(var(--lg-ch-safe) + var(--lg-w));
 }
 
 @media (max-width: 900px) {
   .lg {
     --lg-ch: 118px;
   }
+}
+
+/* On its side, a phone's camera cutout is on the left or the right: the pinned channels stay clear of it. */
+.lg {
+  --lg-ch-safe: calc(var(--lg-ch) + env(safe-area-inset-left, 0px));
 }
 
 .lg-ruler {
@@ -2861,7 +2904,7 @@ select option {
   left: 0;
   z-index: 1;
   flex: none;
-  width: var(--lg-ch);
+  width: var(--lg-ch-safe);
   background: var(--nuit);
 }
 
@@ -2900,8 +2943,8 @@ select option {
   display: flex;
   align-items: center;
   gap: 8px;
-  width: var(--lg-ch);
-  padding: 0 8px 0 10px;
+  width: var(--lg-ch-safe);
+  padding: 0 8px 0 calc(10px + env(safe-area-inset-left, 0px));
   background: var(--rideau);
   border-right: 1px solid var(--line);
   text-align: left;
@@ -2969,7 +3012,7 @@ select option {
 
 .lg-none {
   position: sticky;
-  left: var(--lg-ch);
+  left: var(--lg-ch-safe);
   height: 100%;
   padding: 0 12px;
   font-size: 13px;
@@ -2990,7 +3033,7 @@ select option {
 .ll {
   list-style: none;
   margin: 0;
-  padding: 0 var(--gutter);
+  padding: 0 max(var(--gutter), env(safe-area-inset-right, 0px)) 0 max(var(--gutter), env(safe-area-inset-left, 0px));
 }
 
 .ll-row {

@@ -52,7 +52,7 @@ export function TvBar({ onRemote }: { onRemote: boolean }) {
 }
 
 /** The TVs, each with what it plays: the one tapped is the one this device controls from now on. */
-function TvPicker({ onClose }: { onClose: () => void }) {
+export function TvPicker({ onClose }: { onClose: () => void }) {
   const st = useStore(status);
   const tv = useTv();
   const tvs = st?.tvs ?? [];

@@ -3,8 +3,9 @@ import { useLocation } from 'wouter';
 import { api } from '../api.ts';
 import { useStore, status, toast, useTv, tvChoice } from '../store.ts';
 import { ProfileBadge } from './WhosWatching.tsx';
+import { TvPicker } from './TvBar.tsx';
 import { Sheet } from './Sheet.tsx';
-import { IconDevice, IconInfo, IconPlay } from './icons.tsx';
+import { IconDevice, IconDown, IconInfo, IconPlay } from './icons.tsx';
 import { isIOS, vlcBack, VLC_APP_STORE } from '../vlc.ts';
 import { liveView, nowAndNext, gridSpan, gridStart, gridFrom, liveVlcHref, type LiveView } from '../liveTv.ts';
 import type { LiveChannel, LiveProgramme } from '../types.ts';
@@ -51,8 +52,10 @@ const stickyTop = (box: HTMLElement) => box.querySelector<HTMLElement>('.lg-rule
 /** The owner's channels with what's on: a grid on a wide screen, a list on a narrow one. A tap on a channel starts it on the TV. */
 export function LiveTv() {
   const [, navigate] = useLocation();
-  const lastAt = useStore(status)?.live.lastAt;
+  const st = useStore(status);
+  const lastAt = st?.live.lastAt;
   const tv = useTv();
+  const [picking, setPicking] = useState(false);
   const [channels, setChannels] = useState<LiveChannel[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [from, setFrom] = useState(() => gridStart(Date.now()));
@@ -214,10 +217,18 @@ export function LiveTv() {
                 </button>
               ))}
             </div>
+            {/* A phone on its side has no TV bar: the TV a channel starts on, here. */}
+            {tv && (
+              <button className="live-tv-chip" disabled={(st?.tvs.length ?? 0) < 2} onClick={() => setPicking(true)} aria-label={`Channels start on ${tv.name}: another TV`}>
+                {tv.name}
+                {(st?.tvs.length ?? 0) > 1 && <IconDown size={16} />}
+              </button>
+            )}
             <ProfileBadge />
           </div>
         </div>
       </header>
+      {picking && <TvPicker onClose={() => setPicking(false)} />}
       <div className={`scroller live-scroll live-${view}`} ref={scroller} onScroll={onScroll}>
         {body}
       </div>
@@ -283,7 +294,7 @@ function Grid({ channels, from, now, onPlay, onOpen }: ViewProps & { from: numbe
             </div>
           </div>
         ))}
-        <div className="lg-now" style={{ left: `calc(var(--lg-ch) + ${px(now)}px)` }} />
+        <div className="lg-now" style={{ left: `calc(var(--lg-ch-safe) + ${px(now)}px)` }} />
       </div>
     </div>
   );
