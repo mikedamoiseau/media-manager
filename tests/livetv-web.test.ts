@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { liveView, nowAndNext, gridSpan, gridStart, gridFrom, liveVlcHref, GRID_MIN_WIDTH } from '../web/src/liveTv.ts';
+import { liveView, nowAndNext, gridSpan, gridStart, gridFrom, liveVlcHref, moveKey, dragMove, guideLabel, GRID_MIN_WIDTH } from '../web/src/liveTv.ts';
 import type { LiveChannel } from '../web/src/types.ts';
 
 test('grid on wide screens, list on narrow ones, the switch until the screen changes', () => {
@@ -41,4 +41,32 @@ test('VLC gets the stream itself, or the one-channel playlist when the channel n
   const ch = { key: 'M6.fr@HD', url: 'http://b/m6.m3u8', vlc: 'playlist' } as LiveChannel;
   assert.equal(liveVlcHref('http://mac:8642', { ...ch, vlc: 'direct' }, null), `vlc-x-callback://x-callback-url/stream?url=${encodeURIComponent('http://b/m6.m3u8')}`);
   assert.equal(liveVlcHref('http://mac:8642', ch, null), `vlc-x-callback://x-callback-url/stream?url=${encodeURIComponent('http://mac:8642/api/livetv/M6.fr%40HD/vlc.m3u')}`);
+});
+
+test('dragging a channel one place up or down, never past the ends', () => {
+  assert.deepEqual(moveKey(['a', 'b', 'c'], 'a', 1), ['b', 'a', 'c']);
+  assert.deepEqual(moveKey(['a', 'b', 'c'], 'c', -1), ['a', 'c', 'b']);
+  assert.deepEqual(moveKey(['a', 'b', 'c'], 'a', -1), ['a', 'b', 'c']);
+  assert.deepEqual(moveKey(['a', 'b', 'c'], 'c', 1), ['a', 'b', 'c']);
+  assert.deepEqual(moveKey(['a', 'b', 'c'], 'x', 1), ['a', 'b', 'c']);
+});
+
+test("what a channel's guide reads in Settings", () => {
+  const row = { listed: true, guide: { mode: 'auto' as const, source: 'https://xmltvfr.fr/xmltv/xmltv.xml.gz', id: 'TF1.fr', name: 'TF1' } };
+  assert.equal(guideLabel(row), 'Guide: TF1 · xmltvfr.fr');
+  assert.equal(guideLabel({ ...row, guide: { ...row.guide, mode: 'manual' } }), 'Guide: TF1 · xmltvfr.fr (picked)');
+  assert.equal(guideLabel({ ...row, guide: { mode: 'auto' } }), 'No guide found');
+  assert.equal(guideLabel({ ...row, guide: { mode: 'none' } }), 'No guide');
+  assert.equal(guideLabel({ ...row, guide: { mode: 'manual', source: row.guide.source, id: 'Gone.fr' } }), 'The guide channel picked is gone from the guides');
+  assert.equal(guideLabel({ ...row, listed: false }), 'No longer listed by iptv-org');
+});
+
+test('a drag moves a row per row-height travelled, stops at the ends, and never swings back and forth', () => {
+  const keys = ['a', 'b', 'c', 'd'];
+  assert.deepEqual(dragMove(keys, 'a', 10, 40), { keys, rows: 0 });
+  assert.deepEqual(dragMove(keys, 'a', 20, 40), { keys, rows: 0 }, 'exactly half a row: not yet (else it would swing back on the next event)');
+  assert.deepEqual(dragMove(keys, 'a', 21, 40), { keys: ['b', 'a', 'c', 'd'], rows: 1 });
+  assert.deepEqual(dragMove(keys, 'a', 90, 40), { keys: ['b', 'c', 'a', 'd'], rows: 2 });
+  assert.deepEqual(dragMove(keys, 'c', -45, 40), { keys: ['a', 'c', 'b', 'd'], rows: -1 });
+  assert.deepEqual(dragMove(keys, 'c', 400, 40), { keys: ['a', 'b', 'd', 'c'], rows: 1 }, 'the last place, no further');
 });

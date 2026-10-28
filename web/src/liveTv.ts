@@ -1,4 +1,4 @@
-import type { LiveChannel, LiveProgramme } from './types.ts';
+import type { CatalogRow, LiveChannel, LiveProgramme } from './types.ts';
 import { vlcLink } from './vlc.ts';
 
 /** From this width the guide is a grid (a phone held sideways, a tablet, a computer); below, a list. */
@@ -42,4 +42,38 @@ export function gridFrom(from: number, now: number): number {
 /** VLC on the phone: the stream itself, or the app's one-channel playlist when the channel needs request headers. */
 export function liveVlcHref(origin: string, ch: LiveChannel, back: string | null): string {
   return vlcLink(ch.vlc === 'direct' ? ch.url : `${origin}/api/livetv/${encodeURIComponent(ch.key)}/vlc.m3u`, back);
+}
+
+/** The list with `key` moved one place (`by`: -1 up, 1 down); unchanged at the ends. */
+export function moveKey(keys: string[], key: string, by: -1 | 1): string[] {
+  const i = keys.indexOf(key);
+  const j = i + by;
+  if (i < 0 || j < 0 || j >= keys.length) return keys;
+  const next = [...keys];
+  [next[i], next[j]] = [next[j]!, next[i]!];
+  return next;
+}
+
+/** A dragged row: one place per row-height travelled (past half a row), up to the ends. `rows`: how far it went. */
+export function dragMove(keys: string[], key: string, dy: number, rowHeight: number): { keys: string[]; rows: number } {
+  const want = Math.ceil(Math.abs(dy) / rowHeight - 0.5);
+  const by = dy > 0 ? 1 : -1;
+  let next = keys;
+  let rows = 0;
+  while (Math.abs(rows) < want) {
+    const moved = moveKey(next, key, by);
+    if (moved === next) break;
+    next = moved;
+    rows += by;
+  }
+  return { keys: next, rows };
+}
+
+/** A picked channel's guide, as Settings shows it. */
+export function guideLabel(row: Pick<CatalogRow, 'listed' | 'guide'>): string {
+  const g = row.guide;
+  if (!row.listed) return 'No longer listed by iptv-org';
+  if (g.mode === 'none') return 'No guide';
+  if (!g.name) return g.mode === 'manual' ? 'The guide channel picked is gone from the guides' : 'No guide found';
+  return `Guide: ${g.name} · ${g.source ? new URL(g.source).hostname.replace(/^www\./, '') : ''}${g.mode === 'manual' ? ' (picked)' : ''}`;
 }

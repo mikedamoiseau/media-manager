@@ -7,6 +7,7 @@ import { LangSwitch } from './Detail.tsx';
 import { IconRefresh, IconTv } from './icons.tsx';
 import { DuplicatesReport, SetsReport, WantedReport } from './Reports.tsx';
 import { ProfileBadge, ProfilesPanel } from './WhosWatching.tsx';
+import { LiveTvSettings } from './LiveTvSettings.tsx';
 
 function ago(ts?: number): string {
   if (!ts) return 'never';
@@ -265,6 +266,8 @@ export function SettingsView() {
           />
         )}
       </section>
+
+      <LiveTvSettings activity={<TaskLine label="Channel lists and guides" t={st?.live} />} sources={s.liveGuides} onSources={(liveGuides) => save({ liveGuides }, 'Guide sources saved')} />
 
       <section className="panel">
         <h2>Files and sheet</h2>
