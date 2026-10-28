@@ -34,6 +34,11 @@ export function gridStart(now: number): number {
   return Math.floor((now - HALF_HOUR) / HALF_HOUR) * HALF_HOUR;
 }
 
+/** The grid's start on a page left open: kept until it's six hours behind, then half an hour back from now again. */
+export function gridFrom(from: number, now: number): number {
+  return now - from > 6 * 3600_000 ? gridStart(now) : from;
+}
+
 /** VLC on the phone: the stream itself, or the app's one-channel playlist when the channel needs request headers. */
 export function liveVlcHref(origin: string, ch: LiveChannel, back: string | null): string {
   return vlcLink(ch.vlc === 'direct' ? ch.url : `${origin}/api/livetv/${encodeURIComponent(ch.key)}/vlc.m3u`, back);

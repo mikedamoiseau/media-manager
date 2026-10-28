@@ -6,19 +6,21 @@ import { FilmView } from './components/Film.tsx';
 import { Review } from './components/Review.tsx';
 import { Remote } from './components/Remote.tsx';
 import { SettingsView } from './components/Settings.tsx';
+import { LiveTv } from './components/LiveTv.tsx';
 import { TvBar } from './components/TvBar.tsx';
 import { Toasts } from './components/Toasts.tsx';
 import { KodiKeyboard } from './components/KodiKeyboard.tsx';
 import { WhosWatching } from './components/WhosWatching.tsx';
 import { KidsPlaying } from './components/Kids.tsx';
-import { IconFilm, IconInbox, IconPlay, IconRemote, IconSettings } from './components/icons.tsx';
+import { IconFilm, IconInbox, IconPlay, IconRemote, IconSettings, IconTv } from './components/icons.tsx';
 import { useStore, status, online, profileChoice, useProfile } from './store.ts';
 import { rowOf } from './rows.ts';
 
-type Tab = 'library' | 'review' | 'remote' | 'settings';
+type Tab = 'library' | 'live' | 'review' | 'remote' | 'settings';
 
 const TABS: Array<{ key: Tab; path: string; label: string; Icon: typeof IconFilm }> = [
   { key: 'library', path: '/', label: 'Library', Icon: IconFilm },
+  { key: 'live', path: '/live', label: 'Live TV', Icon: IconTv },
   { key: 'review', path: '/review', label: 'To review', Icon: IconInbox },
   { key: 'remote', path: '/remote', label: 'Remote', Icon: IconRemote },
   { key: 'settings', path: '/settings', label: 'Settings', Icon: IconSettings },
@@ -60,9 +62,9 @@ export function App() {
     document.body.classList.toggle('has-overlay', !!params);
   }, [params]);
 
-  // Kids mode has no To review, Settings, film pages (films not on the NAS), sets' pages or the rows of other films: back to the library.
+  // Kids mode has no Live TV, To review, Settings, film pages (films not on the NAS), sets' pages or the rows of other films: back to the library.
   const offLimits =
-    kids && (tab === 'review' || tab === 'settings' || !!filmParams || location.startsWith('/set/') || (location.startsWith('/row/') && !rowOf(location, true)));
+    kids && (tab === 'live' || tab === 'review' || tab === 'settings' || !!filmParams || location.startsWith('/set/') || (location.startsWith('/row/') && !rowOf(location, true)));
   useEffect(() => {
     if (offLimits) navigate('/', { replace: true });
   }, [offLimits]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -83,6 +85,9 @@ export function App() {
       <main className="pages">
         <section className="page" hidden={tab !== 'library'}>
           <Library active={tab === 'library' && !params} />
+        </section>
+        <section className="page" hidden={tab !== 'live'}>
+          {tab === 'live' && !kids && <LiveTv />}
         </section>
         <section className="page" hidden={tab !== 'review'}>
           {tab === 'review' && !kids && <Review />}

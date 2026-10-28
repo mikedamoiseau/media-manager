@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { liveView, nowAndNext, gridSpan, gridStart, liveVlcHref, GRID_MIN_WIDTH } from '../web/src/liveTv.ts';
+import { liveView, nowAndNext, gridSpan, gridStart, gridFrom, liveVlcHref, GRID_MIN_WIDTH } from '../web/src/liveTv.ts';
 import type { LiveChannel } from '../web/src/types.ts';
 
 test('grid on wide screens, list on narrow ones, the switch until the screen changes', () => {
@@ -28,6 +28,13 @@ test('a programme in the grid, clipped to the window', () => {
   assert.equal(gridSpan({ start: at(9), stop: at(10), title: 'A' }, at(11), at(14), 2), null);
   assert.equal(gridStart(Date.UTC(2026, 9, 28, 11, 47)), Date.UTC(2026, 9, 28, 11, 0));
   assert.equal(gridStart(Date.UTC(2026, 9, 28, 11, 29)), Date.UTC(2026, 9, 28, 10, 30));
+});
+
+test('a guide left open moves its window on, hours later', () => {
+  const at = (h: number, m = 0) => Date.UTC(2026, 9, 28, h, m);
+  assert.equal(gridFrom(at(11), at(16, 59)), at(11), 'still near the start: the grid stays put');
+  assert.equal(gridFrom(at(11), at(17, 1)), at(16, 30));
+  assert.equal(gridFrom(at(11), at(11, 5) + 24 * 3600_000), at(10, 30) + 24 * 3600_000);
 });
 
 test('VLC gets the stream itself, or the one-channel playlist when the channel needs headers', () => {
