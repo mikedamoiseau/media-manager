@@ -217,6 +217,45 @@ export interface Status {
   metadata: TaskStatus;
   tmdbConfigured: boolean;
   counts: Record<string, number>;
+  /** The channel lists and guides; `file`: what became of the NAS channel file at the last write */
+  live: TaskStatus & { file?: 'written' | 'same' | 'not_mounted' };
+}
+
+/** A programme of the guide (see server/epg.ts). */
+export interface LiveProgramme {
+  start: number;
+  stop: number;
+  title: string;
+  sub?: string;
+  category?: string;
+  descr?: string;
+  icon?: string;
+}
+
+/** One of the owner's channels with its programmes (see server/livetv.ts). */
+export interface LiveChannel {
+  key: string;
+  number: number;
+  name: string;
+  logo: string;
+  url: string;
+  /** How VLC on the phone gets it: the stream itself, or the app's one-channel playlist (for request headers) */
+  vlc: 'direct' | 'playlist';
+  programmes: LiveProgramme[];
+}
+
+/** A channel of the lists, picked or not (see server/livetv.ts). */
+export interface CatalogRow {
+  key: string;
+  list: string;
+  name: string;
+  logo: string;
+  group: string;
+  ok: boolean | null;
+  /** In the latest refresh of its list */
+  listed: boolean;
+  position: number | null;
+  guide: { mode: 'auto' | 'manual' | 'none'; source?: string; id?: string; name?: string };
 }
 
 /** A person's likes, suggestions and progress (see server/profiles.ts). */
@@ -263,6 +302,10 @@ export interface Settings {
   sheetId: string;
   sheetImportedAt: number;
   cinemaCountry: string;
+  liveFile: string;
+  /** The TV guides (XMLTV), first one first */
+  liveGuides: string[];
+  liveRefreshedAt: number;
 }
 
 export interface NowPlaying {
