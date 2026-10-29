@@ -1279,8 +1279,9 @@ select option {
   text-align: left;
 }
 
-/* Play this episode on the phone. */
-.ep-vlc {
+/* Play this episode on the phone, or add it to Up next. */
+.ep-vlc,
+.ep-queue {
   flex: none;
   display: grid;
   place-items: center;
@@ -1290,7 +1291,8 @@ select option {
   color: var(--brume);
 }
 
-.ep-vlc:active {
+.ep-vlc:active,
+.ep-queue:active {
   background: var(--rideau);
 }
 
@@ -1761,10 +1763,13 @@ select option {
   opacity: 0.35;
 }
 
-.np-power {
+/* The sleep timer and the box's power, over the card's corner. */
+.np-tools {
   position: absolute;
   top: 10px;
   right: 10px;
+  display: flex;
+  gap: 4px;
 }
 
 .np-inner {
@@ -1794,6 +1799,25 @@ select option {
 .np-handoff {
   justify-self: start;
   margin-top: 8px;
+}
+
+.np-next {
+  font-size: 14px;
+  color: var(--brume);
+  overflow-wrap: anywhere;
+}
+
+.np-sleep {
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: rgba(13, 27, 33, 0.6);
+  font-size: 13px;
+  font-weight: 600;
 }
 
 /* The bars of the Remote (position, volume): a 44px touch area, the bar drawn in its middle. */
@@ -3282,4 +3306,74 @@ select option {
   padding: 0;
   display: grid;
   gap: 4px;
+}
+
+/* The Remote's Up next: what plays on this TV after what plays now. */
+.up-next {
+  margin-top: 28px;
+}
+
+.up-next-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.up-next-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--line);
+}
+
+.up-next-list li {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border-bottom: 1px solid var(--line);
+}
+
+.up-next-row {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  text-align: left;
+}
+
+.up-next-poster {
+  flex: none;
+  width: 40px;
+}
+
+.up-next-text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.up-next-title {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.up-next-detail {
+  font-size: 13px;
+  color: var(--brume);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.up-next-poster .poster-fallback-title {
+  font-size: 9px;
+}
+
+.up-next-poster .poster-fallback-year {
+  display: none;
 }

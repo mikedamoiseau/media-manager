@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { api, ApiError } from '../api.ts';
-import { useStore, prefs, status, toast, pollNowPlaying, library, profileChoice, useKids } from '../store.ts';
+import { useStore, prefs, status, toast, pollNowPlaying, library, profileChoice, useKids, useTv } from '../store.ts';
 import { isBedtime } from '../kids.ts';
 import { displayTitle, plotLang, categoryLabel, formatRuntime, formatSize, groupCards, setLineup, setName, splitSet } from '../search.ts';
 import type { Detail, Episode, SeriesInfo, SetPart, TitleLang } from '../types.ts';
@@ -9,7 +9,8 @@ import { Poster } from './Poster.tsx';
 import { MatchDialog } from './MatchDialog.tsx';
 import { PosterPicker } from './PosterPicker.tsx';
 import { ProfileBadge } from './WhosWatching.tsx';
-import { IconBack, IconPlay, IconYoutube, IconTv, IconCheck, IconImage, IconLink, IconEye, IconEyeOff, IconDevice, IconThumbUp, IconThumbDown } from './icons.tsx';
+import { IconBack, IconPlay, IconYoutube, IconTv, IconCheck, IconImage, IconLink, IconEye, IconEyeOff, IconDevice, IconThumbUp, IconThumbDown, IconListPlus } from './icons.tsx';
+import { addToUpNext } from './UpNext.tsx';
 import { isIOS, mediaUrl, vlcLink, vlcBack, episodeName, VLC_APP_STORE } from '../vlc.ts';
 import { TitleTile, MissingTile } from './Library.tsx';
 import { KidsForTitle } from './Kids.tsx';
@@ -166,6 +167,7 @@ export function DetailView({ id, onClose }: { id: number; onClose: () => void })
   const ref = useRef<HTMLDivElement>(null);
   // Kids mode: only Play on TV (until bedtime), the episodes and liking; nothing that leads elsewhere.
   const kid = useKids();
+  const tv = useTv();
   const [, tick] = useState(0);
   useEffect(() => {
     if (!kid?.bedtime) return;
@@ -207,6 +209,9 @@ export function DetailView({ id, onClose }: { id: number; onClose: () => void })
   const present = d?.versions.some((v) => v.present);
   // The episodes listed are this copy's: playable only when this copy is on the NAS.
   const episodesHere = !!d?.versions.find((v) => v.id === d.id)?.present;
+  // Up next takes this copy, else one on the NAS. A film is in it once; a series adds its next episode on each tap.
+  const queueId = d && (episodesHere ? d.id : d.versions.find((v) => v.present)?.id);
+  const filmQueued = !!d && !d.d && !!tv?.upNext.some((e) => e.itemId === queueId && e.episodeId === null);
   // The copy VLC gets: this one when it is on the NAS, else another copy that is.
   const phoneCopy = kid ? undefined : (d?.versions.find((v) => v.id === d.id && v.present) ?? d?.versions.find((v) => v.present));
   const phoneName = phoneCopy && d ? `${displayTitle(d, titleLang).main}${phoneCopy.isDir ? '' : phoneCopy.path.slice(phoneCopy.path.lastIndexOf('.'))}` : '';
@@ -288,6 +293,12 @@ export function DetailView({ id, onClose }: { id: number; onClose: () => void })
                 {d.d && d.episodes.length ? 'Play next episode' : d.versions.some((v) => v.resume && v.resume > 0.02) ? 'Resume on TV' : 'Play on TV'}
               </button>
             )}
+            {queueId && !bedtime && !kid && tv && (
+              <button className="btn big" disabled={!kodiReady || filmQueued} onClick={() => void addToUpNext(tv.name, queueId)}>
+                <IconListPlus size={20} />
+                {filmQueued ? 'In Up next' : 'Up next'}
+              </button>
+            )}
             {isIOS && phoneCopy && (
               <a className="btn big" href={vlcLink(mediaUrl(location.origin, 'item', phoneCopy.id, phoneName, profileChoice.get() ?? undefined), vlcBack())} onClick={watchVlcLaunch}>
                 <IconDevice size={20} />
@@ -354,6 +365,7 @@ export function DetailView({ id, onClose }: { id: number; onClose: () => void })
                 episodes={d.episodes}
                 kodiReady={kodiReady && episodesHere}
                 vlc={isIOS && episodesHere && !kid ? { show: t.main, onOpen: watchVlcLaunch } : null}
+                onQueue={!kid && tv && kodiReady && episodesHere ? (e) => void addToUpNext(tv.name, d.id, e.id) : undefined}
               />
             )}
 
@@ -607,12 +619,15 @@ function Episodes({
   episodes,
   kodiReady,
   vlc,
+  onQueue,
 }: {
   itemId: number;
   episodes: Episode[];
   kodiReady: boolean;
   /** each episode can also go to VLC on the phone */
   vlc: { show: string; onOpen: () => void } | null;
+  /** each episode can also go to Up next */
+  onQueue?: (e: Episode) => void;
 }) {
   const seasons = useMemo(() => {
     const m = new Map<string, { order: number; eps: Episode[] }>();
@@ -661,6 +676,11 @@ function Episodes({
               >
                 <IconDevice size={20} />
               </a>
+            )}
+            {onQueue && (
+              <button className="ep-queue" onClick={() => onQueue(e)} aria-label={`Add ${e.title ?? e.name} to Up next`}>
+                <IconListPlus size={20} />
+              </button>
             )}
           </li>
         ))}

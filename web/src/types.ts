@@ -282,7 +282,23 @@ export interface TvStatus {
   keyboard: boolean;
   /** Kodi's keyboard, while it waits for text */
   input: KodiInput | null;
+  /** what plays next on this TV, in order */
+  upNext: UpNextEntry[];
+  sleep: Sleep;
 }
+
+/** A film (no episode) or an episode in a TV's Up next, played for whoever added it. */
+export interface UpNextEntry {
+  id: number;
+  itemId: number;
+  episodeId: number | null;
+  season: number | null;
+  episode: number | null;
+  episodeTitle: string | null;
+}
+
+/** A TV's sleep timer: stop at that time, or once what plays now ends. */
+export type Sleep = { at: number } | { afterThis: true } | null;
 
 /** A Kodi box, as Settings edits it (the password comes back hidden: "••••"). */
 export interface KodiTv {

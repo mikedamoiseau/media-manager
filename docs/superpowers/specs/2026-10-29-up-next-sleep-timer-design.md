@@ -54,7 +54,7 @@ Two things:
   A "Clear" button empties the list. Empty: one line of help ("Add films
   and episodes from their pages; they play here one after another.").
 - The now-playing card shows the first entry under the progress bar:
-  "Next: S2 E6 · The Return".
+  "Next: Show, S2 E6 · The Return" (a film: its title).
 - A **sleep timer** button (moon) sits in the now-playing card beside the
   power button. It opens a sheet:
   - "After this episode" / "After this film" (only while something plays),

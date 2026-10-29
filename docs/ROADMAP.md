@@ -9,7 +9,7 @@ discussion before it is built.
 | 2 | Kids mode | Medium | Done in the app: [design](superpowers/specs/2026-10-26-kids-mode-design.md) |
 | 3 | Series tracker | Medium | Done: [design](superpowers/specs/2026-10-29-series-tracker-coming-soon-design.md) |
 | 4 | Trailer on the TV | Small | Already in the app |
-| 5 | Up next queue and sleep timer | Small to medium | Idea |
+| 5 | Up next queue and sleep timer | Small to medium | Done |
 | 6 | Coming soon | Medium | Done: [design](superpowers/specs/2026-10-29-series-tracker-coming-soon-design.md) |
 | 7 | Your year in film | Small to medium | Idea |
 | 8 | Live TV | Large | Done: [design](superpowers/specs/2026-10-28-live-tv-design.md) |
@@ -64,6 +64,14 @@ Kodi's YouTube add-on. Each Kodi box needs that add-on.
 
 Line up a few episodes or films to play one after another on a chosen TV.
 Add "stop after this episode" or "stop in 45 minutes".
+
+Done: a film or series page has an Up next button (a series adds its next
+episode on each tap), and each episode row can add that episode. The Remote
+lists the TV's Up next: tap one to play it now, or take it out. When a film
+or episode plays to its end, the next one starts, from where whoever added it
+stopped. The moon on the Remote's card sets a sleep timer: after this one, or
+in 15 to 90 minutes. A list nobody touched for 6 hours is cleared. Both need
+the app running (see item 9).
 
 ## 6. Coming soon
 

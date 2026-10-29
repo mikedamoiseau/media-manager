@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { api } from '../api.ts';
-import { useStore, nowPlaying, nowPlayingError, status, toast, startFastPoll, pollNowPlaying, typingForKodi, useTv, profileChoice } from '../store.ts';
+import { useStore, nowPlaying, nowPlayingError, status, toast, startFastPoll, pollNowPlaying, typingForKodi, useTv, profileChoice, useKids } from '../store.ts';
 import { ProfileBadge } from './WhosWatching.tsx';
 import { formatClock } from '../search.ts';
 import { languageName } from '../tracks.ts';
@@ -8,9 +8,11 @@ import { TrackPicker } from './TrackPicker.tsx';
 import { isIOS, handoffLink, vlcBack } from '../vlc.ts';
 import { sliderKey } from '../sliderKeys.ts';
 import { PowerMenu } from './PowerMenu.tsx';
+import { UpNextList, SleepSheet, useEntryTitles } from './UpNext.tsx';
+import { entryLabel, sleepLabel } from '../upNext.ts';
 import {
   IconUp, IconDown, IconLeft, IconRight, IconBack, IconHome, IconInfo, IconMenu, IconPlay, IconPause, IconStop,
-  IconSkipBack, IconSkipFwd, IconVolume, IconMute, IconSubtitles, IconAudio, IconTv, IconPower, IconKeyboard, IconDevice,
+  IconSkipBack, IconSkipFwd, IconVolume, IconMute, IconSubtitles, IconAudio, IconTv, IconPower, IconKeyboard, IconDevice, IconMoon,
 } from './icons.tsx';
 
 export async function send(action: string, value?: number) {
@@ -35,6 +37,17 @@ export function Remote() {
   const answering = !useStore(nowPlayingError);
   const [picker, setPicker] = useState<'audio' | 'subtitles' | null>(null);
   const [powerMenu, setPowerMenu] = useState(false);
+  const [sleepSheet, setSleepSheet] = useState(false);
+  const kid = useKids();
+  const titleOf = useEntryTitles();
+  // A timer's minutes count down on the card.
+  const timed = !!tv?.sleep && 'at' in tv.sleep;
+  const [, tick] = useState(0);
+  useEffect(() => {
+    if (!timed) return;
+    const t = setInterval(() => tick((n) => n + 1), 30_000);
+    return () => clearInterval(t);
+  }, [timed]);
 
   useEffect(() => startFastPoll(), []);
   useEffect(() => {
@@ -73,6 +86,10 @@ export function Remote() {
   const playing = active && (np.speed ?? 0) !== 0;
   // The link is ready before the tap: Safari opens VLC only straight from a tap.
   const handoff = isIOS && active ? handoffLink(location.origin, np, vlcBack(), Date.now().toString(36), tv.id, profileChoice.get() ?? undefined) : null;
+  // Up next and the sleep timer are for grown-ups.
+  const first = !kid && active ? tv.upNext[0] : undefined;
+  const next = first && [[titleOf(first).title, entryLabel(first)].filter(Boolean).join(', '), first.episodeTitle].filter(Boolean).join(' · ');
+  const sleep = kid ? null : sleepLabel(tv.sleep, Date.now(), !!np?.showTitle);
 
   return (
     <>
@@ -103,6 +120,7 @@ export function Remote() {
                     </div>
                   )}
                 </TouchSlider>
+                {next && <p className="np-next">Next: {next}</p>}
                 {handoff && (
                   <a className="btn np-handoff" href={handoff}>
                     <IconDevice size={18} />
@@ -117,11 +135,24 @@ export function Remote() {
                 <p className="muted small">Pick something in the library and press Play on TV.</p>
               </>
             )}
+            {sleep && (
+              <button className="np-sleep" onClick={() => setSleepSheet(true)}>
+                <IconMoon size={16} />
+                {sleep}
+              </button>
+            )}
           </div>
           {answering && (
-            <button className="icon-btn on-image np-power" onClick={() => setPowerMenu(true)} aria-label="Shut down or restart the Kodi box">
-              <IconPower />
-            </button>
+            <div className="np-tools">
+              {!kid && (
+                <button className="icon-btn on-image" onClick={() => setSleepSheet(true)} aria-label={sleep ? `Sleep timer: ${sleep}` : 'Sleep timer'}>
+                  <IconMoon />
+                </button>
+              )}
+              <button className="icon-btn on-image" onClick={() => setPowerMenu(true)} aria-label="Shut down or restart the Kodi box">
+                <IconPower />
+              </button>
+            </div>
           )}
         </section>
 
@@ -201,10 +232,13 @@ export function Remote() {
             {(v) => <span className="vol-num">{Math.round(v)}</span>}
           </TouchSlider>
         </div>
+
+        {!kid && <UpNextList tv={tv} />}
       </div>
       {/* Outside .remote: its children are width-capped, the sheet backdrop must cover the screen. */}
       {picker && <TrackPicker kind={picker} onClose={() => setPicker(null)} />}
       {powerMenu && <PowerMenu playing={!!active} onClose={() => setPowerMenu(false)} />}
+      {sleepSheet && <SleepSheet tv={tv} active={!!active} episode={!!np?.showTitle} onClose={() => setSleepSheet(false)} />}
     </>
   );
 }

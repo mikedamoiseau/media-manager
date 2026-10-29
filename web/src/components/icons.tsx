@@ -257,3 +257,13 @@ export const IconBell = (p: P) => (
     <path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15L6 16ZM10 20.5a2 2 0 0 0 4 0" />
   </svg>
 );
+export const IconListPlus = (p: P) => (
+  <svg {...base(p)}>
+    <path d="M4 6h12M4 12h12M4 18h8M18 15v6M15 18h6" />
+  </svg>
+);
+export const IconMoon = (p: P) => (
+  <svg {...base(p)}>
+    <path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5Z" />
+  </svg>
+);
