@@ -1,4 +1,4 @@
-import { test } from 'node:test';
+import { test, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { openDb, getSettings } from '../server/db.ts';
 import type { M3uEntry } from '../server/iptv.ts';
@@ -331,25 +331,31 @@ test("a guide's end is its own closing tag, not one quoted in a comment or a des
 });
 
 test('a NAS file that cannot be written does not stop the lists, the guides or the checks', async () => {
-  const tmp = mkdtempSync(join(tmpdir(), 'live-'));
-  mkdirSync(join(tmp, 'share'));
-  writeFileSync(join(tmp, 'share', 'IPTV'), 'a file where the folder goes');
-  const db = openDb(':memory:');
-  saveSettings(db, { liveFile: join(tmp, 'share', 'IPTV', 'channels.m3u'), liveGuides: [X] });
-  saveCatalog(db, [{ list: 'fr', entries: [TF1] }], at(1));
-  setPicks(db, ['TF1.fr@SD']);
-  const svc = new Service(db, join(tmp, 'data'));
-  const { fn } = fakeFetch({
-    [LIVE_LISTS[0]!.url]: new Response(M3U('#EXTINF:-1 tvg-id="TF1.fr@SD" group-title="General",TF1', 'http://s/TF1.fr@SD.m3u8')),
-    [LIVE_LISTS[1]!.url]: new Response(M3U('#EXTINF:-1 tvg-id="BX1.be@SD",BX1', 'http://s/bx1')),
-    [X]: new Response(GUIDE),
-    'http://s/TF1.fr@SD.m3u8': new Response('#EXTM3U\n'),
-  });
-  await svc.refreshLiveNow(fn);
-  assert.ok(getSettings(db).liveRefreshedAt > 0, 'the refresh went on');
-  assert.deepEqual(liveGuide(db, [X], 0, at(23))[0]!.programmes.map((p) => p.title), ['Le 13h']);
-  assert.equal(liveCatalog(db, [X]).find((r) => r.key === 'TF1.fr@SD')!.ok, true);
-  assert.match(svc.status.live.message ?? '', /the file on the NAS/);
+  // The Service refreshes at its own clock: the day of the guide below.
+  mock.timers.enable({ apis: ['Date'], now: at(11) });
+  try {
+    const tmp = mkdtempSync(join(tmpdir(), 'live-'));
+    mkdirSync(join(tmp, 'share'));
+    writeFileSync(join(tmp, 'share', 'IPTV'), 'a file where the folder goes');
+    const db = openDb(':memory:');
+    saveSettings(db, { liveFile: join(tmp, 'share', 'IPTV', 'channels.m3u'), liveGuides: [X] });
+    saveCatalog(db, [{ list: 'fr', entries: [TF1] }], at(1));
+    setPicks(db, ['TF1.fr@SD']);
+    const svc = new Service(db, join(tmp, 'data'));
+    const { fn } = fakeFetch({
+      [LIVE_LISTS[0]!.url]: new Response(M3U('#EXTINF:-1 tvg-id="TF1.fr@SD" group-title="General",TF1', 'http://s/TF1.fr@SD.m3u8')),
+      [LIVE_LISTS[1]!.url]: new Response(M3U('#EXTINF:-1 tvg-id="BX1.be@SD",BX1', 'http://s/bx1')),
+      [X]: new Response(GUIDE),
+      'http://s/TF1.fr@SD.m3u8': new Response('#EXTM3U\n'),
+    });
+    await svc.refreshLiveNow(fn);
+    assert.ok(getSettings(db).liveRefreshedAt > 0, 'the refresh went on');
+    assert.deepEqual(liveGuide(db, [X], 0, at(23))[0]!.programmes.map((p) => p.title), ['Le 13h']);
+    assert.equal(liveCatalog(db, [X]).find((r) => r.key === 'TF1.fr@SD')!.ok, true);
+    assert.match(svc.status.live.message ?? '', /the file on the NAS/);
+  } finally {
+    mock.timers.reset();
+  }
 });
 
 test("the owner's own stream address: written without request headers, kept when reordered, cleared", () => {
