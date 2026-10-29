@@ -334,6 +334,24 @@ export const MIGRATIONS: string[] = [
     at INTEGER NOT NULL
   );
   `,
+  `
+  -- What each TV plays next, in the order added; each entry plays for the profile that added it.
+  CREATE TABLE up_next (
+    id INTEGER PRIMARY KEY,
+    tv_id TEXT NOT NULL,
+    item_id INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+    episode_id INTEGER REFERENCES episodes(id) ON DELETE CASCADE, -- null: a film
+    profile_id INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+    at INTEGER NOT NULL                 -- the TV's list last added to or played from
+  );
+  CREATE INDEX up_next_tv ON up_next(tv_id);
+  -- Each TV's sleep timer.
+  CREATE TABLE tv_sleep (
+    tv_id TEXT PRIMARY KEY,
+    at INTEGER,                         -- when to stop; null: after what plays now
+    until INTEGER NOT NULL              -- an "after this" left behind lapses then
+  );
+  `,
 ];
 
 export function openDb(file: string): DB {
