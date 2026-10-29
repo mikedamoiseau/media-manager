@@ -168,7 +168,8 @@ export function SettingsView() {
               disabled={saving || countries.length === 0}
               onChange={(e) => void save({ cinemaCountry: e.target.value }, `Showing cinemas in ${countries.find((c) => c.code === e.target.value)?.name ?? e.target.value}`)}
             >
-              {countries.length === 0 && <option value={s.cinemaCountry}>{s.cinemaCountry}</option>}
+              {!s.cinemaCountry && <option value="">Pick a country</option>}
+              {countries.length === 0 && s.cinemaCountry && <option value={s.cinemaCountry}>{s.cinemaCountry}</option>}
               {countries.map((c) => (
                 <option key={c.code} value={c.code}>
                   {c.name}

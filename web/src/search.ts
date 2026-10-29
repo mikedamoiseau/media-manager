@@ -245,7 +245,7 @@ export function formatDay(date: string, today = new Date()): string {
   return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', ...(sameYear ? {} : { year: 'numeric' }) });
 }
 
-/** "Thailand" for TH. */
+/** "Germany" for DE. */
 export function countryName(code: string): string {
   try {
     return new Intl.DisplayNames(['en'], { type: 'region' }).of(code) ?? code;

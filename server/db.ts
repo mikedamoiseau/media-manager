@@ -388,7 +388,7 @@ export interface Settings {
   scanIntervalMin: number;
   sheetId: string;
   sheetImportedAt: number;
-  /** Whose cinemas the "At the cinema" row follows (ISO 3166-1 code) */
+  /** Whose cinemas the "At the cinema" row follows (ISO 3166-1 code); '' until picked in Settings */
   cinemaCountry: string;
   /** The live TV channel list both TVs read, on the NAS share (next to MEDIA, never inside) */
   liveFile: string;
@@ -406,7 +406,7 @@ export const DEFAULT_SETTINGS: Settings = {
   scanIntervalMin: 10,
   sheetId: '',
   sheetImportedAt: 0,
-  cinemaCountry: 'TH',
+  cinemaCountry: '',
   liveFile: '/Volumes/video/IPTV/channels.m3u',
   liveGuides: ['https://xmltvfr.fr/xmltv/xmltv.xml.gz', 'https://i.mjh.nz/PlutoTV/fr.xml.gz'],
   liveRefreshedAt: 0,

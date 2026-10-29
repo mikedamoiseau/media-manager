@@ -102,6 +102,8 @@ const cinemaCache: CinemaCache = new Map();
  * dated for that country. Films on the NAS and films you're not interested in are left out.
  */
 export async function cinema(db: DB, tmdb: Tmdb | null, country: string, now = Date.now(), cache = cinemaCache): Promise<Array<Film & { soon: boolean }>> {
+  // No country picked in Settings yet: no cinemas to follow.
+  if (!country) return [];
   let lists = cache.get(country);
   if (tmdb && (!lists || now - lists.at > CINEMA_AGE)) {
     try {

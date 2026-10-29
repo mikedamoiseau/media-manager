@@ -112,19 +112,19 @@ test('cinemas of a country: on now (popular first), then out soon (earliest firs
   };
   const calls: string[] = [];
   const cache: CinemaCache = new Map();
-  const out = await cinema(db, fakeTmdb({ lists, calls }), 'TH', NOW, cache);
+  const out = await cinema(db, fakeTmdb({ lists, calls }), 'DE', NOW, cache);
   assert.deepEqual(
     out.map((f) => `${f.fr} ${f.date}${f.soon ? ' soon' : ''}`),
     ['Clayface 2026-10-22', 'Runner 2026-10-15', 'Jailer 2 2026-10-15', 'Hope FR 2026-10-28 soon', 'Crawlers 2026-10-29 soon', 'Godzilla 2026-11-04 soon'],
   );
   assert.deepEqual([out[2]!.fr, out[2]!.en, out[2]!.o], ['Jailer 2', 'Jailer 2', 'ஜெயிலர் 2']);
-  assert.deepEqual(calls.sort(), ['/3/movie/now_playing?TH', '/3/movie/now_playing?TH', '/3/movie/upcoming?TH', '/3/movie/upcoming?TH']);
+  assert.deepEqual(calls.sort(), ['/3/movie/now_playing?DE', '/3/movie/now_playing?DE', '/3/movie/upcoming?DE', '/3/movie/upcoming?DE']);
 
   // Kept a few hours, per country; when TMDB fails later, the last lists stay.
   calls.length = 0;
-  await cinema(db, fakeTmdb({ lists, calls }), 'TH', NOW + HOUR, cache);
+  await cinema(db, fakeTmdb({ lists, calls }), 'DE', NOW + HOUR, cache);
   assert.deepEqual(calls, []);
-  assert.equal((await cinema(db, fakeTmdb({ fail: true }), 'TH', NOW + 7 * HOUR, cache)).length, 6);
+  assert.equal((await cinema(db, fakeTmdb({ fail: true }), 'DE', NOW + 7 * HOUR, cache)).length, 6);
   await cinema(db, fakeTmdb({ lists, calls }), 'FR', NOW + HOUR, cache);
   assert.equal(calls.length, 4);
 });
@@ -151,4 +151,11 @@ test('films not on the NAS: what TMDB pairs with a film you did not like drops o
   assert.deepEqual((await elsewhere(db, tmdb, NOW)).map((s) => s.film.en), ['Collateral', 'Cobra']);
   rate(db, 'movie', 800, -1, NOW);
   assert.deepEqual((await elsewhere(db, tmdb, NOW)).map((s) => s.film.en), ['Cobra']);
+});
+
+test('no cinema country picked yet: no cinema lists, nothing asked of TMDB', async () => {
+  const { db } = seed();
+  const calls: string[] = [];
+  assert.deepEqual(await cinema(db, fakeTmdb({ lists: {}, calls }), '', NOW, new Map()), []);
+  assert.deepEqual(calls, []);
 });

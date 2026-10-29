@@ -18,5 +18,5 @@ test('release dates and countries, for films not on the NAS', () => {
   const today = new Date('2026-10-25T12:00:00');
   assert.equal(formatDay('2026-10-29', today), '29 Oct');
   assert.equal(formatDay('2027-03-03', today), '3 Mar 2027');
-  assert.equal(countryName('TH'), 'Thailand');
+  assert.equal(countryName('DE'), 'Germany');
 });
