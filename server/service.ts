@@ -16,7 +16,14 @@ import { lanTransport } from './net.ts';
 import { KodiEvents, type KodiInput, type PlayerEvent } from './kodiEvents.ts';
 import { TvOwners, notePlay, kodiStates, attributeKodiChanges } from './owners.ts';
 import { pickTv, addTv, editTv, tvNumber, firstTvChanged, firstRun } from './tvs.ts';
+import { upNext, upNextEntries, takeFromUpNext, removeFromUpNext, dropStale, sleepOf, clearSleep, dueSleeps, forgetTv, type UpNextEntry, type Sleep } from './upnext.ts';
+import { PlayError, playItem } from './playItem.ts';
 import { refreshCatalog, refreshGuides, checkStreams, writeChannelFile, channelFileText, pickedChannels, setPicks, setStream } from './livetv.ts';
+
+/** How long after a play ends the next of Up next starts: Kodi has closed the last one. */
+export const NEXT_PAUSE = 1000;
+/** How often the sleep timers are looked at (the clock, not one long timer: right after the Mac slept). */
+const SLEEP_CHECK = 15_000;
 
 export interface TaskStatus {
   running: boolean;
@@ -72,6 +79,9 @@ export interface TvStatus {
   keyboard: boolean;
   /** Kodi's keyboard, while it waits for text */
   input: KodiInput | null;
+  /** what plays next on this TV, in order */
+  upNext: UpNextEntry[];
+  sleep: Sleep;
 }
 
 export class Service extends EventEmitter {
@@ -83,11 +93,16 @@ export class Service extends EventEmitter {
   private kodiResyncTimer?: NodeJS.Timeout;
   private kidsTimer?: NodeJS.Timeout;
   private liveTimer?: NodeJS.Timeout;
+  private sleepTimer?: NodeJS.Timeout;
   /** Each TV's event connection, and the address it is for */
   private events = new Map<string, { host: string; ev: KodiEvents }>();
   private playerEvents = new Map<string, Promise<void>>();
   /** Who is watching on each TV, for whose progress Kodi's changes are. */
   readonly owners = new TvOwners();
+  /** What each TV plays now, from its events: the episode a series' Up next goes on after. */
+  private playingNow = new Map<string, { type: string; id: number }>();
+  /** TVs whose "after this" timer ran out at an end: Kodi going on by itself is stopped too. */
+  private stopChain = new Set<string>();
 
   constructor(db: DB, dataDir: string) {
     super();
@@ -100,7 +115,7 @@ export class Service extends EventEmitter {
       scan: { running: false },
       sheet: { running: false, lastAt: s.sheetImportedAt || undefined },
       kodi: { running: false, connected: false, transport: lanTransport() },
-      tvs: s.kodiTvs.map((t) => ({ id: t.id, name: t.name, keyboard: false, input: null })),
+      tvs: [],
       profiles: listProfiles(db),
       kidsCode: hasParentsCode(db),
       metadata: { running: false },
@@ -108,6 +123,7 @@ export class Service extends EventEmitter {
       tmdbConfigured: !!s.tmdbKey,
       counts: {},
     };
+    this.refreshTvs();
     this.refreshCounts();
   }
 
@@ -115,6 +131,8 @@ export class Service extends EventEmitter {
   profilesChanged(): void {
     this.status.profiles = listProfiles(this.db);
     this.status.kidsCode = hasParentsCode(this.db);
+    // A profile removed took its entries of Up next.
+    this.refreshTvs();
     this.emitStatus();
   }
 
@@ -161,6 +179,7 @@ export class Service extends EventEmitter {
 
   /** Saved, with the highest TV number given, and connected. */
   private storeTvs(tvs: KodiTv[]): void {
+    for (const t of this.tvs()) if (!tvs.some((x) => x.id === t.id)) forgetTv(this.db, t.id);
     const last = Math.max(this.settings().kodiTvLast, ...tvs.map((t) => tvNumber(t.id)));
     saveSettings(this.db, { kodiTvs: tvs, kodiTvLast: last });
     this.connectTvs();
@@ -185,7 +204,7 @@ export class Service extends EventEmitter {
   }
 
   /** A TV started or stopped playing: handled in the order the TV told it, as a play may first ask the TV. */
-  private onPlayer(tvId: string, e: PlayerEvent): Promise<void> {
+  onPlayer(tvId: string, e: PlayerEvent): Promise<void> {
     const now = Date.now();
     const next = (this.playerEvents.get(tvId) ?? Promise.resolve())
       .then(() => this.player(tvId, e, now))
@@ -197,16 +216,87 @@ export class Service extends EventEmitter {
 
   /** A TV started a film or episode of Kodi's library: noted for whoever is watching there. */
   private async player(tvId: string, e: PlayerEvent, now: number): Promise<void> {
-    if (e.kind === 'stop') return this.owners.stop(tvId, !!e.ended, now);
+    if (e.kind === 'stop') return this.stopped(tvId, !!e.ended, now);
+    if (e.item) this.playingNow.set(tvId, e.item);
+    else this.playingNow.delete(tvId);
     const tv = this.tvs().find((t) => t.id === tvId);
     // A TV in its kids view: what starts there is the kid's.
     const kid = tv && (await kidsViewProfile(this.db, tv));
     const owner = this.owners.start(tvId, now, this.seriesOf(e), kid);
     if (e.item?.type === 'movie' || e.item?.type === 'episode') notePlay(this.db, e.item.type, e.item.id, owner, now);
-    // A kid's bedtime: Kodi doesn't go on with the next episode.
-    if (tv && bedtimeStop(kidsProfile(this.db, owner), this.owners.chained(tvId), new Date(now))) {
-      remote(tv, 'stop').catch((err: Error) => console.warn(`Bedtime stop on ${tv.name}: ${err.message}`));
+    // A kid's bedtime, or "stop after this" that ran out at the last one's end: Kodi doesn't go on with the next episode.
+    const chained = this.owners.chained(tvId);
+    const afterThis = this.stopChain.delete(tvId) && chained;
+    if (tv && (afterThis || bedtimeStop(kidsProfile(this.db, owner), chained, new Date(now)))) {
+      await remote(tv, 'stop').catch((err: Error) => console.warn(`${afterThis ? 'Sleep timer' : 'Bedtime'} stop on ${tv.name}: ${err.message}`));
     }
+  }
+
+  /** A TV stopped: an "after this" timer is done; at the end of what played, Up next goes on. */
+  private async stopped(tvId: string, ended: boolean, now: number): Promise<void> {
+    this.owners.stop(tvId, ended, now);
+    this.playingNow.delete(tvId);
+    const sleep = sleepOf(this.db, tvId, now);
+    if (sleep && 'afterThis' in sleep) {
+      clearSleep(this.db, tvId);
+      if (ended) this.stopChain.add(tvId);
+      this.tvsChanged();
+      return;
+    }
+    if (!ended) return;
+    // A timer due before its next look would let the next one start for a few seconds: the evening ends here.
+    if (sleep && sleep.at <= now + NEXT_PAUSE + SLEEP_CHECK) return;
+    if (dropStale(this.db, now).length) this.tvsChanged();
+    const tv = this.tvs().find((t) => t.id === tvId);
+    if (!tv || !upNext(this.db, tvId).length) return;
+    await new Promise((r) => setTimeout(r, NEXT_PAUSE));
+    try {
+      // Something started meanwhile (the TV's remote, a Play): it stays, and the list waits.
+      if ((await kodiCall<unknown[]>(tv, 'Player.GetActivePlayers')).length) return;
+      await this.playNext(tvId);
+    } catch (err) {
+      console.warn(`Up next on ${tv.name}: ${(err as Error).message}`);
+    }
+  }
+
+  /**
+   * Plays that entry of the TV's Up next, else the first, as the profile that added it; it leaves the list
+   * once Kodi started it. One that can't play (gone from the NAS, a kid's bedtime) is dropped, and the next
+   * tried, unless one was asked for. Kodi not answering: the list stays as it was. True when one played.
+   */
+  async playNext(tvId: string, id?: number): Promise<boolean> {
+    try {
+      for (const e of upNext(this.db, tvId).filter((r) => id === undefined || r.id === id)) {
+        try {
+          await playItem(this, tvId, e.profileId, e.itemId, e.episodeId ?? undefined);
+          takeFromUpNext(this.db, tvId, Date.now(), e.id);
+          return true;
+        } catch (err) {
+          if (!(err instanceof PlayError)) throw err;
+          console.warn(`Up next on ${tvId}: ${err.message}, dropped`);
+          removeFromUpNext(this.db, tvId, e.id);
+        }
+      }
+      return false;
+    } finally {
+      this.tvsChanged();
+    }
+  }
+
+  /** Up next or a sleep timer changed: every device hears it. */
+  upNextChanged(): void {
+    this.tvsChanged();
+  }
+
+  /** Timers due stop their TV; Up next lists left too long are cleared. */
+  async checkSleep(now = Date.now()): Promise<void> {
+    const { stop, lapsed } = dueSleeps(this.db, now);
+    const stale = dropStale(this.db, now);
+    for (const id of stop) {
+      const tv = this.tvs().find((t) => t.id === id);
+      if (tv) await remote(tv, 'stop').catch((err: Error) => console.warn(`Sleep timer stop on ${tv.name}: ${err.message}`));
+    }
+    if (stop.length || lapsed.length || stale.length) this.tvsChanged();
   }
 
   /** The series (item id) of the episode Kodi started; none for a film, or an episode the app doesn't know. */
@@ -220,11 +310,16 @@ export class Service extends EventEmitter {
   }
 
   private tvsChanged(): void {
+    this.refreshTvs();
+    this.emitStatus();
+  }
+
+  private refreshTvs(): void {
+    const now = Date.now();
     this.status.tvs = this.tvs().map((t) => {
       const ev = this.events.get(t.id)?.ev;
-      return { id: t.id, name: t.name, keyboard: ev?.live ?? false, input: ev?.input ?? null };
+      return { id: t.id, name: t.name, keyboard: ev?.live ?? false, input: ev?.input ?? null, upNext: upNextEntries(this.db, t.id), sleep: sleepOf(this.db, t.id, now) };
     });
-    this.emitStatus();
   }
 
   tmdb(): Tmdb | undefined {
@@ -590,12 +685,15 @@ export class Service extends EventEmitter {
     liveDue();
     this.liveTimer = setInterval(liveDue, 3600_000);
     this.liveTimer.unref();
+    this.sleepTimer = setInterval(() => void this.checkSleep(), SLEEP_CHECK);
+    this.sleepTimer.unref();
   }
 
   stop(): void {
     this.stopRequested = true;
     clearInterval(this.timer);
     clearInterval(this.liveTimer);
+    clearInterval(this.sleepTimer);
     clearTimeout(this.kodiResyncTimer);
     for (const e of this.events.values()) e.ev.stop();
   }

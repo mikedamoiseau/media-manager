@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { openDb } from '../server/db.ts';
 import { MAIN_PROFILE, PROFILE_COLORS, addProfile, removeProfile } from '../server/profiles.ts';
 import {
-  STALE, AFTER_THIS_LAPSE, UpNextError, upNext, upNextEntries, addToUpNext, removeFromUpNext, clearUpNext, takeFromUpNext,
+  STALE, AFTER_THIS_LAPSE, SLEEP_GRACE, UpNextError, upNext, upNextEntries, addToUpNext, removeFromUpNext, clearUpNext, takeFromUpNext,
   dropStale, episodeToQueue, sleepOf, setSleep, clearSleep, dueSleeps, forgetTv,
 } from '../server/upnext.ts';
 
@@ -153,5 +153,16 @@ test('sets, reads and fires timers', () => {
   setSleep(db, 'tv1', { afterThis: true }, T0);
   assert.deepEqual(sleepOf(db, 'tv1', T0), { afterThis: true }, 'a new timer replaces the old');
   clearSleep(db, 'tv1');
+  assert.equal(sleepOf(db, 'tv1', T0), null);
+});
+
+test('a timer missed by more than 10 minutes (the Mac slept) stops nothing', () => {
+  const { db } = library();
+  assert.equal(SLEEP_GRACE, 10 * 60_000);
+  setSleep(db, 'tv1', { minutes: 30 }, T0);
+  setSleep(db, 'tv2', { minutes: 30 }, T0);
+  assert.deepEqual(dueSleeps(db, T0 + 30 * 60_000 + SLEEP_GRACE).stop, ['tv1', 'tv2'], 'late, within the grace');
+  setSleep(db, 'tv1', { minutes: 30 }, T0);
+  assert.deepEqual(dueSleeps(db, T0 + 30 * 60_000 + SLEEP_GRACE + 1), { stop: [], lapsed: ['tv1'] });
   assert.equal(sleepOf(db, 'tv1', T0), null);
 });

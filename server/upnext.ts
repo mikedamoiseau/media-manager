@@ -8,6 +8,8 @@ import { episodesOf, nextEpisode } from './watching.ts';
 export const STALE = 6 * 3600_000;
 /** An "after this" timer whose stop never came (the TV's events were down) lapses after this long. */
 export const AFTER_THIS_LAPSE = 6 * 3600_000;
+/** A timer the app missed by more than this (the Mac slept) stops nothing: whoever watches now didn't ask for it. */
+export const SLEEP_GRACE = 10 * 60_000;
 
 export interface UpNextRow {
   id: number;
@@ -147,11 +149,11 @@ export function clearSleep(db: DB, tvId: string): void {
   db.prepare('DELETE FROM tv_sleep WHERE tv_id = ?').run(tvId);
 }
 
-/** The TVs to stop now, and the "after this" timers that lapsed; both are removed. */
+/** The TVs to stop now, and the timers that lapsed (missed, or "after this" left behind); both are removed. */
 export function dueSleeps(db: DB, now: number): { stop: string[]; lapsed: string[] } {
-  const ids = (sql: string) => (db.prepare(sql).all(now) as Array<{ tv_id: string }>).map((r) => r.tv_id);
-  const stop = ids('SELECT tv_id FROM tv_sleep WHERE at IS NOT NULL AND at <= ? ORDER BY tv_id');
-  const lapsed = ids('SELECT tv_id FROM tv_sleep WHERE at IS NULL AND until < ? ORDER BY tv_id');
+  const ids = (sql: string) => (db.prepare(sql).all({ now, late: now - SLEEP_GRACE }) as Array<{ tv_id: string }>).map((r) => r.tv_id);
+  const stop = ids('SELECT tv_id FROM tv_sleep WHERE at <= :now AND at >= :late ORDER BY tv_id');
+  const lapsed = ids('SELECT tv_id FROM tv_sleep WHERE at < :late OR (at IS NULL AND until < :now) ORDER BY tv_id');
   for (const tv of [...stop, ...lapsed]) clearSleep(db, tv);
   return { stop, lapsed };
 }

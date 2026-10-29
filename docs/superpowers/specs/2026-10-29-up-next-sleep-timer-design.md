@@ -67,7 +67,8 @@ Two things:
 ### What happens on the TV
 
 - When a film or episode **plays to its end** on a TV whose Up next isn't
-  empty, the first entry starts a moment later and leaves the list.
+  empty, the first entry starts a moment later and leaves the list, unless
+  something else started on the TV meanwhile (then the list waits).
 - **Stopped by hand** (the Stop button, Kodi's remote, another Play): the
   list waits. It goes on after the next play that runs to its end, or when
   someone taps a row.
@@ -107,9 +108,12 @@ The Service already hears each TV's `Player.OnStop` with Kodi's `end` flag
 1. A "stop after this" timer on that TV: clear it, start nothing, and stop a
    play Kodi chains to by itself within `CHAIN_WINDOW` (the same test as
    `bedtimeStop`: `owners.chained(tvId)`).
-2. Else, the TV's list (stale entries cleared) has a first entry: take it off
-   the list and Play it, after a short pause (about 2 s, so Kodi has finished
-   closing the last one), as that entry's profile. The Play is the one the
+2. Else, the TV's list (stale entries cleared) has a first entry: after a
+   short pause (1 s, so Kodi has finished closing the last one), and when
+   Kodi says nothing plays (`Player.GetActivePlayers`), Play it as that
+   entry's profile; it leaves the list once Kodi started it. Kodi not
+   answering: the list stays. A timer due within that pause and the next
+   timer check (16 s): nothing starts, the timer ends the evening. The Play is the one the
    route `/items/:id/play` does today, moved out of the route into one
    function both use.
 
@@ -123,7 +127,9 @@ A table `tv_sleep` (migration 14): `tv_id`, `at` (when to stop; null for
 "after this"), `until` (for "after this": when the timer lapses, so one left
 behind by a missed stop event doesn't stop something days later; 6 hours).
 The Service checks every 15 s: a timer whose `at` has passed stops that TV
-(`remote(tv, 'stop')`) and is removed; one past its `until` is removed.
+(`remote(tv, 'stop')`) and is removed; one past its `until` is removed. A
+timer missed by more than 10 minutes (the Mac slept, the app was down) is
+removed without stopping anything: whoever watches by then didn't ask for it.
 Checking the clock instead of one long `setTimeout` keeps it right after the
 Mac sleeps or the app restarts.
 
@@ -183,8 +189,8 @@ takes its entries.
 - Living-room Kodi (Pi, 21.3): `videoplayer.autoplaynextitem` is `[]`
   (options: Music videos 0, TV shows 1, Episodes 2, Movies 3,
   Uncategorized 4). Its video playlist (id 1) is empty. The bedroom Mi Box
-  did not answer (off), so its setting is unknown; the design works either
-  way.
+  (Kodi 21.2) has it empty too (read later the same day). The design works
+  either way.
 - Kodi's event stream (TCP 9090) reports `Player.OnStop` with
   `data.end: true` for a play that ran to its end; the app parses it into
   `PlayerEvent.ended` today.
@@ -207,6 +213,10 @@ takes its entries.
 7. The timer stops playback; the list stays.
 8. "Stop after this" also stops Kodi going on by itself to the next episode,
    as bedtime does.
+11. Something started on the TV during the pause before the next entry wins;
+    the list waits.
+12. A timer missed by more than 10 minutes stops nothing.
+13. A play ending within 16 s of a timer: nothing starts after it.
 9. Up next and the timer are hidden in kids mode and refused to kids.
 10. Up next sits on the Remote tab, with the next entry on the now-playing
     card; nothing on the TV bar.
