@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { gapLabel, nextLabel, soonWhy } from '../web/src/series.ts';
+import { gapLabel, nextSeasonLabel, nextEpisodeLabel, latestLabel, soonWhy } from '../web/src/series.ts';
 import type { Film } from '../web/src/types.ts';
 
 const TODAY = new Date('2026-10-29T12:00:00');
@@ -15,10 +15,15 @@ test('a season missing every aired episode, or some of them as ranges', () => {
 });
 
 test('what comes next on a series page', () => {
-  assert.equal(nextLabel({ kind: 'season', season: 4, date: '2027-07-08' }, TODAY), 'Season 4 starts 8 Jul 2027');
-  assert.equal(nextLabel({ kind: 'season', season: 3, date: null }, TODAY), 'Season 3 announced');
-  assert.equal(nextLabel({ kind: 'episode', s: 3, e: 5, date: '2026-11-02' }, TODAY), 'Next episode S03E05 on 2 Nov');
-  assert.equal(nextLabel({ kind: 'episode', s: 3, e: 5, date: null }, TODAY), 'Next episode S03E05');
+  assert.equal(nextSeasonLabel({ season: 4, date: '2027-07-08' }, TODAY), 'Season 4 starts 8 Jul 2027');
+  assert.equal(nextSeasonLabel({ season: 3, date: null }, TODAY), 'Season 3 announced');
+  assert.equal(nextEpisodeLabel({ season: 3, episode: 5, date: '2026-11-02' }, TODAY), 'Next episode S03E05 on 2 Nov');
+  assert.equal(nextEpisodeLabel({ season: 3, episode: 5, date: null }, TODAY), 'Next episode S03E05');
+});
+
+test('when the latest missing episode aired, or its season started when that is all TMDB says', () => {
+  assert.equal(latestLabel({ date: '2026-08-09', season: 3, exact: true }, TODAY), 'Latest aired 9 Aug');
+  assert.equal(latestLabel({ date: '2025-01-16', season: 2, exact: false }, TODAY), 'Season 2 started 16 Jan 2025');
 });
 
 test('why a tile is in Coming soon', () => {

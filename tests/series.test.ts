@@ -137,7 +137,7 @@ test('missing: aired episodes not on the NAS, specials and future seasons aside'
   show(1, 'SERIES/One', [...eps(1, 1, 10), [1, 2], [0, 1], [2, 1]]);
   const st = seriesStatus(db, 1, DATA, '2026-10-29');
   assert.deepEqual(st.missing, [{ season: 2, aired: 6, missing: [2, 3, 4, 5, 6] }]);
-  assert.equal(st.latest, '2025-04-05');
+  assert.deepEqual(st.latest, { date: '2025-04-05', season: 2, exact: true });
   assert.equal(st.unnumbered, 0);
 });
 
@@ -173,16 +173,22 @@ test("latest: the season's date when the last aired episode is on the NAS", () =
   show(1, 'SERIES/One', [...eps(1, 1, 2), ...eps(1, 4, 10), ...eps(2, 1, 6)]);
   const st = seriesStatus(db, 1, DATA, '2026-10-29');
   assert.deepEqual(st.missing, [{ season: 1, aired: 10, missing: [3] }]);
-  assert.equal(st.latest, '2024-01-10');
+  // TMDB gives no date per episode: the season's start, said as such.
+  assert.deepEqual(st.latest, { date: '2024-01-10', season: 1, exact: false });
 });
 
-test("next: a new season's first episode, a next episode, or an announced season", () => {
+test("next: the next episode, and the next season (dated, or announced)", () => {
   const { db } = library();
-  const next = (d: Partial<ShowData>) => seriesStatus(db, 1, { ...DATA, ...d }, '2026-10-29').next;
-  assert.deepEqual(next({ next: { s: 4, e: 1, date: '2027-07-08' } }), { kind: 'season', season: 4, date: '2027-07-08' });
-  assert.deepEqual(next({ next: { s: 2, e: 7, date: '2026-11-02' } }), { kind: 'episode', s: 2, e: 7, date: '2026-11-02' });
-  assert.deepEqual(next({}), { kind: 'season', season: 3, date: null });
-  assert.equal(next({ seasons: DATA.seasons.slice(0, 3) }), null);
+  const next = (d: Partial<ShowData>) => {
+    const st = seriesStatus(db, 1, { ...DATA, ...d }, '2026-10-29');
+    return [st.nextEpisode, st.nextSeason];
+  };
+  assert.deepEqual(next({ next: { s: 4, e: 1, date: '2027-07-08' } }), [null, { season: 4, date: '2027-07-08' }]);
+  assert.deepEqual(next({ next: { s: 2, e: 7, date: '2026-11-02' } }), [{ season: 2, episode: 7, date: '2026-11-02' }, { season: 3, date: null }]);
+  const dated = [...DATA.seasons.slice(0, 3), { n: 3, count: 8, date: '2027-07-08' }];
+  assert.deepEqual(next({ seasons: dated, next: { s: 2, e: 7, date: '2026-11-02' } }), [{ season: 2, episode: 7, date: '2026-11-02' }, { season: 3, date: '2027-07-08' }]);
+  assert.deepEqual(next({}), [null, { season: 3, date: null }]);
+  assert.deepEqual(next({ seasons: DATA.seasons.slice(0, 3) }), [null, null]);
   assert.equal(seriesStatus(db, 1, { ...DATA, status: 'Canceled' }, '2026-10-29').ended, 'cancelled');
   assert.equal(seriesStatus(db, 1, { ...DATA, status: 'Ended' }, '2026-10-29').ended, 'ended');
   assert.equal(seriesStatus(db, 1, DATA, '2026-10-29').ended, null);
@@ -208,7 +214,7 @@ test('episodes to get: followed shows with something missing, latest first', asy
   keep(4, DATA);
   show(5, 'SERIES/Five', []);
   const list = episodesToGet(db, NOW);
-  assert.deepEqual(list.map((s) => [s.tmdbId, s.itemId, s.status.latest]), [[2, two, '2026-01-01'], [1, big, '2025-04-05']]);
+  assert.deepEqual(list.map((s) => [s.tmdbId, s.itemId, s.status.latest?.date]), [[2, two, '2026-01-01'], [1, big, '2025-04-05']]);
 });
 
 test('repeated episode markers name each episode, a hyphen names a range', () => {
@@ -222,8 +228,8 @@ test('a special aired after the season does not hide the missing episodes', () =
   const data: ShowData = { ...DATA, seasons: DATA.seasons.slice(0, 3), last: { s: 0, e: 5, date: '2025-12-24' } };
   const st = seriesStatus(db, 1, data, '2026-10-29');
   assert.deepEqual(st.missing, [{ season: 2, aired: 8, missing: [6, 7, 8] }]);
-  assert.equal(st.latest, '2025-03-01');
-  assert.equal(st.next, null);
+  assert.deepEqual(st.latest, { date: '2025-03-01', season: 2, exact: false });
+  assert.deepEqual([st.nextEpisode, st.nextSeason], [null, null]);
 });
 
 test('after a special, a season still airing counts only up to the next episode', () => {

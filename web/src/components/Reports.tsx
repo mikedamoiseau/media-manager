@@ -4,7 +4,7 @@ import { api } from '../api.ts';
 import { useStore, library, prefs } from '../store.ts';
 import { displayTitle, formatDay, formatSize, groupCards, setName } from '../search.ts';
 import type { DuplicateFilm, Film, IncompleteSet, ShowToGet } from '../types.ts';
-import { gapLabel } from '../series.ts';
+import { gapLabel, latestLabel } from '../series.ts';
 import { IconBack } from './icons.tsx';
 import { useOpenTitle, useOpenSet, useOpenFilm } from '../nav.ts';
 
@@ -208,7 +208,7 @@ export function EpisodesReport() {
                   {gapLabel(g)}
                 </p>
               ))}
-              {s.status.latest && <p className="report-missing">Latest aired {formatDay(s.status.latest)}</p>}
+              {s.status.latest && <p className="report-missing">{latestLabel(s.status.latest)}</p>}
             </li>
           );
         })}

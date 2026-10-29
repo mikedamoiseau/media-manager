@@ -371,14 +371,14 @@ export interface SeasonGap {
   missing: number[];
 }
 
-/** What comes next for a show: a season (null date: announced), or the next episode. */
-export type NextUp = { kind: 'season'; season: number; date: string | null } | { kind: 'episode'; s: number; e: number; date: string | null };
-
 export interface SeriesStatus {
   missing: SeasonGap[];
-  /** when the latest missing episode aired */
-  latest: string | null;
-  next: NextUp | null;
+  /** when the latest missing episode aired: exact, or only when its season started */
+  latest: { date: string; season: number; exact: boolean } | null;
+  /** the next episode of a season under way */
+  nextEpisode: { season: number; episode: number; date: string | null } | null;
+  /** the next season: dated, or announced (null date) */
+  nextSeason: { season: number; date: string | null } | null;
   /** the show won't come back */
   ended: 'ended' | 'cancelled' | null;
   /** files of the show with no episode number: not counted */

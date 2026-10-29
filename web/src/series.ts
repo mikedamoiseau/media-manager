@@ -1,6 +1,6 @@
 // Series tracker and Coming soon: how missing episodes, what's next and each tile read.
 import { formatDay, setName } from './search.ts';
-import type { NextUp, SeasonGap, SoonEntry } from './types.ts';
+import type { SeasonGap, SeriesStatus, SoonEntry } from './types.ts';
 
 const ep = (n: number) => `E${String(n).padStart(2, '0')}`;
 
@@ -22,11 +22,20 @@ export function gapLabel(g: SeasonGap): string {
   return `Season ${g.season}: ${ranges(g.missing)}`;
 }
 
-/** "Season 4 starts 8 Jul 2027", "Season 3 announced", "Next episode S03E05 on 2 Nov". */
-export function nextLabel(n: NextUp, today = new Date()): string {
-  if (n.kind === 'season') return n.date ? `Season ${n.season} starts ${formatDay(n.date, today)}` : `Season ${n.season} announced`;
-  const which = `S${String(n.s).padStart(2, '0')}${ep(n.e)}`;
+/** "Season 4 starts 8 Jul 2027", "Season 3 announced". */
+export function nextSeasonLabel(n: NonNullable<SeriesStatus['nextSeason']>, today = new Date()): string {
+  return n.date ? `Season ${n.season} starts ${formatDay(n.date, today)}` : `Season ${n.season} announced`;
+}
+
+/** "Next episode S03E05 on 2 Nov". */
+export function nextEpisodeLabel(n: NonNullable<SeriesStatus['nextEpisode']>, today = new Date()): string {
+  const which = `S${String(n.season).padStart(2, '0')}${ep(n.episode)}`;
   return n.date ? `Next episode ${which} on ${formatDay(n.date, today)}` : `Next episode ${which}`;
+}
+
+/** "Latest aired 9 Aug", or "Season 2 started 16 Jan 2025" when TMDB gives no closer date. */
+export function latestLabel(l: NonNullable<SeriesStatus['latest']>, today = new Date()): string {
+  return l.exact ? `Latest aired ${formatDay(l.date, today)}` : `Season ${l.season} started ${formatDay(l.date, today)}`;
 }
 
 /** A Coming soon tile's line: the set first, then the cinema, then the reminder. */

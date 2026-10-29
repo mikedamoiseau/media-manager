@@ -4,7 +4,7 @@ import { useStore, prefs, status, toast, pollNowPlaying, library, profileChoice,
 import { isBedtime } from '../kids.ts';
 import { displayTitle, plotLang, categoryLabel, formatRuntime, formatSize, groupCards, setLineup, setName, splitSet } from '../search.ts';
 import type { Detail, Episode, SeriesInfo, SetPart, TitleLang } from '../types.ts';
-import { gapLabel, nextLabel } from '../series.ts';
+import { gapLabel, nextEpisodeLabel, nextSeasonLabel } from '../series.ts';
 import { Poster } from './Poster.tsx';
 import { MatchDialog } from './MatchDialog.tsx';
 import { PosterPicker } from './PosterPicker.tsx';
@@ -588,7 +588,8 @@ function SeriesTracker({ tmdbId }: { tmdbId: number }) {
       {info.follow && st && (
         <ul>
           {st.missing.length ? st.missing.map((g) => <li key={g.season}>{gapLabel(g)}</li>) : <li>Up to date: every episode aired is on the NAS</li>}
-          {st.next && <li className="muted">{nextLabel(st.next)}</li>}
+          {st.nextEpisode && <li className="muted">{nextEpisodeLabel(st.nextEpisode)}</li>}
+          {st.nextSeason && <li className="muted">{nextSeasonLabel(st.nextSeason)}</li>}
           {st.ended && <li className="muted">{st.ended === 'cancelled' ? 'Cancelled' : 'Ended'}</li>}
           {st.unnumbered > 0 && (
             <li className="muted">

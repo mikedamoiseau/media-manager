@@ -30,8 +30,8 @@ export async function comingSoon(db: DB, tmdb: Tmdb | null, country: string, now
   const seasons: SoonEntry[] = [];
   for (const [id, on] of followed(db)) {
     const data = on ? keptShow(db, id) : null;
-    const next = data && seriesStatus(db, id, data, today).next;
-    if (next?.kind === 'season' && notOut(next.date)) seasons.push({ kind: 'season', tmdbId: id, itemId: seriesItem(db, id)!, season: next.season, date: next.date });
+    const next = data && seriesStatus(db, id, data, today).nextSeason;
+    if (next && notOut(next.date)) seasons.push({ kind: 'season', tmdbId: id, itemId: seriesItem(db, id)!, season: next.season, date: next.date });
   }
 
   const nas = onNas(db);

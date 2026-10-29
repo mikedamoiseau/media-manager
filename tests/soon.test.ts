@@ -56,11 +56,14 @@ test("a followed show's next season is coming soon, an unfollowed one's is not",
   show(2, { ...SHOW, next: { s: 2, e: 1, date: '2027-01-01' } }, 'kids');
   show(3, { ...SHOW, next: { s: 1, e: 9, date: '2026-11-02' } });
   show(4, { ...SHOW, seasons: [...SHOW.seasons, { n: 2, count: 0, date: null }] });
+  // Still airing, with the next season dated already.
+  show(5, { ...SHOW, seasons: [...SHOW.seasons, { n: 2, count: 8, date: '2027-03-01' }], next: { s: 1, e: 9, date: '2026-11-02' } });
   const out = await comingSoon(db, null, 'FR', NOW, new Map());
-  assert.deepEqual(out.map(brief), ['season 1 S2 2027-07-08', 'season 4 S2 null']);
-  assert.equal(out[0]!.kind === 'season' && out[0]!.itemId, item);
+  assert.deepEqual(out.map(brief), ['season 5 S2 2027-03-01', 'season 1 S2 2027-07-08', 'season 4 S2 null']);
+  const one = out.find((e) => e.kind === 'season' && e.tmdbId === 1);
+  assert.equal(one?.kind === 'season' ? one.itemId : null, item);
   setFollow(db, 1, false, NOW);
-  assert.deepEqual((await comingSoon(db, null, 'FR', NOW, new Map())).map(brief), ['season 4 S2 null']);
+  assert.deepEqual((await comingSoon(db, null, 'FR', NOW, new Map())).map(brief), ['season 5 S2 2027-03-01', 'season 4 S2 null']);
 });
 
 test('sequels: films of a set on the NAS that are not out, not owned and not turned down', async () => {

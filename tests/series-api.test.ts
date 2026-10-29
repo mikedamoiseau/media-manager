@@ -61,11 +61,11 @@ test("a series page: whether it's followed and what's missing", async () => {
   const { app } = setup();
   const r = await app.request('/api/series/1');
   assert.equal(r.status, 200);
-  const body = (await r.json()) as { follow: boolean; tmdb: boolean; status: { missing: unknown; next: unknown } };
+  const body = (await r.json()) as { follow: boolean; tmdb: boolean; status: { missing: unknown; nextSeason: unknown } };
   assert.equal(body.follow, true);
   assert.equal(body.tmdb, true);
   assert.deepEqual(body.status.missing, [{ season: 1, aired: 4, missing: [3, 4] }]);
-  assert.deepEqual(body.status.next, { kind: 'season', season: 2, date: '2099-01-01' });
+  assert.deepEqual(body.status.nextSeason, { season: 2, date: '2099-01-01' });
   assert.equal((await app.request('/api/series/2')).status, 404);
 });
 

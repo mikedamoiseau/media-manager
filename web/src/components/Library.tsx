@@ -139,22 +139,22 @@ export function Library({ active }: { active: boolean }) {
     );
   const [soon, setSoon] = useState<SoonEntry[]>([]);
   const soonTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
-  const soonOn = useRef(showSoon);
-  soonOn.current = showSoon;
-  // The first time, TMDB's seasons and set lists come in the background: asked again a few times meanwhile,
-  // unless the row was turned off.
-  const loadSoon = (tries = 3): Promise<void> =>
+  const soonOn = useRef(false);
+  soonOn.current = showSoon && active;
+  // The first time, TMDB's seasons and set lists come in the background (a couple of minutes): asked again until
+  // they are in, while the row is on and the library shown.
+  const loadSoon = (): Promise<void> =>
     api.get<{ entries: SoonEntry[]; running: boolean }>('/api/soon').then(
       (r) => {
         setSoon(r.entries);
         clearTimeout(soonTimer.current);
-        if (r.running && tries > 0 && soonOn.current) soonTimer.current = setTimeout(() => void loadSoon(tries - 1), 5000);
+        if (r.running && soonOn.current) soonTimer.current = setTimeout(() => void loadSoon(), 5000);
       },
       () => setSoon([]),
     );
   useEffect(() => {
-    if (!showSoon) clearTimeout(soonTimer.current);
-  }, [showSoon]);
+    if (!showSoon || !active) clearTimeout(soonTimer.current);
+  }, [showSoon, active]);
   useEffect(() => () => clearTimeout(soonTimer.current), []);
   useEffect(() => {
     // Refetched on coming back to the library (after opening a title, playing, a trailer) and when
@@ -218,10 +218,11 @@ export function Library({ active }: { active: boolean }) {
       }),
     [elsewhere, groupOf, titleLang],
   );
-  // What is coming to cinemas is in Coming soon, when that row is on.
+  // What is coming to cinemas is in Coming soon, where that row shows.
+  const soonInView = showSoon && deferred.cat === 'all';
   const cinemaFilms = useMemo(
-    () => cinema.filter((f) => !(f.soon && showSoon)).map((f) => ({ f, why: f.soon && f.date ? `Out ${formatDay(f.date)}` : 'In cinemas' })),
-    [cinema, showSoon],
+    () => cinema.filter((f) => !(f.soon && soonInView)).map((f) => ({ f, why: f.soon && f.date ? `Out ${formatDay(f.date)}` : 'In cinemas' })),
+    [cinema, soonInView],
   );
   // A season's tile is its series' card in the library.
   const soonTiles = useMemo(
@@ -328,7 +329,7 @@ export function Library({ active }: { active: boolean }) {
       {showCinema && !filters.q && activeFilterCount === 0 && filmsInView && cinemaFilms.length > 0 && (
         <FilmShelf row="cinema" lang={titleLang} films={cinemaFilms} />
       )}
-      {showSoon && !filters.q && activeFilterCount === 0 && deferred.cat === 'all' && soonTiles.length > 0 && <SoonShelf tiles={soonTiles.slice(0, 20)} lang={titleLang} />}
+      {soonInView && !filters.q && activeFilterCount === 0 && soonTiles.length > 0 && <SoonShelf tiles={soonTiles.slice(0, 20)} lang={titleLang} />}
 
       {error && !items.length ? (
           <div className="empty">

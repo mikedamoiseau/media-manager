@@ -89,14 +89,17 @@ export interface SeasonGap {
   missing: number[];
 }
 
-/** What comes next: a season (its first episode, or announced with no date yet), or the next episode. */
-export type NextUp = { kind: 'season'; season: number; date: string | null } | { kind: 'episode'; s: number; e: number; date: string | null };
-
 export interface SeriesStatus {
   missing: SeasonGap[];
-  /** when the latest missing episode aired (its season's start when TMDB gives no closer date) */
-  latest: string | null;
-  next: NextUp | null;
+  /**
+   * When the latest missing episode aired: exact when it is TMDB's last episode, else the start of its season
+   * (TMDB gives no date per episode without a call per season).
+   */
+  latest: { date: string; season: number; exact: boolean } | null;
+  /** the next episode of a season under way */
+  nextEpisode: { season: number; episode: number; date: string | null } | null;
+  /** the next season: dated, or announced (no date yet) */
+  nextSeason: { season: number; date: string | null } | null;
   /** the show won't come back */
   ended: 'ended' | 'cancelled' | null;
   /** files of the show with no episode number: not counted */
@@ -104,7 +107,7 @@ export interface SeriesStatus {
 }
 
 /** The episodes of a show on the NAS, from every present copy (a show can be split over folders), and the files with no number. */
-function onNas(db: DB, id: number): { have: Set<string>; unnumbered: number } {
+function episodesOnNas(db: DB, id: number): { have: Set<string>; unnumbered: number } {
   const have = new Set<string>();
   let unnumbered = 0;
   const count = (path: string, season: number | null, episode: number | null) => {
@@ -138,7 +141,7 @@ function lastAired(data: ShowData, today: string): ShowEpisode | null {
 
 /** A show compared with TMDB: the aired episodes not on the NAS per season, what's next, whether it ended. */
 export function seriesStatus(db: DB, id: number, data: ShowData, today: string): SeriesStatus {
-  const { have, unnumbered } = onNas(db, id);
+  const { have, unnumbered } = episodesOnNas(db, id);
   const last = lastAired(data, today);
   const missing: SeasonGap[] = [];
   for (const s of data.seasons) {
@@ -148,15 +151,28 @@ export function seriesStatus(db: DB, id: number, data: ShowData, today: string):
     const gone = Array.from({ length: aired }, (_, i) => i + 1).filter((e) => !have.has(`${s.n}x${e}`));
     if (gone.length) missing.push({ season: s.n, aired, missing: gone });
   }
-  const lastGap = missing.at(-1);
-  const latest = !lastGap ? null : last && lastGap.season === last.s && lastGap.missing.includes(last.e) && last.date ? last.date : (data.seasons.find((s) => s.n === lastGap.season)?.date ?? null);
-  let next: NextUp | null = null;
-  if (data.next) next = data.next.e === 1 ? { kind: 'season', season: data.next.s, date: data.next.date } : { kind: 'episode', ...data.next };
-  else {
-    const later = data.seasons.find((s) => s.n > 0 && s.n > (last?.s ?? 0));
-    if (later) next = { kind: 'season', season: later.n, date: later.date && later.date > today ? later.date : null };
+  const gap = missing.at(-1);
+  let latest: SeriesStatus['latest'] = null;
+  if (gap && last?.date && gap.season === last.s && gap.missing.includes(last.e)) latest = { date: last.date, season: gap.season, exact: true };
+  else if (gap) {
+    const start = data.seasons.find((s) => s.n === gap.season)?.date;
+    if (start) latest = { date: start, season: gap.season, exact: false };
   }
-  return { missing, latest, next, ended: data.status === 'Canceled' ? 'cancelled' : data.status === 'Ended' ? 'ended' : null, unnumbered };
+  return { missing, latest, ...upcoming(data, last, today), ended: data.status === 'Canceled' ? 'cancelled' : data.status === 'Ended' ? 'ended' : null, unnumbered };
+}
+
+/** The next episode of a season under way, and the season after it (or after the last aired one): dated, or announced. */
+function upcoming(data: ShowData, last: ShowEpisode | null, today: string): Pick<SeriesStatus, 'nextEpisode' | 'nextSeason'> {
+  const next = data.next && data.next.s > 0 ? data.next : null;
+  // A season's first episode: the season itself is what comes.
+  if (next && next.e === 1) return { nextEpisode: null, nextSeason: { season: next.s, date: next.date } };
+  const after = next?.s ?? last?.s ?? 0;
+  const later = data.seasons.find((s) => s.n > after);
+  return {
+    nextEpisode: next && { season: next.s, episode: next.e, date: next.date },
+    // A later season dated by today but not aired yet for TMDB: its date is behind, call it announced.
+    nextSeason: later ? { season: later.n, date: later.date && later.date > today ? later.date : null } : null,
+  };
 }
 
 /** TMDB's seasons of a show as kept, never fetched. */
@@ -181,5 +197,5 @@ export function episodesToGet(db: DB, now = Date.now()): Array<{ tmdbId: number;
     const status = seriesStatus(db, id, data, today);
     if (status.missing.length) out.push({ tmdbId: id, itemId: seriesItem(db, id)!, status });
   }
-  return out.sort((a, b) => (b.status.latest ?? '').localeCompare(a.status.latest ?? '') || a.itemId - b.itemId);
+  return out.sort((a, b) => (b.status.latest?.date ?? '').localeCompare(a.status.latest?.date ?? '') || a.itemId - b.itemId);
 }
