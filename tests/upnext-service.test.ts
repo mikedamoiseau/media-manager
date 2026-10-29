@@ -1,7 +1,5 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createServer } from 'node:http';
-import type { AddressInfo } from 'node:net';
 import { mkdtempSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -10,27 +8,7 @@ import { Service, NEXT_PAUSE } from '../server/service.ts';
 import { PlayError, playItem } from '../server/playItem.ts';
 import { MAIN_PROFILE, PROFILE_COLORS, addProfile } from '../server/profiles.ts';
 import { STALE, addToUpNext, upNext, setSleep, sleepOf } from '../server/upnext.ts';
-
-/** A stand-in Kodi: answers what Play and Stop ask, and keeps every call. */
-async function standInKodi() {
-  const calls: Array<{ method: string; params: Record<string, unknown> }> = [];
-  const players: Array<{ playerid: number; type: string }> = [];
-  const server = createServer((req, res) => {
-    let body = '';
-    req.on('data', (d) => (body += d));
-    req.on('end', () => {
-      const m = JSON.parse(body) as { id: number; method: string; params: Record<string, unknown> };
-      calls.push({ method: m.method, params: m.params });
-      const result = m.method === 'Player.GetActivePlayers' ? players : 'OK';
-      res.setHeader('content-type', 'application/json');
-      res.end(JSON.stringify({ id: m.id, jsonrpc: '2.0', result }));
-    });
-  });
-  await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
-  const port = (server.address() as AddressInfo).port;
-  const opened = () => calls.filter((c) => c.method === 'Player.Open').map((c) => c.params.item);
-  return { calls, players, server, port, opened };
-}
+import { standInKodi } from './standInKodi.ts';
 
 /** A library with two films in Kodi, on one TV played by the stand-in. */
 async function setup() {

@@ -262,7 +262,7 @@ export class Service extends EventEmitter {
   /**
    * Plays that entry of the TV's Up next, else the first, as the profile that added it; it leaves the list
    * once Kodi started it. One that can't play (gone from the NAS, a kid's bedtime) is dropped, and the next
-   * tried, unless one was asked for. Kodi not answering: the list stays as it was. True when one played.
+   * tried; the one asked for says why. Kodi not answering: the list stays as it was. True when one played.
    */
   async playNext(tvId: string, id?: number): Promise<boolean> {
     try {
@@ -273,14 +273,20 @@ export class Service extends EventEmitter {
           return true;
         } catch (err) {
           if (!(err instanceof PlayError)) throw err;
-          console.warn(`Up next on ${tvId}: ${err.message}, dropped`);
           removeFromUpNext(this.db, tvId, e.id);
+          if (id !== undefined) throw err;
+          console.warn(`Up next on ${tvId}: ${err.message}, dropped`);
         }
       }
       return false;
     } finally {
       this.tvsChanged();
     }
+  }
+
+  /** The film or episode of Kodi's library playing on the TV, as its events said. */
+  playingOn(tvId: string): { type: string; id: number } | undefined {
+    return this.playingNow.get(tvId);
   }
 
   /** Up next or a sleep timer changed: every device hears it. */

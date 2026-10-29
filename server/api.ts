@@ -29,6 +29,7 @@ import type { MediaType } from './scanner.ts';
 import { ProfileError, listProfiles, addProfile, editProfile, removeProfile, profileOf, type ProfileInput } from './profiles.ts';
 import { KidsError, setParentsCode, checkParentsCode, kidsProfile, kidsProfiles, allowedItems, itemKey, itemOverride, setItemOverride, kidsRoute, KIDS_REMOTE, type Override } from './kids.ts';
 import { PlayError, playItem } from './playItem.ts';
+import { upNextRoutes } from './upnextApi.ts';
 import { liveTvRoutes } from './liveApi.ts';
 
 function sendFile(file: string, maxAge = 31536000): Response {
@@ -259,6 +260,10 @@ export function createApi(svc: Service): Hono {
   // ---------- live TV ----------
 
   liveTvRoutes(api, svc, kodi);
+
+  // ---------- Up next and the sleep timer ----------
+
+  upNextRoutes(api, svc, kodi, who);
 
   /**
    * The original video file with byte ranges, so a player on the phone (VLC) can seek. kind "item": a film,
