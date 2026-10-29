@@ -12,7 +12,9 @@ import { duplicateFilms, incompleteSets } from './reports.ts';
 import { pool } from './scanner.ts';
 import { parseRange, videoType, vlcPlaylist, kodiMedia, parseHandoff } from './media.ts';
 import { suggestions, recordActivity, rate } from './suggestions.ts';
-import { elsewhere, cinema, inCinemas, filmDetails, asFilm, getPick, setPick, wantedFilms } from './films.ts';
+import { elsewhere, cinema, inCinemas, filmDetails, asFilm, getPick, setPick, wantedFilms, localDay } from './films.ts';
+import { followed, setFollow, showData, staleShows, keptShow, seriesStatus, episodesToGet } from './series.ts';
+import { comingSoon } from './soon.ts';
 import { continueWatching, dismissWatching, noteStreamed, noteEpisodeStreamed, nextEpisode, startPoint } from './watching.ts';
 import { sheetIdFrom } from './sheet.ts';
 import { cachedImage, isAllowedImage, storeUpload, videoThumb } from './images.ts';
@@ -517,18 +519,71 @@ export function createApi(svc: Service): Hono {
 
   api.get('/reports/wanted', async (c) => c.json({ films: (await wantedFilms(db, svc.tmdb() ?? null)).map((f) => ({ ...f, poster: img(f.poster, 342) })) }));
 
+  // Film lists of sets and seasons of followed shows not fetched yet, or old, come in the background (about two
+  // minutes the first time); the pages ask again until done.
   let setFill: Promise<void> | null = null;
-  api.get('/reports/sets', (c) => {
-    const keys = ownedSetKeys(db);
+  const fillSets = (keys: string[]) => {
     const stale = staleSetKeys(db, keys);
     const tmdb = svc.tmdb();
-    // Film lists not fetched yet come in the background (about two minutes the first time); the page asks again until done.
     if (stale.length && tmdb && !setFill) {
       setFill = pool(stale, 4, async (k) => void (await setParts(db, tmdb, k).catch(() => []))).finally(() => {
         setFill = null;
       });
     }
-    return c.json({ sets: incompleteSets(db), total: keys.length, checked: keys.length - stale.length, running: !!setFill, tmdb: !!tmdb });
+    return stale;
+  };
+  let showFill: Promise<void> | null = null;
+  const followedIds = () => [...followed(db)].filter(([, on]) => on).map(([id]) => id);
+  const fillShows = () => {
+    const stale = staleShows(db, followedIds());
+    const tmdb = svc.tmdb();
+    if (stale.length && tmdb && !showFill) {
+      showFill = pool(stale, 4, async (id) => void (await showData(db, tmdb, id).catch(() => null))).finally(() => {
+        showFill = null;
+      });
+    }
+  };
+
+  api.get('/reports/sets', (c) => {
+    const keys = ownedSetKeys(db);
+    const stale = fillSets(keys);
+    return c.json({ sets: incompleteSets(db), total: keys.length, checked: keys.length - stale.length, running: !!setFill, tmdb: !!svc.tmdb() });
+  });
+
+  api.get('/reports/episodes', (c) => {
+    fillShows();
+    const ids = followedIds();
+    return c.json({ shows: episodesToGet(db), total: ids.length, checked: ids.filter((id) => keptShow(db, id)).length, running: !!showFill, tmdb: !!svc.tmdb() });
+  });
+
+  // ---------- series tracker and coming soon ----------
+
+  /** A show of the library (TMDB id): followed or not, and what's missing and next (null: TMDB couldn't say). */
+  api.get('/series/:id', async (c) => {
+    const id = Number(c.req.param('id'));
+    const follow = followed(db).get(id);
+    if (follow === undefined) return c.json({ error: 'Not found' }, 404);
+    const tmdb = svc.tmdb();
+    const data = await showData(db, tmdb ?? null, id).catch(() => null);
+    return c.json({ follow, status: data && seriesStatus(db, id, data, localDay(Date.now())), tmdb: !!tmdb });
+  });
+
+  api.put('/series/:id/follow', async (c) => {
+    const id = Number(c.req.param('id'));
+    const { follow } = (await c.req.json().catch(() => ({}))) as { follow?: unknown };
+    if (typeof follow !== 'boolean') return c.json({ error: 'Follow is true or false' }, 400);
+    if (!followed(db).has(id)) return c.json({ error: 'Not found' }, 404);
+    setFollow(db, id, follow);
+    return c.json({ follow });
+  });
+
+  api.get('/soon', async (c) => {
+    fillShows();
+    fillSets(ownedSetKeys(db));
+    // Taken now: a fill that ends while the entries are worked out may not be in them, so the row asks again.
+    const running = !!showFill || !!setFill;
+    const entries = await comingSoon(db, svc.tmdb() ?? null, svc.settings().cinemaCountry);
+    return c.json({ entries: entries.map((e) => (e.kind === 'film' ? { ...e, film: { ...e.film, poster: img(e.film.poster, 342) } } : e)), running });
   });
 
   /** The library item a file Kodi plays belongs to (an episode: its series). */
