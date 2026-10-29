@@ -181,3 +181,35 @@ test("details: the age ratings of Germany, France and the US", async () => {
   assert.ok(asked[0]!.split(',').includes('release_dates'), asked[0]);
   assert.ok(asked[1]!.split(',').includes('content_ratings'), asked[1]);
 });
+
+test("showSeasons: a show's seasons, last and next episode, and status", async () => {
+  const calls: string[] = [];
+  const fn = (async (input: string | URL) => {
+    const url = new URL(String(input));
+    calls.push(url.pathname + '?' + url.searchParams.get('language'));
+    return Response.json({
+      status: 'Returning Series',
+      seasons: [
+        { season_number: 0, episode_count: 3, air_date: '2020-01-01' },
+        { season_number: 1, episode_count: 10, air_date: '2021-02-03' },
+        { season_number: 2, episode_count: 0, air_date: '' },
+        { season_number: 3, episode_count: 8 },
+      ],
+      last_episode_to_air: { season_number: 1, episode_number: 10, air_date: '2021-04-07' },
+      next_episode_to_air: null,
+    });
+  }) as typeof fetch;
+  const show = await new Tmdb('k', fn, 0).showSeasons(5);
+  assert.deepEqual(show, {
+    status: 'Returning Series',
+    seasons: [
+      { n: 0, count: 3, date: '2020-01-01' },
+      { n: 1, count: 10, date: '2021-02-03' },
+      { n: 2, count: 0, date: null },
+      { n: 3, count: 8, date: null },
+    ],
+    last: { s: 1, e: 10, date: '2021-04-07' },
+    next: null,
+  });
+  assert.deepEqual(calls, ['/3/tv/5?en-US']);
+});

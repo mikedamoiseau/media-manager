@@ -320,6 +320,20 @@ export const MIGRATIONS: string[] = [
   `,
   // 12: the owner's own stream address for a channel of theirs (written without request headers); NULL: iptv-org's.
   `ALTER TABLE live_channels ADD COLUMN url TEXT;`,
+  `
+  -- Series tracker: TMDB's seasons, last and next episode of each show (JSON ShowData), kept a day.
+  CREATE TABLE shows (
+    tmdb_id INTEGER PRIMARY KEY,        -- tv
+    data TEXT NOT NULL,
+    fetched_at INTEGER NOT NULL
+  );
+  -- The owner's choice to follow a show or not, only where it differs from the default (a copy in a SERIES folder).
+  CREATE TABLE follows (
+    tmdb_id INTEGER PRIMARY KEY,        -- tv
+    follow INTEGER NOT NULL,
+    at INTEGER NOT NULL
+  );
+  `,
 ];
 
 export function openDb(file: string): DB {

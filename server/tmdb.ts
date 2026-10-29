@@ -67,6 +67,22 @@ export interface CollectionPart {
   poster: string | null;
 }
 
+/** An episode of a show: season, episode, air date (YYYY-MM-DD, null when not set). */
+export interface ShowEpisode {
+  s: number;
+  e: number;
+  date: string | null;
+}
+
+/** A show's seasons (0 is specials; a future one may have no date or no episodes yet), last and next episode. */
+export interface ShowData {
+  /** Returning Series, Ended, Canceled, In Production… */
+  status: string;
+  seasons: Array<{ n: number; count: number; date: string | null }>;
+  last: ShowEpisode | null;
+  next: ShowEpisode | null;
+}
+
 type Fetch = typeof fetch;
 
 /** Small TMDB v3 client. Accepts a v3 API key or a v4 "API Read Access Token". */
@@ -164,6 +180,24 @@ export class Tmdb {
   async cinemaList(list: 'now_playing' | 'upcoming', region: string): Promise<CollectionPart[]> {
     const [fr, en] = await Promise.all(['fr-FR', 'en-US'].map((language) => this.get<{ results?: FilmResult[] }>(`/movie/${list}`, { language, region, page: 1 })));
     return bilingual(fr?.results ?? [], en?.results ?? []);
+  }
+
+  /** A show's seasons, its last and next episode, and whether it goes on. */
+  async showSeasons(id: number): Promise<ShowData> {
+    type Ep = { season_number: number; episode_number: number; air_date?: string | null } | null;
+    const d = await this.get<{
+      status?: string;
+      seasons?: Array<{ season_number: number; episode_count?: number; air_date?: string | null }>;
+      last_episode_to_air?: Ep;
+      next_episode_to_air?: Ep;
+    }>(`/tv/${id}`, { language: 'en-US' });
+    const ep = (e: Ep | undefined) => (e ? { s: e.season_number, e: e.episode_number, date: e.air_date || null } : null);
+    return {
+      status: d.status ?? '',
+      seasons: (d.seasons ?? []).map((s) => ({ n: s.season_number, count: s.episode_count ?? 0, date: s.air_date || null })),
+      last: ep(d.last_episode_to_air),
+      next: ep(d.next_episode_to_air),
+    };
   }
 
   /** Countries TMDB knows release dates for. */
