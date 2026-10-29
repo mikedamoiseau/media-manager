@@ -3,7 +3,8 @@ import { api, ApiError } from '../api.ts';
 import { useStore, prefs, status, toast, pollNowPlaying, library, profileChoice, useKids } from '../store.ts';
 import { isBedtime } from '../kids.ts';
 import { displayTitle, plotLang, categoryLabel, formatRuntime, formatSize, groupCards, setLineup, setName, splitSet } from '../search.ts';
-import type { Detail, Episode, SetPart, TitleLang } from '../types.ts';
+import type { Detail, Episode, SeriesInfo, SetPart, TitleLang } from '../types.ts';
+import { gapLabel, nextLabel } from '../series.ts';
 import { Poster } from './Poster.tsx';
 import { MatchDialog } from './MatchDialog.tsx';
 import { PosterPicker } from './PosterPicker.tsx';
@@ -345,6 +346,8 @@ export function DetailView({ id, onClose }: { id: number; onClose: () => void })
               </div>
             )}
 
+            {!kid && d.mediaType === 'tv' && d.tmdbId != null && <SeriesTracker tmdbId={d.tmdbId} />}
+
             {d.episodes.length > 0 && (
               <Episodes
                 itemId={d.id}
@@ -539,6 +542,61 @@ function SetRow({ name, itemId }: { name: string; itemId: number }) {
           ),
         )}
       </div>
+    </section>
+  );
+}
+
+/** A show's episodes compared with TMDB: what's missing from the NAS and what's next, for a show followed. */
+function SeriesTracker({ tmdbId }: { tmdbId: number }) {
+  const [info, setInfo] = useState<SeriesInfo | null>(null);
+  // New files on the NAS: missing again.
+  const libVersion = useStore(library).version;
+  useEffect(() => {
+    let alive = true;
+    api.get<SeriesInfo>(`/api/series/${tmdbId}`).then(
+      (r) => alive && setInfo(r),
+      () => alive && setInfo(null),
+    );
+    return () => {
+      alive = false;
+    };
+  }, [tmdbId, libVersion]);
+  if (!info) return null;
+
+  const toggle = async () => {
+    const follow = !info.follow;
+    setInfo({ ...info, follow });
+    try {
+      await api.put(`/api/series/${tmdbId}/follow`, { follow });
+      toast(follow ? 'Following: its missing episodes go to Episodes to get' : 'No longer followed');
+    } catch (e) {
+      setInfo((x) => x && { ...x, follow: !follow });
+      toast((e as Error).message, 'error');
+    }
+  };
+  const st = info.status;
+  return (
+    <section className="tracker">
+      <div className="tracker-head">
+        <h2 className="section-title">Series tracker</h2>
+        <button className="chip" aria-pressed={info.follow} onClick={() => void toggle()}>
+          {info.follow ? 'Following' : 'Follow this series'}
+        </button>
+      </div>
+      {info.follow && !st && <p className="muted">{info.tmdb ? 'TMDB can’t be reached: try again later.' : 'Add a TMDB key in Settings to check this series.'}</p>}
+      {info.follow && st && st.missing.length > 0 && <p className="tracker-missing">Missing from the NAS</p>}
+      {info.follow && st && (
+        <ul>
+          {st.missing.length ? st.missing.map((g) => <li key={g.season}>{gapLabel(g)}</li>) : <li>Up to date: every episode aired is on the NAS</li>}
+          {st.next && <li className="muted">{nextLabel(st.next)}</li>}
+          {st.ended && <li className="muted">{st.ended === 'cancelled' ? 'Cancelled' : 'Ended'}</li>}
+          {st.unnumbered > 0 && (
+            <li className="muted">
+              {st.unnumbered === 1 ? '1 file has no episode number, so it wasn’t counted.' : `${st.unnumbered} files have no episode number, so they weren’t counted.`}
+            </li>
+          )}
+        </ul>
+      )}
     </section>
   );
 }

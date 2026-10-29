@@ -97,7 +97,8 @@ export interface SeriesStatus {
   /** when the latest missing episode aired (its season's start when TMDB gives no closer date) */
   latest: string | null;
   next: NextUp | null;
-  ended: boolean;
+  /** the show won't come back */
+  ended: 'ended' | 'cancelled' | null;
   /** files of the show with no episode number: not counted */
   unnumbered: number;
 }
@@ -155,7 +156,7 @@ export function seriesStatus(db: DB, id: number, data: ShowData, today: string):
     const later = data.seasons.find((s) => s.n > 0 && s.n > (last?.s ?? 0));
     if (later) next = { kind: 'season', season: later.n, date: later.date && later.date > today ? later.date : null };
   }
-  return { missing, latest, next, ended: data.status === 'Ended' || data.status === 'Canceled', unnumbered };
+  return { missing, latest, next, ended: data.status === 'Canceled' ? 'cancelled' : data.status === 'Ended' ? 'ended' : null, unnumbered };
 }
 
 /** TMDB's seasons of a show as kept, never fetched. */

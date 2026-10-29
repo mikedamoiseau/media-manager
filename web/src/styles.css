@@ -3252,3 +3252,34 @@ select option {
 .live-sources textarea:focus {
   border-color: var(--lampe);
 }
+
+/* Series tracker on a show's page */
+.tracker {
+  display: grid;
+  gap: 10px;
+  justify-items: start;
+}
+
+.tracker-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+}
+
+.tracker .section-title {
+  margin-bottom: 0;
+}
+
+.tracker-missing {
+  font-weight: 700;
+  color: var(--lampe);
+}
+
+.tracker ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}

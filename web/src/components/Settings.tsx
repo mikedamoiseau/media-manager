@@ -5,7 +5,7 @@ import { useStore, status, toast, prefs } from '../store.ts';
 import type { KodiTv, Settings, TaskStatus } from '../types.ts';
 import { LangSwitch } from './Detail.tsx';
 import { IconRefresh, IconTv } from './icons.tsx';
-import { DuplicatesReport, SetsReport, WantedReport } from './Reports.tsx';
+import { DuplicatesReport, EpisodesReport, SetsReport, WantedReport } from './Reports.tsx';
 import { ProfileBadge, ProfilesPanel } from './WhosWatching.tsx';
 import { LiveTvSettings } from './LiveTvSettings.tsx';
 
@@ -81,6 +81,7 @@ export function SettingsView() {
   if (report?.report === 'duplicates') return <DuplicatesReport />;
   if (report?.report === 'sets') return <SetsReport />;
   if (report?.report === 'wanted') return <WantedReport />;
+  if (report?.report === 'episodes') return <EpisodesReport />;
   if (!s) return <div className="scroller"><div className="empty"><p>Loading settings…</p></div></div>;
 
   return (
@@ -116,7 +117,7 @@ export function SettingsView() {
 
       <section className="panel">
         <h2>Lists</h2>
-        <p className="muted">To tidy up the NAS, complete your sets, and get the films you want.</p>
+        <p className="muted">To tidy up the NAS, complete your sets and series, and get the films you want.</p>
         <div className="tool-row">
           <button className="btn" onClick={() => navigate('/settings/duplicates', { state: { fromApp: true } })}>
             Films with several copies
@@ -126,6 +127,9 @@ export function SettingsView() {
           </button>
           <button className="btn" onClick={() => navigate('/settings/wanted', { state: { fromApp: true } })}>
             Films to get
+          </button>
+          <button className="btn" onClick={() => navigate('/settings/episodes', { state: { fromApp: true } })}>
+            Episodes to get
           </button>
         </div>
       </section>

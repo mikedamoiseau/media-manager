@@ -3,7 +3,8 @@ import { useLocation } from 'wouter';
 import { api } from '../api.ts';
 import { useStore, library, prefs } from '../store.ts';
 import { displayTitle, formatDay, formatSize, groupCards, setName } from '../search.ts';
-import type { DuplicateFilm, Film, IncompleteSet } from '../types.ts';
+import type { DuplicateFilm, Film, IncompleteSet, ShowToGet } from '../types.ts';
+import { gapLabel } from '../series.ts';
 import { IconBack } from './icons.tsx';
 import { useOpenTitle, useOpenSet, useOpenFilm } from '../nav.ts';
 
@@ -143,6 +144,74 @@ export function SetsReport() {
             </p>
           </li>
         ))}
+      </ul>
+    </ReportPage>
+  );
+}
+
+type EpisodesReply = { shows: ShowToGet[]; total: number; checked: number; running: boolean; tmdb: boolean };
+
+/** Followed series missing aired episodes, the latest news first. */
+export function EpisodesReport() {
+  const [data, setData] = useState<EpisodesReply | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const { items } = useStore(library);
+  const { titleLang } = useStore(prefs);
+  const openTitle = useOpenTitle();
+
+  useEffect(() => {
+    let alive = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    // The first time, the server fetches each series' seasons from TMDB: ask again until it is done.
+    const load = () =>
+      api.get<EpisodesReply>('/api/reports/episodes').then(
+        (r) => {
+          if (!alive) return;
+          setData(r);
+          if (r.running) timer = setTimeout(load, 1500);
+        },
+        (e: Error) => alive && setError(e.message),
+      );
+    void load();
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+    };
+  }, []);
+
+  const cards = useMemo(() => new Map(items.map((c) => [c.id, c])), [items]);
+  const unchecked = data ? data.total - data.checked : 0;
+  let summary = error ?? 'Loading…';
+  if (data) {
+    const n = data.shows.length;
+    if (data.running) summary = `Checking series with TMDB: ${data.checked} of ${data.total}…`;
+    else if (!data.tmdb && unchecked) summary = 'Add a TMDB key in Settings to check your series.';
+    else if (!data.total) summary = 'You follow no series yet: follow one from its page.';
+    else {
+      summary = n ? `${n} of the ${data.total} series you follow ${n === 1 ? 'misses' : 'miss'} episodes.` : `The ${data.total} series you follow are up to date.`;
+      if (unchecked) summary += ` ${unchecked} couldn't be checked with TMDB.`;
+    }
+  }
+
+  return (
+    <ReportPage title="Episodes to get" summary={summary}>
+      <ul className="report-list">
+        {(data?.shows ?? []).map((s) => {
+          const card = cards.get(s.itemId);
+          return (
+            <li key={s.tmdbId} className="report-item">
+              <button className="report-title" onClick={() => openTitle(s.itemId)}>
+                {card ? displayTitle(card, titleLang).main : 'Series'}
+              </button>
+              {s.status.missing.map((g) => (
+                <p key={g.season} className="report-missing">
+                  {gapLabel(g)}
+                </p>
+              ))}
+              {s.status.latest && <p className="report-missing">Latest aired {formatDay(s.status.latest)}</p>}
+            </li>
+          );
+        })}
       </ul>
     </ReportPage>
   );

@@ -363,3 +363,43 @@ export interface Streams {
 }
 
 export type TitleLang = 'fr' | 'en' | 'original';
+
+/** Series tracker: the aired episodes of a season that aren't on the NAS. */
+export interface SeasonGap {
+  season: number;
+  aired: number;
+  missing: number[];
+}
+
+/** What comes next for a show: a season (null date: announced), or the next episode. */
+export type NextUp = { kind: 'season'; season: number; date: string | null } | { kind: 'episode'; s: number; e: number; date: string | null };
+
+export interface SeriesStatus {
+  missing: SeasonGap[];
+  /** when the latest missing episode aired */
+  latest: string | null;
+  next: NextUp | null;
+  /** the show won't come back */
+  ended: 'ended' | 'cancelled' | null;
+  /** files of the show with no episode number: not counted */
+  unnumbered: number;
+}
+
+/** A series page's tracker: null status when TMDB couldn't say. */
+export interface SeriesInfo {
+  follow: boolean;
+  status: SeriesStatus | null;
+  tmdb: boolean;
+}
+
+/** A followed show missing aired episodes (Episodes to get). */
+export interface ShowToGet {
+  tmdbId: number;
+  itemId: number;
+  status: SeriesStatus;
+}
+
+/** Coming soon: a followed show's next season, or a film not out yet (in a set on the NAS, coming to cinemas, or wanted). */
+export type SoonEntry =
+  | { kind: 'season'; tmdbId: number; itemId: number; season: number; date: string | null }
+  | { kind: 'film'; film: Film; date: string | null; set: string | null; cinema: boolean; reminder: boolean };

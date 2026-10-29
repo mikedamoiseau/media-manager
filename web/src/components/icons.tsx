@@ -252,3 +252,8 @@ export const IconUpload = (p: P) => (
     <path d="M12 16V4M7 9l5-5 5 5M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3" />
   </svg>
 );
+export const IconBell = (p: P) => (
+  <svg {...base(p)}>
+    <path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15L6 16ZM10 20.5a2 2 0 0 0 4 0" />
+  </svg>
+);

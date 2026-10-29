@@ -183,8 +183,9 @@ test("next: a new season's first episode, a next episode, or an announced season
   assert.deepEqual(next({ next: { s: 2, e: 7, date: '2026-11-02' } }), { kind: 'episode', s: 2, e: 7, date: '2026-11-02' });
   assert.deepEqual(next({}), { kind: 'season', season: 3, date: null });
   assert.equal(next({ seasons: DATA.seasons.slice(0, 3) }), null);
-  assert.equal(seriesStatus(db, 1, { ...DATA, status: 'Canceled' }, '2026-10-29').ended, true);
-  assert.equal(seriesStatus(db, 1, DATA, '2026-10-29').ended, false);
+  assert.equal(seriesStatus(db, 1, { ...DATA, status: 'Canceled' }, '2026-10-29').ended, 'cancelled');
+  assert.equal(seriesStatus(db, 1, { ...DATA, status: 'Ended' }, '2026-10-29').ended, 'ended');
+  assert.equal(seriesStatus(db, 1, DATA, '2026-10-29').ended, null);
 });
 
 test('nothing aired yet: nothing missing', () => {
