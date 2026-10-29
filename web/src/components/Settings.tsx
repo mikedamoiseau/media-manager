@@ -156,8 +156,11 @@ export function SettingsView() {
           <button className="chip" aria-pressed={p.showCinema} onClick={() => prefs.set({ ...p, showCinema: !p.showCinema })}>
             At the cinema
           </button>
+          <button className="chip" aria-pressed={p.showSoon} onClick={() => prefs.set({ ...p, showSoon: !p.showSoon })}>
+            Coming soon
+          </button>
         </div>
-        {p.showCinema && (
+        {(p.showCinema || p.showSoon) && (
           <label className="field-inline">
             <span>Cinemas in</span>
             <select

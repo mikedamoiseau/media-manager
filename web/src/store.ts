@@ -48,9 +48,11 @@ export interface Prefs {
   /** Library: films not on the NAS picked from your tastes, and what's in cinemas */
   showElsewhere: boolean;
   showCinema: boolean;
+  /** Library: new seasons, sequels, cinema releases and reminders to come */
+  showSoon: boolean;
 }
 
-export const prefs = createStore<Prefs>(readLocal('mm.prefs', { titleLang: 'fr', groupSets: false, showContinue: true, showSuggested: true, showElsewhere: true, showCinema: true }));
+export const prefs = createStore<Prefs>(readLocal('mm.prefs', { titleLang: 'fr', groupSets: false, showContinue: true, showSuggested: true, showElsewhere: true, showCinema: true, showSoon: true }));
 prefs.subscribe(() => {
   try {
     localStorage.setItem('mm.prefs', JSON.stringify(prefs.get()));

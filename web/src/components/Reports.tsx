@@ -229,6 +229,19 @@ export function WantedReport() {
   }, []);
 
   const today = new Date().toLocaleDateString('sv');
+  // Films not out yet are reminders: they join the list on their release day.
+  const out = (films ?? []).filter((f) => f.date && f.date <= today);
+  const reminders = (films ?? []).filter((f) => !f.date || f.date > today);
+  const later = reminders.length ? ` ${reminders.length} more ${reminders.length === 1 ? 'is' : 'are'} not out yet.` : '';
+  const item = (f: Film) => (
+    <li key={f.id} className="report-item">
+      <button className="report-title" onClick={() => openFilm(f.id)}>
+        {displayTitle(f, titleLang).main}
+        {f.date ? <span className="muted"> ({f.date.slice(0, 4)})</span> : null}
+      </button>
+      {(!f.date || f.date > today) && <p className="report-missing">{f.date ? `Out on ${formatDay(f.date)}` : 'No date yet'}</p>}
+    </li>
+  );
   return (
     <ReportPage
       title="Films to get"
@@ -236,22 +249,20 @@ export function WantedReport() {
         error ??
         (films === null
           ? 'Loading…'
-          : films.length
-            ? `${films.length} ${films.length === 1 ? 'film' : 'films'}. Each one leaves the list once a copy is on the NAS.`
-            : 'Nothing yet. Tap “Want it” on a film that isn’t on the NAS to add it here.')
+          : out.length
+            ? `${out.length} ${out.length === 1 ? 'film' : 'films'}. Each one leaves the list once a copy is on the NAS.${later}`
+            : reminders.length
+              ? `Nothing to get yet: ${reminders.length === 1 ? 'the film you want isn’t' : `the ${reminders.length} films you want aren’t`} out yet.`
+              : 'Nothing yet. Tap “Want it” on a film that isn’t on the NAS to add it here.')
       }
     >
-      <ul className="report-list">
-        {(films ?? []).map((f) => (
-          <li key={f.id} className="report-item">
-            <button className="report-title" onClick={() => openFilm(f.id)}>
-              {displayTitle(f, titleLang).main}
-              {f.date ? <span className="muted"> ({f.date.slice(0, 4)})</span> : null}
-            </button>
-            {f.date && f.date > today && <p className="report-missing">Out on {formatDay(f.date)}</p>}
-          </li>
-        ))}
-      </ul>
+      <ul className="report-list">{out.map(item)}</ul>
+      {reminders.length > 0 && (
+        <>
+          <h2 className="set-section">Reminders</h2>
+          <ul className="report-list">{reminders.map(item)}</ul>
+        </>
+      )}
     </ReportPage>
   );
 }

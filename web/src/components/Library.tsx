@@ -7,13 +7,14 @@ import {
   applyFilters, allGenres, groupCards, groupSets, isSet, setName, splitSet, displayTitle, formatDay, CATEGORIES, DECADES, DEFAULT_FILTERS,
   type Filters, type SortKey, type StatusKey,
 } from '../search.ts';
-import type { Entry, Film, Group, Person, SetGroup, SetPart, Suggestion, TitleLang, Watching } from '../types.ts';
+import type { Entry, Film, Group, Person, SetGroup, SetPart, SoonEntry, Suggestion, TitleLang, Watching } from '../types.ts';
+import { soonWhy } from '../series.ts';
 import { api } from '../api.ts';
 import { forProfile } from '../profiles.ts';
 import { peopleTitles } from '../peopleTitles.ts';
 import { Poster } from './Poster.tsx';
 import { Sheet } from './Sheet.tsx';
-import { IconSearch, IconClose, IconFilter, IconCheck, IconSets, IconBack, IconRight } from './icons.tsx';
+import { IconSearch, IconClose, IconFilter, IconCheck, IconSets, IconBack, IconRight, IconBell } from './icons.tsx';
 import { useOpenTitle, useOpenSet, useOpenFilm, useOpenRow } from '../nav.ts';
 import { rowOf, ROW_TITLES, type RowKey } from '../rows.ts';
 import { PullToRefresh, serverRefresh } from './PullToRefresh.tsx';
@@ -74,6 +75,7 @@ export function Library({ active }: { active: boolean }) {
   const setsOn = p.groupSets && !kid;
   const showElsewhere = p.showElsewhere && !kid;
   const showCinema = p.showCinema && !kid;
+  const showSoon = p.showSoon && !kid;
   const [chosen, setFilters] = useState<Filters>(loadFilters);
   // A grown-up's people and status filters wait for them, out of kids mode.
   const filters = useMemo(
@@ -135,6 +137,25 @@ export function Library({ active }: { active: boolean }) {
       (r) => setCinema(r.films),
       () => setCinema([]),
     );
+  const [soon, setSoon] = useState<SoonEntry[]>([]);
+  const soonTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const soonOn = useRef(showSoon);
+  soonOn.current = showSoon;
+  // The first time, TMDB's seasons and set lists come in the background: asked again a few times meanwhile,
+  // unless the row was turned off.
+  const loadSoon = (tries = 3): Promise<void> =>
+    api.get<{ entries: SoonEntry[]; running: boolean }>('/api/soon').then(
+      (r) => {
+        setSoon(r.entries);
+        clearTimeout(soonTimer.current);
+        if (r.running && tries > 0 && soonOn.current) soonTimer.current = setTimeout(() => void loadSoon(tries - 1), 5000);
+      },
+      () => setSoon([]),
+    );
+  useEffect(() => {
+    if (!showSoon) clearTimeout(soonTimer.current);
+  }, [showSoon]);
+  useEffect(() => () => clearTimeout(soonTimer.current), []);
   useEffect(() => {
     // Refetched on coming back to the library (after opening a title, playing, a trailer) and when
     // Kodi reports something newly watched (the library changes).
@@ -143,7 +164,8 @@ export function Library({ active }: { active: boolean }) {
     if (showSuggested) void loadSuggestions();
     if (showElsewhere) void loadElsewhere();
     if (showCinema) void loadCinema();
-  }, [version, who, active, showContinue, showSuggested, showElsewhere, showCinema]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (showSoon) void loadSoon();
+  }, [version, who, active, showContinue, showSuggested, showElsewhere, showCinema, showSoon]); // eslint-disable-line react-hooks/exhaustive-deps
   // Pull to refresh: new files on the NAS, what Kodi says was watched, then everything shown here.
   const refreshAll = async () => {
     await serverRefresh(() => api.post('/api/refresh'));
@@ -153,6 +175,7 @@ export function Library({ active }: { active: boolean }) {
       showSuggested && loadSuggestions(),
       showElsewhere && loadElsewhere(),
       showCinema && loadCinema(),
+      showSoon && loadSoon(),
     ]);
   };
   const dismiss = (id: number) => {
@@ -195,7 +218,20 @@ export function Library({ active }: { active: boolean }) {
       }),
     [elsewhere, groupOf, titleLang],
   );
-  const cinemaFilms = useMemo(() => cinema.map((f) => ({ f, why: f.soon && f.date ? `Out ${formatDay(f.date)}` : 'In cinemas' })), [cinema]);
+  // What is coming to cinemas is in Coming soon, when that row is on.
+  const cinemaFilms = useMemo(
+    () => cinema.filter((f) => !(f.soon && showSoon)).map((f) => ({ f, why: f.soon && f.date ? `Out ${formatDay(f.date)}` : 'In cinemas' })),
+    [cinema, showSoon],
+  );
+  // A season's tile is its series' card in the library.
+  const soonTiles = useMemo(
+    () =>
+      soon.flatMap((e) => {
+        const g = e.kind === 'season' ? groupOf.get(e.itemId) : undefined;
+        return e.kind === 'film' || g ? [{ e, g }] : [];
+      }),
+    [soon, groupOf],
+  );
   const catCounts = useMemo(() => {
     const counts: Record<string, number> = {};
     const base = applyFilters(groups, { ...deferred, cat: 'all' }, titleLang, peopleKeys);
@@ -289,9 +325,10 @@ export function Library({ active }: { active: boolean }) {
       {showElsewhere && !filters.q && activeFilterCount === 0 && filmsInView && elsewhere.length >= 3 && (
         <FilmShelf row="elsewhere" lang={titleLang} notOnNas films={elsewhereFilms} />
       )}
-      {showCinema && !filters.q && activeFilterCount === 0 && filmsInView && cinema.length > 0 && (
+      {showCinema && !filters.q && activeFilterCount === 0 && filmsInView && cinemaFilms.length > 0 && (
         <FilmShelf row="cinema" lang={titleLang} films={cinemaFilms} />
       )}
+      {showSoon && !filters.q && activeFilterCount === 0 && deferred.cat === 'all' && soonTiles.length > 0 && <SoonShelf tiles={soonTiles.slice(0, 20)} lang={titleLang} />}
 
       {error && !items.length ? (
           <div className="empty">
@@ -422,9 +459,11 @@ export function Library({ active }: { active: boolean }) {
             ? started.map(({ w, g }) => <ContinueTile key={g.key} w={w} g={g} lang={titleLang} onDismiss={dismiss} />)
             : openRow === 'suggested'
               ? shelf.map(({ s, g, seed }) => <SuggestionTile key={g.key} s={s} g={g} seed={seed} lang={titleLang} />)
-              : (openRow === 'elsewhere' ? elsewhereFilms : cinemaFilms).map(({ f, why }) => (
-                  <FilmTile key={f.id} f={f} why={why} lang={titleLang} notOnNas={openRow === 'elsewhere'} />
-                ))}
+              : openRow === 'soon'
+                ? soonTiles.map(({ e, g }) => <SoonTile key={soonKey(e)} e={e} g={g} lang={titleLang} />)
+                : (openRow === 'elsewhere' ? elsewhereFilms : cinemaFilms).map(({ f, why }) => (
+                    <FilmTile key={f.id} f={f} why={why} lang={titleLang} notOnNas={openRow === 'elsewhere'} />
+                  ))}
         </RowView>
       )}
     </>
@@ -724,6 +763,55 @@ function FilmTile({ f, why, lang, notOnNas }: { f: Film; why: string; lang: Titl
       <span className="tile-title">{t.main}</span>
       <span className="tile-meta">
         <span className="shelf-why">{why}</span>
+      </span>
+    </button>
+  );
+}
+
+const soonKey = (e: SoonEntry) => (e.kind === 'season' ? `s${e.tmdbId}` : `f${e.film.id}`);
+
+/** What comes out next: new seasons of followed series, sequels, cinema releases and reminders, soonest first. */
+function SoonShelf({ tiles, lang }: { tiles: Array<{ e: SoonEntry; g?: Group }>; lang: TitleLang }) {
+  return (
+    <section className="shelf" aria-labelledby="soon-title">
+      <ShelfHead row="soon" />
+      <div className="shelf-row">
+        {tiles.map(({ e, g }) => (
+          <SoonTile key={soonKey(e)} e={e} g={g} lang={lang} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+/** A season opens its series' page; a film its own page, with a bell when you asked to be reminded. */
+function SoonTile({ e, g, lang }: { e: SoonEntry; g?: Group; lang: TitleLang }) {
+  const openTitle = useOpenTitle();
+  const openFilm = useOpenFilm();
+  if (e.kind === 'season') {
+    const t = displayTitle(g!.main, lang);
+    return (
+      <button className="tile shelf-tile" onClick={() => openTitle(e.itemId)}>
+        <Poster src={g!.main.p} title={t.main} year={g!.main.y} />
+        <span className="tile-title">{t.main}</span>
+        <span className="tile-meta">
+          <span className="shelf-why">{soonWhy(e)}</span>
+        </span>
+      </button>
+    );
+  }
+  const t = displayTitle(e.film, lang);
+  return (
+    <button className="tile shelf-tile" onClick={() => openFilm(e.film.id)}>
+      <Poster src={e.film.poster} title={t.main} year={e.date ? Number(e.date.slice(0, 4)) : null} />
+      {e.reminder && (
+        <span className="tile-flag is-plain" aria-label="Reminder set">
+          <IconBell size={14} />
+        </span>
+      )}
+      <span className="tile-title">{t.main}</span>
+      <span className="tile-meta">
+        <span className="shelf-why">{soonWhy(e)}</span>
       </span>
     </button>
   );

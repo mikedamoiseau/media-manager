@@ -1,12 +1,13 @@
 // The library's rows above the grid, each with a page of its own (/row/<key>) showing all its titles.
 
-export type RowKey = 'continue' | 'suggested' | 'elsewhere' | 'cinema';
+export type RowKey = 'continue' | 'suggested' | 'elsewhere' | 'cinema' | 'soon';
 
 export const ROW_TITLES: Record<RowKey, string> = {
   continue: 'Continue watching',
   suggested: 'Suggested for you',
   elsewhere: 'Not on the NAS',
   cinema: 'At the cinema',
+  soon: 'Coming soon',
 };
 
 // Kids mode: only the rows of the kid's own titles.

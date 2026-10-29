@@ -6,7 +6,7 @@ import type { FilmDetail } from '../types.ts';
 import { Poster } from './Poster.tsx';
 import { LangSwitch, Trailer, People } from './Detail.tsx';
 import { ProfileBadge } from './WhosWatching.tsx';
-import { IconBack, IconYoutube, IconCheck, IconEye, IconEyeOff, IconFilm } from './icons.tsx';
+import { IconBack, IconYoutube, IconCheck, IconEye, IconEyeOff, IconFilm, IconBell } from './icons.tsx';
 import { useOpenTitle } from '../nav.ts';
 
 const today = () => new Date().toLocaleDateString('sv');
@@ -72,6 +72,8 @@ export function FilmView({ id, onClose }: { id: number; onClose: () => void }) {
   const overviewLang = d ? plotLang(titleLang, d.originalLanguage) : 'fr';
   const overview = d ? (overviewLang === 'fr' ? (d.overviewFr ?? d.overviewEn) : (d.overviewEn ?? d.overviewFr)) : null;
   const where = d ? whereLine(d) : null;
+  // Not out yet (or no date): "Want it" is a reminder, and the film joins Films to get once it is out.
+  const out = !!d?.date && d.date <= today();
 
   return (
     <div className="detail" role="dialog" aria-modal="true" aria-label={t?.main ?? 'Film'} ref={ref} tabIndex={-1}>
@@ -129,10 +131,14 @@ export function FilmView({ id, onClose }: { id: number; onClose: () => void }) {
               <button
                 className={`btn big${d.pick === 'want' ? ' primary' : ''}`}
                 aria-pressed={d.pick === 'want'}
-                onClick={() => void (d.pick === 'want' ? choose(null, 'Removed from Films to get') : choose('want', 'Added to Films to get'))}
+                onClick={() =>
+                  void (d.pick === 'want'
+                    ? choose(null, out ? 'Removed from Films to get' : 'Reminder removed')
+                    : choose('want', out ? 'Added to Films to get' : 'You’ll find it in Films to get once it’s out'))
+                }
               >
-                <IconCheck size={20} />
-                {d.pick === 'want' ? 'On your list' : 'Want it'}
+                {out ? <IconCheck size={20} /> : <IconBell size={20} />}
+                {d.pick === 'want' ? (out ? 'On your list' : 'Reminder set') : out ? 'Want it' : 'Remind me'}
               </button>
             )}
             {d.trailer && (
