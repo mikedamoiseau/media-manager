@@ -158,17 +158,27 @@ export function seriesStatus(db: DB, id: number, data: ShowData, today: string):
   return { missing, latest, next, ended: data.status === 'Ended' || data.status === 'Canceled', unnumbered };
 }
 
+/** TMDB's seasons of a show as kept, never fetched. */
+export function keptShow(db: DB, id: number): ShowData | null {
+  const row = db.prepare('SELECT data FROM shows WHERE tmdb_id = ?').get(id) as { data: string } | undefined;
+  return row ? (JSON.parse(row.data) as ShowData) : null;
+}
+
+/** The library item that stands for a show: its copy on the NAS with the most files. */
+export function seriesItem(db: DB, id: number): number | undefined {
+  const row = db.prepare(`SELECT id FROM items WHERE media_type = 'tv' AND tmdb_id = ? AND present = 1 ORDER BY hidden, file_count DESC, id LIMIT 1`).get(id) as { id: number } | undefined;
+  return row?.id;
+}
+
 /** Followed shows missing aired episodes, the one whose latest missing episode aired last first. From TMDB data kept, never fetched. */
 export function episodesToGet(db: DB, now = Date.now()): Array<{ tmdbId: number; itemId: number; status: SeriesStatus }> {
   const today = localDay(now);
-  const kept = db.prepare('SELECT data FROM shows WHERE tmdb_id = ?');
-  const copy = db.prepare(`SELECT id FROM items WHERE media_type = 'tv' AND tmdb_id = ? AND present = 1 ORDER BY hidden, file_count DESC, id LIMIT 1`);
   const out: Array<{ tmdbId: number; itemId: number; status: SeriesStatus }> = [];
   for (const [id, on] of followed(db)) {
-    const row = on ? (kept.get(id) as { data: string } | undefined) : undefined;
-    if (!row) continue;
-    const status = seriesStatus(db, id, JSON.parse(row.data) as ShowData, today);
-    if (status.missing.length) out.push({ tmdbId: id, itemId: (copy.get(id) as { id: number }).id, status });
+    const data = on ? keptShow(db, id) : null;
+    if (!data) continue;
+    const status = seriesStatus(db, id, data, today);
+    if (status.missing.length) out.push({ tmdbId: id, itemId: seriesItem(db, id)!, status });
   }
   return out.sort((a, b) => (b.status.latest ?? '').localeCompare(a.status.latest ?? '') || a.itemId - b.itemId);
 }

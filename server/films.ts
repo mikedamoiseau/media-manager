@@ -52,8 +52,8 @@ export function asFilm(d: TitleDetails): Film {
 
 const ids = (db: DB, sql: string, ...args: Array<string | number>) => new Set((db.prepare(sql).all(...args) as Array<{ id: number }>).map((r) => r.id));
 /** Films with a copy on the NAS, hidden ones too. */
-const onNas = (db: DB) => ids(db, `SELECT DISTINCT tmdb_id id FROM items WHERE media_type = 'movie' AND present = 1 AND tmdb_id IS NOT NULL`);
-const picked = (db: DB, choice: Pick) => ids(db, 'SELECT tmdb_id id FROM picks WHERE choice = ?', choice);
+export const onNas = (db: DB) => ids(db, `SELECT DISTINCT tmdb_id id FROM items WHERE media_type = 'movie' AND present = 1 AND tmdb_id IS NOT NULL`);
+export const picked = (db: DB, choice: Pick) => ids(db, 'SELECT tmdb_id id FROM picks WHERE choice = ?', choice);
 
 /**
  * Released films that aren't on the NAS, from TMDB's recommendations for what interests you lately
