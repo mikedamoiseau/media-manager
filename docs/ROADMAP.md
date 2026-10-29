@@ -13,6 +13,7 @@ discussion before it is built.
 | 6 | Coming soon | Medium | Done: [design](superpowers/specs/2026-10-29-series-tracker-coming-soon-design.md) |
 | 7 | Your year in film | Small to medium | Idea |
 | 8 | Live TV | Large | Done: [design](superpowers/specs/2026-10-28-live-tv-design.md) |
+| 9 | Move the app off the M1 | Medium | Idea (parked) |
 
 ## 1. Who's watching (profiles)
 
@@ -92,3 +93,14 @@ Kodi TV or watched on the phone in VLC.
 
 Done: a Live TV tab (grid or list), the owner's channels picked and ordered
 in Settings › Live TV, written to the channel list both TVs read.
+
+## 9. Move the app off the M1
+
+The app runs on the M1, a personal machine, and stops when it sleeps or
+restarts. The owner would rather have it on the Mac mini that runs Home
+Assistant OS. There, everything runs as a container (an add-on), and the
+owner said "ideally no Docker" there. That box has plenty of room, but a
+locally built add-on would be copied into every Home Assistant backup
+(about 68 MB, daily, in three places). This is a project of its own, to
+discuss first: see the parked note in the
+[Live TV design](superpowers/specs/2026-10-28-live-tv-design.md).
