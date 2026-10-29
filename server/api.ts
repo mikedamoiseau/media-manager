@@ -15,11 +15,11 @@ import { suggestions, recordActivity, rate } from './suggestions.ts';
 import { elsewhere, cinema, inCinemas, filmDetails, asFilm, getPick, setPick, wantedFilms, localDay } from './films.ts';
 import { followed, setFollow, showData, staleShows, keptShow, seriesStatus, episodesToGet } from './series.ts';
 import { comingSoon } from './soon.ts';
-import { continueWatching, dismissWatching, noteStreamed, noteEpisodeStreamed, nextEpisode, startPoint } from './watching.ts';
+import { continueWatching, dismissWatching, noteStreamed, noteEpisodeStreamed, nextEpisode } from './watching.ts';
 import { sheetIdFrom } from './sheet.ts';
 import { cachedImage, isAllowedImage, storeUpload, videoThumb } from './images.ts';
 import {
-  KodiError, discoverKodi, nowPlaying, streams, remote, play, playTrailer, toKodiPath, powerOptions, power, sendText, type RemoteAction,
+  KodiError, discoverKodi, nowPlaying, streams, remote, playTrailer, powerOptions, power, sendText, type RemoteAction,
 } from './kodi.ts';
 import { Tmdb, type Candidate } from './tmdb.ts';
 import { ensureTitle, slimCandidates } from './metadata.ts';
@@ -27,8 +27,8 @@ import type { Settings } from './db.ts';
 import { TvError, addTv, editTv, removeTv, publicTvs, handoffTv, type TvInput } from './tvs.ts';
 import type { MediaType } from './scanner.ts';
 import { ProfileError, listProfiles, addProfile, editProfile, removeProfile, profileOf, type ProfileInput } from './profiles.ts';
-import { KidsError, setParentsCode, checkParentsCode, kidsProfile, kidsProfiles, allowedItems, itemKey, itemOverride, setItemOverride, kidsRoute, KIDS_REMOTE, isBedtime, type Override } from './kids.ts';
-import { notePlay } from './owners.ts';
+import { KidsError, setParentsCode, checkParentsCode, kidsProfile, kidsProfiles, allowedItems, itemKey, itemOverride, setItemOverride, kidsRoute, KIDS_REMOTE, type Override } from './kids.ts';
+import { PlayError, playItem } from './playItem.ts';
 import { liveTvRoutes } from './liveApi.ts';
 
 function sendFile(file: string, maxAge = 31536000): Response {
@@ -256,8 +256,6 @@ export function createApi(svc: Service): Hono {
     return { cfg: svc.kodiConfig(tv.id)!, prefix: tv.pathPrefix, tv: tv.id };
   }
 
-  type Episode = { id: number; path: string; kodi_id: number | null };
-
   // ---------- live TV ----------
 
   liveTvRoutes(api, svc, kodi);
@@ -352,36 +350,13 @@ export function createApi(svc: Service): Hono {
   });
 
   api.post('/items/:id/play', async (c) => {
-    const id = Number(c.req.param('id'));
     const body = (await c.req.json().catch(() => ({}))) as { episodeId?: number };
-    const { cfg, prefix, tv } = kodi(c);
-    const p = who(c);
-    // A kid's bedtime: nothing new starts until the morning.
-    if (isBedtime(kidsProfile(db, p)?.bedtime ?? null, new Date())) return c.json({ error: "It's bedtime", code: 'bedtime' }, 403);
-    const it = db.prepare('SELECT path, is_dir, present, kodi_id, kodi_type FROM items WHERE id = ?').get(id) as
-      | { path: string; is_dir: number; present: number; kodi_id: number | null; kodi_type: string | null }
-      | undefined;
-    if (!it || !it.present) return c.json({ error: 'File is not on the NAS' }, 404);
-    const ep = it.is_dir
-      ? body.episodeId
-        ? (db.prepare('SELECT id, path, kodi_id FROM episodes WHERE id = ? AND item_id = ?').get(body.episodeId, id) as Episode | undefined)
-        : nextEpisode(db, id, p)
-      : undefined;
-    if (it.is_dir && !ep) return c.json({ error: 'No episode found' }, 404);
-    // Kodi plays what it has by its id; any other file through Kodi's path to the media folder, worked out now if not yet.
-    const movie = !ep && it.kodi_id && it.kodi_type === 'movie' ? it.kodi_id : null;
-    const file = ep ? (ep.kodi_id ? null : ep.path) : movie ? null : it.path;
-    const pre = file === null ? prefix : prefix || (await svc.findPathPrefix(tv));
-    const target = file === null ? (ep ? { episodeid: ep.kodi_id! } : { movieid: movie! }) : pre ? { file: toKodiPath(pre, file) } : null;
-    if (!target) return c.json({ error: 'Kodi path for the media folder is unknown: set it in Settings' }, 400);
-    // Played from this device: Kodi's next changes to it are this profile's, even if the TV's events don't come through.
-    const now = Date.now();
-    svc.owners.touch(tv, p, now, true);
-    // Where this profile stopped, not where someone else did. Noted once Kodi started it: a Play that failed claims nothing.
-    await play(cfg, target, startPoint(db, p, ep ? { episodeId: ep.id } : { itemId: id }));
-    if (ep?.kodi_id) notePlay(db, 'episode', ep.kodi_id, p, now);
-    else if (movie) notePlay(db, 'movie', movie, p, now);
-    recordActivity(db, p, id, 'play');
+    try {
+      await playItem(svc, kodi(c).tv, who(c), Number(c.req.param('id')), body.episodeId);
+    } catch (e) {
+      if (e instanceof PlayError) return c.json(e.code ? { error: e.message, code: e.code } : { error: e.message }, e.status);
+      throw e;
+    }
     return c.json({ ok: true });
   });
 
