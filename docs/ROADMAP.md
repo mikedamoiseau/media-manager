@@ -7,11 +7,12 @@ discussion before it is built.
 |---|---------|------|--------|
 | 1 | Who's watching (profiles) | Medium | Done: [design](superpowers/specs/2026-10-26-profiles-design.md) |
 | 2 | Kids mode | Medium | Done in the app: [design](superpowers/specs/2026-10-26-kids-mode-design.md) |
-| 3 | Series tracker | Medium | Idea |
+| 3 | Series tracker | Medium | Done: [design](superpowers/specs/2026-10-29-series-tracker-coming-soon-design.md) |
 | 4 | Trailer on the TV | Small | Already in the app |
 | 5 | Up next queue and sleep timer | Small to medium | Idea |
-| 6 | Coming soon | Medium | Idea |
+| 6 | Coming soon | Medium | Done: [design](superpowers/specs/2026-10-29-series-tracker-coming-soon-design.md) |
 | 7 | Your year in film | Small to medium | Idea |
+| 8 | Live TV | Large | Done: [design](superpowers/specs/2026-10-28-live-tv-design.md) |
 
 ## 1. Who's watching (profiles)
 
@@ -47,6 +48,12 @@ For each series on the NAS, compare the episodes on disk with TMDB and show
 what is missing ("S02E05–E08 missing") or new ("Season 3 is out"). Missing
 episodes feed a list of episodes to get, like "Films to get" does for films.
 
+Done: a series page says which aired episodes aren't on the NAS and what
+comes next, with a switch to follow the show. Shows in the SERIES folders are
+followed to begin with. Settings › Lists › Episodes to get lists every
+followed show with episodes missing. Files named for several episodes
+(`S01E09E10`) count for each.
+
 ## 4. Trailer on the TV
 
 Already in the app: a title page's trailer has "Play trailer on TV", through
@@ -63,7 +70,25 @@ A row of sequels to films you own or liked, new seasons of your series, and
 upcoming cinema releases in your country. Each can have a "remind me" that
 adds it to the to-get lists once it is out.
 
+Done: a "Coming soon" row after "At the cinema", soonest first. It shows:
+
+- the next season of a followed show;
+- films not out yet in sets with a film on the NAS;
+- films coming to cinemas;
+- films with a reminder.
+
+On a film not out yet, "Want it" reads "Remind me". Films to get keeps such
+films under "Reminders" until their release day.
+
 ## 7. Your year in film
 
 Hours watched, favourite genres, most-watched actors, and which TV gets used
 most.
+
+## 8. Live TV
+
+French and Belgian channels from iptv-org, with a TV guide, started on a
+Kodi TV or watched on the phone in VLC.
+
+Done: a Live TV tab (grid or list), the owner's channels picked and ordered
+in Settings › Live TV, written to the channel list both TVs read.

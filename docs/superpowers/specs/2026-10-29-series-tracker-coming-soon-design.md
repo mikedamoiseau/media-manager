@@ -1,8 +1,8 @@
 # Series tracker and Coming soon: design
 
-Status: the owner asked for roadmap items 3 and 6 on 2026-10-29 and skipped
-the questions ("go ahead"), so every call below is the designer's, listed at
-the end for the owner to check.
+Status: built on 2026-10-29. The owner asked for roadmap items 3 and 6 and
+skipped the questions ("go ahead"), so every call below is the designer's,
+listed at the end for the owner to check.
 
 ## Why
 
