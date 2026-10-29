@@ -6,7 +6,7 @@ import { scanMediaRoot, pool } from './scanner.ts';
 import { cachedImage, isAllowedImage } from './images.ts';
 import { reconcile, applySheetHints, syncSheetOnlyItems, importSheetRows } from './library.ts';
 import { fetchSheet } from './sheet.ts';
-import { type KodiConfig, kodiCall, discoverKodi, detectPathPrefix, libraryPathPrefix, remote } from './kodi.ts';
+import { type KodiConfig, KodiError, kodiCall, discoverKodi, detectPathPrefix, libraryPathPrefix, remote } from './kodi.ts';
 import { listProfiles, type Profile } from './profiles.ts';
 import { hasParentsCode, kidsProfile, bedtimeStop } from './kids.ts';
 import { syncKidsTag, kidsViewProfile } from './kidsTag.ts';
@@ -261,8 +261,9 @@ export class Service extends EventEmitter {
 
   /**
    * Plays that entry of the TV's Up next, else the first, as the profile that added it; it leaves the list
-   * once Kodi started it. One that can't play (gone from the NAS, a kid's bedtime) is dropped, and the next
-   * tried; the one asked for says why. Kodi not answering: the list stays as it was. True when one played.
+   * once Kodi started it. One that can't play (gone from the NAS, a kid's bedtime, Kodi refused it) is
+   * dropped, and the next tried; the one asked for says why. What is the TV's (Kodi not answering, its path
+   * to the media folder unknown) leaves the list as it was. True when one played.
    */
   async playNext(tvId: string, id?: number): Promise<boolean> {
     try {
@@ -272,10 +273,11 @@ export class Service extends EventEmitter {
           takeFromUpNext(this.db, tvId, Date.now(), e.id);
           return true;
         } catch (err) {
-          if (!(err instanceof PlayError)) throw err;
+          const entryFault = err instanceof PlayError ? err.status !== 400 : err instanceof KodiError && err.code === 'rpc';
+          if (!entryFault) throw err;
           removeFromUpNext(this.db, tvId, e.id);
           if (id !== undefined) throw err;
-          console.warn(`Up next on ${tvId}: ${err.message}, dropped`);
+          console.warn(`Up next on ${tvId}: ${(err as Error).message}, dropped`);
         }
       }
       return false;

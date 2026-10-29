@@ -21,8 +21,8 @@ function library() {
   const e = (s: number, n: number, kodi: number) => Number(ep.run(show, `SERIES/Show/S${s}E${n}.mkv`, s, n, `Part ${n}`, kodi).lastInsertRowid);
   const eps = { extra: e(0, 1, 200), e1: e(1, 1, 101), e2: e(1, 2, 102), e3: e(1, 3, 103) };
   const otherShow = Number(item.run('SERIES/Other', 'SERIES', 'series', 1).lastInsertRowid);
-  ep.run(otherShow, 'SERIES/Other/S1E1.mkv', 1, 1, null, 301);
-  return { db, film, other, show, eps };
+  const otherEp = Number(ep.run(otherShow, 'SERIES/Other/S1E1.mkv', 1, 1, null, 301).lastInsertRowid);
+  return { db, film, other, show, eps, otherEp };
 }
 
 test('adds in order and refuses a duplicate', () => {
@@ -94,12 +94,12 @@ test('queues the episode after the last queued one', () => {
 });
 
 test('queues the episode after the one playing', () => {
-  const { db, show, eps } = library();
-  assert.equal(episodeToQueue(db, 'tv1', show, MAIN_PROFILE, 102), eps.e3);
-  assert.equal(episodeToQueue(db, 'tv1', show, MAIN_PROFILE, 103), undefined, 'the last one plays');
-  assert.equal(episodeToQueue(db, 'tv1', show, MAIN_PROFILE, 301), eps.e1, 'an episode of another series: where this one stands');
+  const { db, show, eps, otherEp } = library();
+  assert.equal(episodeToQueue(db, 'tv1', show, MAIN_PROFILE, eps.e2), eps.e3);
+  assert.equal(episodeToQueue(db, 'tv1', show, MAIN_PROFILE, eps.e3), undefined, 'the last one plays');
+  assert.equal(episodeToQueue(db, 'tv1', show, MAIN_PROFILE, otherEp), eps.e1, 'an episode of another series: where this one stands');
   addToUpNext(db, 'tv1', MAIN_PROFILE, show, eps.e1, T0);
-  assert.equal(episodeToQueue(db, 'tv1', show, MAIN_PROFILE, 102), eps.e2, 'the list comes first');
+  assert.equal(episodeToQueue(db, 'tv1', show, MAIN_PROFILE, eps.e2), eps.e2, 'the list comes first');
 });
 
 test('an extra queued is no base, and nothing queued is queued again', () => {

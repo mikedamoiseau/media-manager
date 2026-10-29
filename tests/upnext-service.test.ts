@@ -97,12 +97,33 @@ test('an entry that left the NAS is dropped and the next plays', async () => {
   assert.deepEqual(upNext(s.db, 'tv1'), []);
 });
 
-test('an entry Kodi refuses stays for later', async () => {
+test('Kodi not answering: the list stays for later', async () => {
   using s = await setup();
   addToUpNext(s.db, 'tv1', s.anna, s.b, null, Date.now());
   s.kodi.server.close();
   await s.svc.onPlayer('tv1', ended);
   assert.equal(upNext(s.db, 'tv1').length, 1);
+});
+
+test('an entry Kodi refuses is dropped and the next plays', async () => {
+  using s = await setup();
+  s.kodi.refused.push({ movieid: 11 });
+  addToUpNext(s.db, 'tv1', s.anna, s.a, null, Date.now());
+  addToUpNext(s.db, 'tv1', s.anna, s.b, null, Date.now());
+  await s.svc.onPlayer('tv1', ended);
+  assert.deepEqual(s.kodi.opened(), [{ movieid: 11 }, { movieid: 12 }]);
+  assert.deepEqual(upNext(s.db, 'tv1'), []);
+});
+
+test("a TV whose path to the media folder is unknown keeps the list: that is the TV's, not the entries'", async () => {
+  using s = await setup();
+  saveSettings(s.db, { mediaRoot: '/nowhere', kodiTvs: [{ id: 'tv1', name: 'Living room', host: '127.0.0.1', port: s.kodi.port, user: '', pass: '', pathPrefix: '' }] });
+  s.db.prepare('UPDATE items SET kodi_id = NULL WHERE id = ?').run(s.b);
+  addToUpNext(s.db, 'tv1', s.anna, s.b, null, Date.now());
+  addToUpNext(s.db, 'tv1', s.anna, s.a, null, Date.now());
+  await s.svc.onPlayer('tv1', ended);
+  assert.deepEqual(s.kodi.opened(), []);
+  assert.equal(upNext(s.db, 'tv1').length, 2);
 });
 
 test('stop after this: nothing follows, and Kodi going on by itself is stopped', async () => {

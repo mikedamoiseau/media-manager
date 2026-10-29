@@ -108,10 +108,10 @@ export function dropStale(db: DB, now: number): string[] {
 
 /**
  * The episode of a series to add to the TV's list, extras aside: the first not queued after the last one
- * in the list; none there, after the one playing on that TV (its Kodi id); else where the series stands for
- * this profile (what Play starts). None left, or already queued: undefined.
+ * in the list; none there, after the one playing on that TV; else where the series stands for this profile
+ * (what Play starts). None left, or already queued: undefined.
  */
-export function episodeToQueue(db: DB, tvId: string, itemId: number, profileId: number, playingKodiEpisode?: number): number | undefined {
+export function episodeToQueue(db: DB, tvId: string, itemId: number, profileId: number, playingEpisode?: number): number | undefined {
   const main = episodesOf(db, itemId, profileId).filter((e) => e.season !== 0);
   const list = upNext(db, tvId);
   const queued = new Set(list.map((r) => r.episodeId));
@@ -120,7 +120,7 @@ export function episodeToQueue(db: DB, tvId: string, itemId: number, profileId: 
     .map((r) => main.findIndex((e) => e.id === r.episodeId))
     .filter((i) => i >= 0)
     .at(-1);
-  const playing = playingKodiEpisode === undefined ? -1 : main.findIndex((e) => e.kodi_id === playingKodiEpisode);
+  const playing = playingEpisode === undefined ? -1 : main.findIndex((e) => e.id === playingEpisode);
   const base = lastQueued ?? (playing >= 0 ? playing : undefined);
   const pick = base !== undefined ? main.slice(base + 1).find((e) => !queued.has(e.id)) : nextEpisode(db, itemId, profileId);
   return pick && !queued.has(pick.id) ? pick.id : undefined;

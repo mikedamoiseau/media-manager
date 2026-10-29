@@ -1,14 +1,28 @@
 import type { Context, Hono } from 'hono';
 import type { Service } from './service.ts';
-import { kodiCall, type KodiConfig } from './kodi.ts';
+import { kodiCall, nowPlaying, type KodiConfig } from './kodi.ts';
+import { kodiMedia } from './media.ts';
 import { PlayError } from './playItem.ts';
 import { UpNextError, addToUpNext, clearUpNext, episodeToQueue, removeFromUpNext, upNext, upNextEntries, setSleep, clearSleep, sleepOf } from './upnext.ts';
 
 const isWhole = (n: unknown): n is number => typeof n === 'number' && Number.isInteger(n);
 
 /** Up next and the sleep timer of the device's TV. Not among the kids' routes: refused in kids mode. */
-export function upNextRoutes(api: Hono, svc: Service, tvOf: (c: Context) => { cfg: KodiConfig; tv: string }, who: (c: Context) => number): void {
+export function upNextRoutes(api: Hono, svc: Service, tvOf: (c: Context) => { cfg: KodiConfig; prefix: string; tv: string }, who: (c: Context) => number): void {
   const db = svc.db;
+  /**
+   * The episode of the library playing on the TV: from its events, else asked of Kodi by its file (one Kodi
+   * has no id for, or one started before the app). None, or Kodi not answering: undefined.
+   */
+  const playingEpisode = async ({ cfg, prefix, tv }: { cfg: KodiConfig; prefix: string; tv: string }): Promise<number | undefined> => {
+    const p = svc.playingOn(tv);
+    if (p?.type === 'movie') return undefined;
+    const known = p && (db.prepare('SELECT id FROM episodes WHERE kodi_id = ?').get(p.id) as { id: number } | undefined);
+    if (known) return known.id;
+    const np = await nowPlaying(cfg).catch(() => undefined);
+    const m = np?.active && np.file ? kodiMedia(db, prefix, np.file) : undefined;
+    return m?.kind === 'episode' ? m.id : undefined;
+  };
   /** Every device hears the change; this one gets the TV's list. */
   const changed = (c: Context, tv: string, more: Record<string, unknown> = {}) => {
     svc.upNextChanged();
@@ -19,14 +33,14 @@ export function upNextRoutes(api: Hono, svc: Service, tvOf: (c: Context) => { cf
   api.post('/upnext', async (c) => {
     const { itemId, episodeId } = (await c.req.json().catch(() => ({}))) as { itemId?: unknown; episodeId?: unknown };
     if (!isWhole(itemId) || (episodeId !== undefined && !isWhole(episodeId))) return c.json({ error: 'Pick a film or an episode' }, 400);
-    const { tv } = tvOf(c);
+    const k = tvOf(c);
+    const { tv } = k;
     const p = who(c);
     const it = db.prepare('SELECT is_dir, present FROM items WHERE id = ?').get(itemId) as { is_dir: number; present: number } | undefined;
     if (!it || !it.present) return c.json({ error: 'File is not on the NAS' }, 404);
     let ep: number | null = null;
     if (it.is_dir) {
-      const playing = svc.playingOn(tv);
-      ep = episodeId ?? episodeToQueue(db, tv, itemId, p, playing?.type === 'episode' ? playing.id : undefined) ?? null;
+      ep = episodeId ?? episodeToQueue(db, tv, itemId, p, await playingEpisode(k)) ?? null;
       if (ep === null) return c.json({ error: 'No episode left to add', code: 'none_left' }, 404);
     }
     const added = ep === null ? undefined : (db.prepare('SELECT season, episode FROM episodes WHERE id = ? AND item_id = ?').get(ep, itemId) as { season: number | null; episode: number | null } | undefined);

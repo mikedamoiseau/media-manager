@@ -73,7 +73,8 @@ Two things:
   list waits. It goes on after the next play that runs to its end, or when
   someone taps a row.
 - A failed start (the file left the NAS, Kodi refused it) drops that entry
-  and tries the next one.
+  and tries the next one. What is the TV's (Kodi not answering, its path to
+  the media folder unknown) leaves the list as it was.
 - **Stop in N minutes**: at that time, whatever plays on that TV stops. The
   list stays as it was (a stop by the timer is a stop by hand).
 - **Stop after this one**: when what plays now ends, nothing follows: the
@@ -137,9 +138,9 @@ Mac sleeps or the app restarts.
 
 `TvStatus` (sent to every device with the status) gets, per TV:
 
-- `upNext: UpNextEntry[]`: `{ id, itemId, episodeId, title, label?,
-  episodeTitle? }`, where `title` is the film or show title and `label`
-  is "S2 E5" for an episode.
+- `upNext: UpNextEntry[]`: `{ id, itemId, episodeId, season, episode,
+  episodeTitle }`. The device names each entry from its own library (the
+  title in its chosen language, the poster) and labels an episode "S2 E5".
 - `sleep: { at: number } | { afterThis: true } | null`.
 
 The status is sent again whenever either changes.

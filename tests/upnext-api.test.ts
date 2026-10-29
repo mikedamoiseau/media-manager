@@ -88,6 +88,22 @@ test('a series adds the episode after the one playing on that TV', async () => {
   assert.deepEqual(r.json.added, { season: 1, episode: 3 });
 });
 
+test("a series adds the episode after the one Kodi plays by its file, when the TV's events didn't say", async () => {
+  using s = await setup();
+  s.kodi.players.push({ playerid: 1, type: 'video' });
+  Object.assign(s.kodi.answers, {
+    'Application.GetProperties': { volume: 50, muted: false },
+    'Player.GetItem': { item: { label: 'E2', file: 'smb://nas/MEDIA/SERIES/Show/S01E02.mkv' } },
+    'Player.GetProperties': { time: { hours: 0, minutes: 1, seconds: 0 }, totaltime: { hours: 0, minutes: 40, seconds: 0 }, speed: 1, subtitleenabled: false },
+  });
+  const r = await s.call('POST', '/upnext', { itemId: s.show });
+  assert.deepEqual(r.json.added, { season: 1, episode: 3 });
+  // An episode the events name that the app doesn't know by that id: Kodi's file says which.
+  await s.call('DELETE', '/upnext');
+  await s.svc.onPlayer('tv1', { kind: 'play', item: { type: 'episode', id: 999 } });
+  assert.deepEqual((await s.call('POST', '/upnext', { itemId: s.show })).json.added, { season: 1, episode: 3 });
+});
+
 test('an episode picked is added as it is', async () => {
   using s = await setup();
   const r = await s.call('POST', '/upnext', { itemId: s.show, episodeId: s.eps[1] });
@@ -128,6 +144,17 @@ test('an entry played now that left the NAS says so, and goes', async () => {
   assert.equal(played.json.error, 'File is not on the NAS');
   assert.deepEqual(upNext(s.db, 'tv1'), []);
   assert.deepEqual(s.svc.status.tvs[0]!.upNext, [], 'every device hears it');
+});
+
+test('an entry played now that Kodi refuses says so, and goes', async () => {
+  using s = await setup();
+  s.kodi.refused.push({ movieid: 11 });
+  const r = await s.call('POST', '/upnext', { itemId: s.film });
+  const played = await s.call('POST', `/upnext/${listOf(r.json)[0]!.id}/play`);
+  assert.equal(played.status, 502);
+  assert.equal(played.json.code, 'kodi_rpc');
+  assert.match(played.json.error as string, /Player.Open/);
+  assert.deepEqual(upNext(s.db, 'tv1'), []);
 });
 
 test('sets and turns off the sleep timer', async () => {
