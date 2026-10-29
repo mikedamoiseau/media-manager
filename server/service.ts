@@ -10,6 +10,7 @@ import { type KodiConfig, KodiError, kodiCall, discoverKodi, detectPathPrefix, l
 import { listProfiles, type Profile } from './profiles.ts';
 import { hasParentsCode, kidsProfile, bedtimeStop } from './kids.ts';
 import { syncKidsTag, kidsViewProfile } from './kidsTag.ts';
+import { syncAgeRatings } from './kodiRatings.ts';
 import { syncFromKodi, matchPending, enrichTitles } from './metadata.ts';
 import { Tmdb } from './tmdb.ts';
 import { lanTransport } from './net.ts';
@@ -346,12 +347,16 @@ export class Service extends EventEmitter {
     this.emit('status', this.status);
   }
 
-  /** What the kids may watch may have changed (a profile, a parent's call, Kodi, ratings): the Kids tag in Kodi follows, after a pause. */
+  /**
+   * What the kids may watch may have changed (a profile, a parent's call, Kodi, ratings): the Kids tag in Kodi
+   * follows, after a pause, and so do the age ratings the TVs show.
+   */
   kidsChanged(): void {
     clearTimeout(this.kidsTimer);
     this.kidsTimer = setTimeout(() => {
       this.kidsTimer = undefined;
       void this.syncKidsTag();
+      void this.syncAgeRatings();
     }, 5000);
   }
 
@@ -363,6 +368,17 @@ export class Service extends EventEmitter {
       if (n) console.log(`[kids] Kids tag changed on ${n} titles in Kodi`);
     } catch (e) {
       console.warn(`[kids] Kids tag not updated: ${(e as Error).message}`);
+    }
+  });
+
+  private readonly syncAgeRatings = oneAtATime(async () => {
+    const cfg = this.kodiConfig();
+    if (!cfg) return;
+    try {
+      const n = await syncAgeRatings(this.db, cfg);
+      if (n) console.log(`[ratings] FSK rating written on ${n} titles in Kodi`);
+    } catch (e) {
+      console.warn(`[ratings] FSK ratings not written: ${(e as Error).message}`);
     }
   });
 
