@@ -1,6 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { openDb, type DB } from '../server/db.ts';
+import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { Hono } from 'hono';
+import { openDb, saveSettings, type DB } from '../server/db.ts';
+import { Service } from '../server/service.ts';
+import { createApi } from '../server/api.ts';
 import { applyKodiLibrary } from '../server/metadata.ts';
 import { PROFILE_COLORS, addProfile } from '../server/profiles.ts';
 import { libraryTitle, runtimeOf, openPlay, closePlay, closeLeftOpen, notePhonePlay, playMinutes } from '../server/plays.ts';
@@ -80,6 +86,36 @@ test('a long sitting on the phone, streamed hour after hour, stays one play', ()
   const t = Date.UTC(2026, 10, 2, 14);
   for (let h = 0; h <= 5; h++) notePhonePlay(db, 1, film, null, t + h * 60 * MIN, 0.1 + h * 0.1, t + (h * 60 + 50) * MIN);
   assert.equal(rows(db).length, 1);
+});
+
+test('a film or an episode streamed to the phone is a phone play of that profile', async () => {
+  const db = openDb(':memory:');
+  const root = mkdtempSync(join(tmpdir(), 'media-'));
+  mkdirSync(join(root, 'MOVIES'));
+  mkdirSync(join(root, 'SERIES/Show'), { recursive: true });
+  const big = Buffer.alloc(9 * 1024 * 1024);
+  writeFileSync(join(root, 'MOVIES/Film.mkv'), big);
+  writeFileSync(join(root, 'SERIES/Show/S01E01.mkv'), big);
+  saveSettings(db, { mediaRoot: root });
+  const item = db.prepare(`INSERT INTO items (path, folder, category, is_dir, match_state, present, added_at, updated_at)
+    VALUES (?, ?, ?, ?, 'unmatched', 1, 1, 1)`);
+  const film = Number(item.run('MOVIES/Film.mkv', 'MOVIES', 'movies', 0).lastInsertRowid);
+  const show = Number(item.run('SERIES/Show', 'SERIES', 'series', 1).lastInsertRowid);
+  const ep = Number(db.prepare("INSERT INTO episodes (item_id, path, season, episode) VALUES (?, 'SERIES/Show/S01E01.mkv', 1, 1)").run(show).lastInsertRowid);
+  const anna = addProfile(db, { name: 'Anna', color: PROFILE_COLORS[1] }).id;
+  const app = new Hono().route('/api', createApi(new Service(db, mkdtempSync(join(tmpdir(), 'data-')))));
+  for (const path of [`/api/media/item/${film}/Film.mkv`, `/api/media/episode/${ep}/S01E01.mkv`]) {
+    const r = await app.request(path, { headers: { 'x-profile': String(anna) } });
+    await r.arrayBuffer();
+  }
+  await new Promise((r) => setTimeout(r, 50));
+  assert.deepEqual(
+    rows(db).map((r) => [r.profile_id, r.item_id, r.kind, r.episode_id, r.device, r.reached, r.finished]),
+    [
+      [anna, film, 'film', null, 'phone', 1, 1],
+      [anna, show, 'episode', ep, 'phone', 1, 1],
+    ],
+  );
 });
 
 test('an estimate counts its share of the runtime; an episode without one, 40 minutes', () => {

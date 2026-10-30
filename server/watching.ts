@@ -7,7 +7,7 @@ export const STARTED = 0.02;
 // Not resumed for this long: no longer "continue watching".
 const STALE = 90 * 24 * 3600 * 1000;
 // Shorter reads are VLC looking at the file (headers, the index at the end), not playing it.
-const MIN_STREAM = 8 * 1024 * 1024;
+export const MIN_STREAM = 8 * 1024 * 1024;
 
 export interface Watching {
   id: number;

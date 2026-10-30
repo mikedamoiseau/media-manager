@@ -15,7 +15,8 @@ import { suggestions, recordActivity, rate } from './suggestions.ts';
 import { elsewhere, cinema, inCinemas, filmDetails, asFilm, getPick, setPick, wantedFilms, localDay } from './films.ts';
 import { followed, setFollow, showData, staleShows, keptShow, seriesStatus, episodesToGet } from './series.ts';
 import { comingSoon } from './soon.ts';
-import { continueWatching, dismissWatching, noteStreamed, noteEpisodeStreamed, nextEpisode } from './watching.ts';
+import { continueWatching, dismissWatching, noteStreamed, noteEpisodeStreamed, nextEpisode, MIN_STREAM } from './watching.ts';
+import { notePhonePlay } from './plays.ts';
 import { sheetIdFrom } from './sheet.ts';
 import { cachedImage, isAllowedImage, storeUpload, videoThumb } from './images.ts';
 import {
@@ -275,21 +276,39 @@ export function createApi(svc: Service): Hono {
     const p = who(c);
     let rel: string | undefined;
     let itemId = id;
-    // What the bytes VLC takes are counted against, for Continue watching.
+    // What the bytes VLC takes are counted against, for Continue watching and the play log.
     let progress: ((start: number, sent: number, size: number) => void) | undefined;
+    const begunAt = Date.now();
+    const phonePlay = (item: number, episode: number | null, start: number, sent: number, size: number) => {
+      if (sent >= MIN_STREAM && size) notePhonePlay(db, p, item, episode, begunAt, Math.min(1, (start + sent) / size), Date.now());
+    };
     if (c.req.param('kind') === 'episode') {
       const ep = db.prepare('SELECT e.path, e.item_id FROM episodes e JOIN items i ON i.id = e.item_id WHERE e.id = ? AND i.present = 1').get(id) as
         | { path: string; item_id: number }
         | undefined;
       rel = ep?.path;
       itemId = ep?.item_id ?? id;
-      if (ep) progress = (start, sent, size) => noteEpisodeStreamed(db, p, id, start, sent, size);
+      if (ep) {
+        progress = (start, sent, size) => {
+          noteEpisodeStreamed(db, p, id, start, sent, size);
+          phonePlay(ep.item_id, id, start, sent, size);
+        };
+      }
     } else {
       const it = db.prepare('SELECT path, is_dir FROM items WHERE id = ? AND present = 1').get(id) as { path: string; is_dir: number } | undefined;
       const ep = it?.is_dir ? nextEpisode(db, id, p) : undefined;
       rel = it && (it.is_dir ? ep?.path : it.path);
-      if (it && !it.is_dir) progress = (start, sent, size) => noteStreamed(db, p, id, start, sent, size);
-      else if (ep) progress = (start, sent, size) => noteEpisodeStreamed(db, p, ep.id, start, sent, size);
+      if (it && !it.is_dir) {
+        progress = (start, sent, size) => {
+          noteStreamed(db, p, id, start, sent, size);
+          phonePlay(id, null, start, sent, size);
+        };
+      } else if (ep) {
+        progress = (start, sent, size) => {
+          noteEpisodeStreamed(db, p, ep.id, start, sent, size);
+          phonePlay(id, ep.id, start, sent, size);
+        };
+      }
     }
     if (!rel) return c.json({ error: 'File is not on the NAS' }, 404);
     const file = join(svc.settings().mediaRoot, rel);
