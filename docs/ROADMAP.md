@@ -11,7 +11,7 @@ discussion before it is built.
 | 4 | Trailer on the TV | Small | Already in the app |
 | 5 | Up next queue and sleep timer | Small to medium | Done |
 | 6 | Coming soon | Medium | Done: [design](superpowers/specs/2026-10-29-series-tracker-coming-soon-design.md) |
-| 7 | Your year in film | Small to medium | Idea |
+| 7 | Your year in film | Small to medium | Done: [design](superpowers/specs/2026-10-30-year-in-film-design.md) |
 | 8 | Live TV | Large | Done: [design](superpowers/specs/2026-10-28-live-tv-design.md) |
 | 9 | Move the app off the M1 | Medium | Idea (parked) |
 | 10 | Age ratings on the TVs | Small | Done |
@@ -94,6 +94,16 @@ films under "Reminders" until their release day.
 
 Hours watched, favourite genres, most-watched actors, and which TV gets used
 most.
+
+Done: since 30 October 2026 the app keeps a log of every play: whose, what,
+on which TV or the phone, when and for how long. Plays from before went in
+once as estimates, from Kodi's last plays and the phone's, and plays the app
+missed come back after a Kodi sync. From 1 December, each profile with at
+least 3 films and episodes watched is asked once, on Home, whether to see its
+year; after that a card on Home opens it until 31 January. The story has a
+card each for how many, the hours, the genres, the actor, the series, prime
+time and which TV, then a summary card. Kids profiles get theirs, with only
+what kids mode shows them. The log needs the app running (see item 9).
 
 ## 8. Live TV
 
