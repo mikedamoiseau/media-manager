@@ -269,7 +269,11 @@ export function createApi(svc: Service): Hono {
 
   // ---------- Your year in film ----------
 
-  yearRoutes(api, svc, who, kidSees);
+  // A kid's year also has their titles gone from the NAS since.
+  yearRoutes(api, svc, who, (c) => {
+    const kid = kidsProfile(db, who(c));
+    return kid ? allowedItems(db, kid.maxAge, true) : null;
+  });
 
   /**
    * The original video file with byte ranges, so a player on the phone (VLC) can seek. kind "item": a film,

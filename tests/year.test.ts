@@ -160,6 +160,18 @@ test('which TV: logged plays only, named, since the first one', () => {
   assert.deepEqual(y.tvs, { since: at(9, 30), rows: [{ name: 'Living room', n: 2 }, { name: 'On the phone', n: 1 }] });
 });
 
+test('which TV: since the log began, said only while it began that year', () => {
+  const db = openDb(':memory:');
+  enough(db);
+  const f = title(db, { name: 'F' });
+  db.prepare("INSERT INTO settings (key, value) VALUES ('playsFilled', ?)").run(String(at(9, 20)));
+  play(db, { item: f, at: at(10, 2), finished: true });
+  assert.equal(yearInFilm(db, 1, 2026, NOW, TVS)!.tvs!.since, at(9, 20), "the log's start, not this profile's first play");
+  for (const d of [3, 4, 5]) play(db, { item: f, at: at(0, d, 20, 0, 2027), finished: true });
+  const y27 = yearInFilm(db, 1, 2027, at(0, 15, 12, 0, 2027), TVS)!;
+  assert.equal(y27.tvs!.since, y27.from, 'the whole year');
+});
+
 test('which TV: nothing logged, no card', () => {
   const db = openDb(':memory:');
   enough(db);

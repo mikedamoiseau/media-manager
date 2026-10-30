@@ -82,12 +82,13 @@ export function setItemOverride(db: DB, itemId: number, value: Override): void {
 /**
  * The items a kid with this age limit sees (on disk, not hidden): a parent's "OK for kids", or made for
  * kids and within age (no rating: only in the KIDS folder), unless a parent said "not for kids".
+ * `gone`: also those no longer on disk that would be (for what a kid watched).
  */
-export function allowedItems(db: DB, maxAge: number): Set<number> {
+export function allowedItems(db: DB, maxAge: number, gone = false): Set<number> {
   const overrides = new Map((db.prepare('SELECT key, ok FROM kids_overrides').all() as Array<{ key: string; ok: number }>).map((r) => [r.key, r.ok]));
   const rows = db.prepare(`SELECT i.id, i.media_type, i.tmdb_id, i.category, t.genres, t.certs FROM items i
     LEFT JOIN titles t ON t.media_type = i.media_type AND t.tmdb_id = i.tmdb_id
-    WHERE i.present = 1 AND i.hidden = 0`).all() as Array<KeyRow & { category: string; genres: string | null; certs: string | null }>;
+    WHERE (i.present = 1 OR ?) AND i.hidden = 0`).all(gone ? 1 : 0) as Array<KeyRow & { category: string; genres: string | null; certs: string | null }>;
   const allowed = new Set<number>();
   for (const r of rows) {
     const o = overrides.get(keyOf(r)) ?? overrides.get(ownKey(r.id));

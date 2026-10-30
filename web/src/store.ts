@@ -172,6 +172,8 @@ export function connectEvents(): void {
       void loadMarks();
       void loadAllowed();
       void pollNowPlaying();
+      // December may have come (the question), or January gone (the card).
+      void loadYear();
     }
   });
 }

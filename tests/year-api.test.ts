@@ -97,10 +97,12 @@ test("a kids profile's year: only the titles kids mode shows it", async (t) => {
   const kid = addProfile(s.db, { name: 'Kid', color: PROFILE_COLORS[2], kids: true }).id;
   const shown = [11, 12, 13].map((n) => s.watched(kid, n, { category: 'kids', cast: n < 13 ? ['Toon'] : [] }));
   s.watched(kid, 11, { category: 'kids', present: 0, day: 20 });
+  // Gone from the NAS, its only copy: still the kid's.
+  s.watched(kid, 15, { category: 'kids', present: 0 });
   // Started on the TV in its kids view by someone else, or no longer allowed: not for the kid to see.
   s.watched(kid, 14);
   const r = await s.call('GET', '/year', kid);
-  assert.deepEqual([r.status, r.json.films, r.json.titles, (r.json.posters as string[]).length], [200, 4, 3, 0]);
+  assert.deepEqual([r.status, r.json.films, r.json.titles, (r.json.posters as string[]).length], [200, 5, 4, 0]);
   const actor = r.json.actor as { name: string; titles: Array<{ itemId: number }> };
   assert.deepEqual([actor.name, actor.titles.map((x) => x.itemId)], ['Toon', [shown[0], shown[1]]], 'the copy the kid may open, not the one gone');
   assert.equal((await s.call('POST', '/year/asked', kid)).status, 204);

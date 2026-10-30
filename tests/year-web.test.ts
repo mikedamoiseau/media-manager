@@ -8,7 +8,7 @@ const title = { itemId: 1, name: 'A film', poster: null };
 
 /** A year with genres and prime time, but no actor, no series and nothing logged. */
 const year = (more: Partial<YearInFilm> = {}): YearInFilm => ({
-  year: 2026, from: at(0, 1), to: at(9, 29), films: 46, episodes: 103, hours: 76, estimated: true, titles: 60,
+  year: 2026, from: at(0, 1), to: at(9, 29), films: 12, episodes: 30, hours: 80, estimated: true, titles: 60,
   genres: [{ name: 'Drama', n: 20 }], actor: null, series: [], hours24: Array.from({ length: 24 }, (_, h) => (h === 22 ? 5 : 0)),
   primeHour: 22, primeCount: 5, plays: 5, afterMidnight: 0, tvs: null, oldest: null, posters: [], asked: false, ...more,
 });
@@ -31,7 +31,7 @@ test('an hour of the day, as said', () => {
 });
 
 test('the hours in days', () => {
-  assert.equal(daysLine(76), 'More than three days');
+  assert.equal(daysLine(80), 'More than three days');
   assert.equal(daysLine(30), 'More than a day');
   assert.equal(daysLine(48), 'More than a day', 'two days is not more than two days');
   assert.equal(daysLine(23), null);
@@ -40,8 +40,8 @@ test('the hours in days', () => {
 });
 
 test('the teaser: films, episodes, and the actor when there is one', () => {
-  assert.equal(teaser(year({ actor: { name: 'X', n: 2, tie: null, photo: null, titles: [], onlyFilms: true } })), '46 films, 103 episodes and one actor you kept coming back to');
-  assert.equal(teaser(year()), '46 films and 103 episodes');
+  assert.equal(teaser(year({ actor: { name: 'X', n: 2, tie: null, photo: null, titles: [], onlyFilms: true } })), '12 films, 30 episodes and one actor you kept coming back to');
+  assert.equal(teaser(year()), '12 films and 30 episodes');
   assert.equal(teaser(year({ films: 1, episodes: 0 })), '1 film');
   assert.equal(teaser(year({ films: 0, episodes: 3, actor: { name: 'X', n: 2, tie: null, photo: null, titles: [], onlyFilms: true } })), '3 episodes and one actor you kept coming back to');
 });

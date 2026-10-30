@@ -48,10 +48,32 @@ test('a play closed: its minutes, at most the runtime', () => {
   const { db, film } = library();
   const id = openPlay(db, { profileId: 1, itemId: film, episodeId: null, device: 'tv1', at: 1000 });
   assert.equal(rows(db)[0]!.minutes, null, 'none while it plays');
-  closePlay(db, id, 130, true, 1000 + 140 * MIN);
+  closePlay(db, id, 110, true, 1000 + 140 * MIN);
   assert.deepEqual(
     rows(db).map((r) => [r.kind, r.device, r.ended_at, r.minutes, r.finished, r.estimated]),
     [['film', 'tv1', 1000 + 140 * MIN, 100, 1, 0]],
+  );
+});
+
+test("a play far longer than its runtime: its stop was missed (a TV switched off, Kodi gone)", () => {
+  const { db, film, show, eps } = library();
+  for (const [item, episode, minutes, finished] of [
+    [film, null, 300, false],
+    [show, eps[1]!, 1210, false],
+    [film, null, 110, true],
+    [film, null, 200, true],
+  ] as const) {
+    const id = openPlay(db, { profileId: 1, itemId: item, episodeId: episode, device: 'tv1', at: 0 });
+    closePlay(db, id, minutes, finished, minutes * MIN);
+  }
+  assert.deepEqual(
+    rows(db).map((r) => [r.estimated, r.minutes, r.finished, r.reached, r.ended_at]),
+    [
+      [1, null, 0, null, null],
+      [1, null, 0, null, null],
+      [0, 100, 1, null, 110 * MIN],
+      [1, null, 1, 1, null],
+    ],
   );
 });
 
@@ -65,20 +87,31 @@ test('a play whose end was missed is an estimate with nothing known', () => {
   assert.equal(closeLeftOpen(db), 0, 'once');
 });
 
-test('the phone: one play per sitting, how far it got and how long it ran', () => {
+test('the phone: one play per sitting, how far it got and how long it streamed, breaks left out', () => {
   const { db, film } = library();
   const anna = addProfile(db, { name: 'Anna', color: PROFILE_COLORS[1] }).id;
   const t = Date.UTC(2026, 10, 2, 20);
   notePhonePlay(db, anna, film, null, t, 0.3, t + 20 * MIN);
-  notePhonePlay(db, anna, film, null, t + 25 * MIN, 0.6, t + 50 * MIN);
+  // A second stream at once (a seek), then another after a 5-minute break.
+  notePhonePlay(db, anna, film, null, t + 15 * MIN, 0.35, t + 22 * MIN);
+  notePhonePlay(db, anna, film, null, t + 27 * MIN, 0.6, t + 50 * MIN);
   assert.deepEqual(
-    rows(db).map((r) => [r.profile_id, r.kind, r.device, r.at, r.minutes, r.reached, r.finished]),
-    [[anna, 'film', 'phone', t, 50, 0.6, 0]],
+    rows(db).map((r) => [r.profile_id, r.kind, r.device, r.at, r.ended_at, r.minutes, r.reached, r.finished]),
+    [[anna, 'film', 'phone', t, t + 50 * MIN, 45, 0.6, 0]],
   );
-  notePhonePlay(db, anna, film, null, t + 55 * MIN, 0.95, t + 90 * MIN);
-  assert.deepEqual([rows(db)[0]!.reached, rows(db)[0]!.finished], [0.95, 1]);
-  notePhonePlay(db, anna, film, null, t + 400 * MIN, 0.1, t + 410 * MIN);
+  // Three hours later, a few more minutes to the end.
+  notePhonePlay(db, anna, film, null, t + 230 * MIN, 0.95, t + 240 * MIN);
+  assert.deepEqual([rows(db)[0]!.minutes, rows(db)[0]!.reached, rows(db)[0]!.finished], [55, 0.95, 1]);
+  notePhonePlay(db, anna, film, null, t + 490 * MIN, 0.1, t + 500 * MIN);
   assert.equal(rows(db).length, 2, 'another sitting, over 4 hours after the last stream');
+});
+
+test('the phone: two streams at once count once, whichever ends first', () => {
+  const { db, film } = library();
+  const t = Date.UTC(2026, 10, 2, 20);
+  notePhonePlay(db, 1, film, null, t + 15 * MIN, 0.3, t + 22 * MIN);
+  notePhonePlay(db, 1, film, null, t, 0.2, t + 20 * MIN);
+  assert.deepEqual(rows(db).map((r) => [r.at, r.ended_at, r.minutes]), [[t, t + 22 * MIN, 22]]);
 });
 
 test('a long sitting on the phone, streamed hour after hour, stays one play', () => {
@@ -130,7 +163,7 @@ test("Kodi's last plays and the phone's last streams become estimated plays, onc
   const fs = db.prepare('INSERT INTO film_states (profile_id, item_id, playcount, resume, last_played) VALUES (1, ?, ?, ?, ?)');
   fs.run(film, 1, null, '2026-03-14 21:05:00');
   fs.run(other, 0, 0.4, '2026-04-02 20:00:00');
-  fs.run(opened, 0, null, '2026-10-29 20:37:57');
+  fs.run(opened, 0, null, '2026-10-29 21:00:00');
   db.prepare("INSERT INTO episode_states (profile_id, episode_id, playcount, last_played) VALUES (1, ?, 1, '2026-05-01 22:00:00')").run(eps[0]);
   db.prepare('INSERT INTO watching (profile_id, item_id, fraction, played_at) VALUES (1, ?, 0.95, ?)').run(phoneOnly, t('2026-06-01T20:00:00'));
   assert.equal(fillPlays(db), 4);

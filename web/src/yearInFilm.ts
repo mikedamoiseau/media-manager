@@ -38,7 +38,7 @@ export function daysLine(hours: number): string | null {
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
-/** The question's line: '46 films, 103 episodes and one actor you kept coming back to'. */
+/** The question's line: '12 films, 30 episodes and one actor you kept coming back to'. */
 export function teaser(y: YearInFilm): string {
   const parts = [y.films > 0 && plural(y.films, 'film'), y.episodes > 0 && plural(y.episodes, 'episode')].filter((p): p is string => !!p);
   if (y.actor) parts.push('one actor you kept coming back to');
@@ -48,7 +48,7 @@ export function teaser(y: YearInFilm): string {
 /** An hour inside a sentence: 'between 11 PM and midnight'. */
 const clock = (h: number) => (h % 12 === 0 ? hourLabel(h).toLowerCase() : hourLabel(h));
 
-/** Prime time's line: '50 of your 149 films and episodes started between 10 PM and 11 PM.' */
+/** Prime time's line: '9 of your 31 films and episodes started between 10 PM and 11 PM.' */
 export function primeLine(y: YearInFilm): string {
   const h = y.primeHour ?? 0;
   const what = y.films && y.episodes ? 'films and episodes' : y.films ? 'films' : 'episodes';

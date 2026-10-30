@@ -20,7 +20,7 @@ import { TvOwners, notePlay, kodiStates, attributeKodiChanges } from './owners.t
 import { pickTv, addTv, editTv, tvNumber, firstTvChanged, firstRun } from './tvs.ts';
 import { upNext, upNextEntries, takeFromUpNext, removeFromUpNext, dropStale, sleepOf, clearSleep, dueSleeps, forgetTv, type UpNextEntry, type Sleep } from './upnext.ts';
 import { PlayError, playItem } from './playItem.ts';
-import { libraryTitle, openPlay, closePlay, closeLeftOpen, fillPlays, logKodiChanges } from './plays.ts';
+import { libraryTitle, openPlay, closePlay, closeLeftOpen, missedEnd, fillPlays, logKodiChanges } from './plays.ts';
 import { refreshCatalog, refreshGuides, checkStreams, writeChannelFile, channelFileText, pickedChannels, setPicks, setStream } from './livetv.ts';
 
 /** How long after a play ends the next of Up next starts: Kodi has closed the last one. */
@@ -361,8 +361,17 @@ export class Service extends EventEmitter {
   private eventsChanged(tvId: string): void {
     const live = this.events.get(tvId)?.ev.live ?? false;
     if (live && !this.liveTvs.has(tvId)) this.kodiConnected(tvId);
-    else if (!live) this.liveTvs.delete(tvId);
+    else if (!live) this.kodiLost(tvId);
     this.tvsChanged();
+  }
+
+  /** The TV went away (switched off, out of reach): what played there stopped without the app hearing when. */
+  kodiLost(tvId: string): void {
+    this.liveTvs.delete(tvId);
+    const o = this.open.get(tvId);
+    if (!o) return;
+    this.open.delete(tvId);
+    missedEnd(this.db, o.id);
   }
 
   /** The TV connected (again): Kodi keeps what a skin is told in memory until it quits cleanly, so it may have lost it. */

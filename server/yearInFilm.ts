@@ -1,6 +1,6 @@
 import type { DB } from './db.ts';
 import { img } from './views.ts';
-import { MIN_PLAY_MINUTES, playMinutes } from './plays.ts';
+import { MIN_PLAY_MINUTES, logStart, playMinutes } from './plays.ts';
 
 // Your year in film: a profile's year from the play log. Only films and series matched on TMDB count; a title
 // (a film, a series) is its TMDB entry, whichever copy or folder was played.
@@ -38,7 +38,7 @@ export interface YearInFilm {
   primeCount: number;
   plays: number;
   afterMidnight: number; // started 00:00 to 04:59
-  tvs: { since: number; rows: Array<{ name: string; n: number }> } | null; // logged (not estimated) plays only
+  tvs: { since: number; rows: Array<{ name: string; n: number }> } | null; // logged (not estimated) plays only, since the log began or 1 January
   oldest: (YearTitle & { year: number }) | null; // the oldest film watched
   posters: string[]; // latest first, one per title
 }
@@ -60,8 +60,8 @@ const byCount = (a: { name: string; n: number }, b: { name: string; n: number })
 /**
  * The profile's year (`tvNames`: a TV's id, or 'phone', to what to call it). A play counts from 5 minutes;
  * one whose length isn't known (a film without a runtime that Kodi says was watched) counts when finished.
- * For a kids profile (`sees`: the items kids mode shows it), only titles it may see count, whichever copy was
- * played. Null when fewer than MIN_WATCHED films and episodes were watched.
+ * For a kids profile (`sees`: the items kids mode allows it, gone from the NAS too), only those titles count,
+ * whichever copy was played. Null when fewer than MIN_WATCHED films and episodes were watched.
  */
 export function yearInFilm(db: DB, profileId: number, year: number, now: number, tvNames: Map<string, string>, sees: Set<number> | null = null): YearInFilm | null {
   const from = new Date(year, 0, 1).getTime();
@@ -75,17 +75,20 @@ export function yearInFilm(db: DB, profileId: number, year: number, now: number,
       AND (p.kind = 'film' AND i.media_type = 'movie' OR p.kind = 'episode' AND i.media_type = 'tv')
     ORDER BY p.at DESC`).all(profileId, from, end) as Row[];
 
-  // The copies that open: on the NAS and not hidden; for a kid, those kids mode shows. A kid's title counts when one does.
+  // A kid's titles: those with a copy kids mode allows them, on the NAS or gone since. The copies that open: on
+  // the NAS and not hidden (for a kid, allowed).
+  const allowed = new Set<string>();
   const opens = new Set<number>();
   const copyOf = new Map<string, number>();
   for (const i of db.prepare("SELECT id, media_type || ':' || tmdb_id AS key, present, hidden FROM items WHERE tmdb_id IS NOT NULL").all() as Array<{ id: number; key: string; present: number; hidden: number }>) {
-    if (sees ? !sees.has(i.id) : !i.present || i.hidden) continue;
+    if (sees?.has(i.id)) allowed.add(i.key);
+    if (!i.present || i.hidden || (sees && !sees.has(i.id))) continue;
     opens.add(i.id);
     if (!copyOf.has(i.key)) copyOf.set(i.key, i.id);
   }
   const plays: Array<Row & { length: number }> = [];
   for (const r of all) {
-    if (sees && !copyOf.has(r.key)) continue;
+    if (sees && !allowed.has(r.key)) continue;
     const runtime = r.runtime || null;
     const known = r.minutes !== null || runtime !== null || r.kind === 'episode';
     const length = known ? playMinutes(r, runtime, r.kind === 'episode') : 0;
@@ -163,7 +166,9 @@ export function yearInFilm(db: DB, profileId: number, year: number, now: number,
     primeCount,
     plays: plays.length,
     afterMidnight: hours24.slice(0, 5).reduce((n, h) => n + h, 0),
-    tvs: logged.length ? { since: Math.min(...logged.map((r) => r.at)), rows: [...tvs].map(([name, n]) => ({ name, n })).sort(byCount) } : null,
+    tvs: logged.length
+      ? { since: Math.max(from, logStart(db) ?? Math.min(...logged.map((r) => r.at))), rows: [...tvs].map(([name, n]) => ({ name, n })).sort(byCount) }
+      : null,
     oldest: oldest ? { ...title(oldest), year: oldest.year! } : null,
     posters: [...posters.values()],
   };

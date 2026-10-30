@@ -40,12 +40,25 @@ export function openPlay(db: DB, p: { profileId: number; itemId: number; episode
   );
 }
 
+/** A play this much longer than its runtime, or this long when the runtime isn't known, wasn't timed: its stop was missed. */
+const OVERRUN = 15;
+const LONGEST = 180;
+
 /** It stopped at `endedAt`: what played, at most the runtime. */
 export function closePlay(db: DB, id: number, minutes: number, finished: boolean, endedAt: number): void {
   const r = db.prepare('SELECT item_id, episode_id FROM plays WHERE id = ?').get(id) as { item_id: number; episode_id: number | null } | undefined;
   if (!r) return;
   const runtime = runtimeOf(db, r.item_id, r.episode_id);
+  if (minutes > (runtime === null ? LONGEST : runtime + OVERRUN)) return missedEnd(db, id, finished);
   db.prepare('UPDATE plays SET ended_at = ?, minutes = ?, finished = ? WHERE id = ?').run(endedAt, Math.max(0, Math.min(minutes, runtime ?? Infinity)), finished ? 1 : 0, id);
+}
+
+/**
+ * A TV's play whose stop the app missed (the TV went off, or away): its minutes aren't known, so it counts with
+ * what Kodi says later; `finished`: it did reach its end.
+ */
+export function missedEnd(db: DB, id: number, finished = false): void {
+  db.prepare('UPDATE plays SET estimated = 1, finished = MAX(finished, ?1), reached = CASE WHEN ?1 THEN 1 ELSE reached END WHERE id = ?2').run(finished ? 1 : 0, id);
 }
 
 /** Plays still open when the app stopped: their end was missed, so they only count with what Kodi says later. */
@@ -55,25 +68,33 @@ export function closeLeftOpen(db: DB): number {
 
 /** The server streamed a film or episode to the phone (the request began at `begunAt`; it got as far as `reached`). */
 export function notePhonePlay(db: DB, profileId: number, itemId: number, episodeId: number | null, begunAt: number, reached: number, now: number): void {
-  // The same sitting while its last stream (its start plus its minutes) is recent; the minutes are kept as they
-  // ran (a break included), and count at most the runtime.
-  const sitting = db.prepare(`SELECT id, at, reached FROM plays WHERE device = 'phone' AND profile_id = ? AND item_id = ? AND episode_id IS ?
-    AND at + COALESCE(minutes, 0) * 60000 >= ? ORDER BY at DESC LIMIT 1`).get(profileId, itemId, episodeId, begunAt - PHONE_SESSION) as
-    | { id: number; at: number; reached: number | null }
+  // The same sitting while its last stream (ended_at) is recent. Its minutes are the time something streamed:
+  // streams at once (a seek) count once, a break between them not at all; they count at most the runtime. A
+  // stream is told of when it ends: what it adds is its time before the sitting began and after it last streamed.
+  const sitting = db.prepare(`SELECT id, at, ended_at, minutes, reached FROM plays WHERE device = 'phone' AND profile_id = ? AND item_id = ? AND episode_id IS ?
+    AND ended_at >= ? ORDER BY at DESC LIMIT 1`).get(profileId, itemId, episodeId, begunAt - PHONE_SESSION) as
+    | { id: number; at: number; ended_at: number; minutes: number; reached: number | null }
     | undefined;
-  const at = Math.min(sitting?.at ?? begunAt, begunAt);
   const far = Math.max(sitting?.reached ?? 0, reached);
-  const minutes = (now - at) / 60_000;
   if (sitting) {
-    db.prepare('UPDATE plays SET at = ?, minutes = ?, reached = ?, finished = ? WHERE id = ?').run(at, minutes, far, far >= FINISHED ? 1 : 0, sitting.id);
+    const added = Math.max(0, Math.min(now, sitting.at) - begunAt) + Math.max(0, now - Math.max(begunAt, sitting.ended_at));
+    const minutes = sitting.minutes + added / 60_000;
+    db.prepare('UPDATE plays SET at = ?, ended_at = ?, minutes = ?, reached = ?, finished = ? WHERE id = ?')
+      .run(Math.min(sitting.at, begunAt), Math.max(sitting.ended_at, now), minutes, far, far >= FINISHED ? 1 : 0, sitting.id);
   } else {
-    db.prepare("INSERT INTO plays (profile_id, item_id, kind, episode_id, device, at, minutes, reached, finished) VALUES (?, ?, ?, ?, 'phone', ?, ?, ?, ?)")
-      .run(profileId, itemId, episodeId === null ? 'film' : 'episode', episodeId, at, minutes, far, far >= FINISHED ? 1 : 0);
+    db.prepare("INSERT INTO plays (profile_id, item_id, kind, episode_id, device, at, ended_at, minutes, reached, finished) VALUES (?, ?, ?, ?, 'phone', ?, ?, ?, ?, ?)")
+      .run(profileId, itemId, episodeId === null ? 'film' : 'episode', episodeId, begunAt, now, (now - begunAt) / 60_000, far, far >= FINISHED ? 1 : 0);
   }
 }
 
-// In the settings table but not among the app's settings: the fill below ran.
+// In the settings table but not among the app's settings: the fill below ran, and when (the log's start).
 const FILLED_KEY = 'playsFilled';
+
+/** When the log started; null: not yet. */
+export function logStart(db: DB): number | null {
+  const r = db.prepare('SELECT value FROM settings WHERE key = ?').get(FILLED_KEY) as { value: string } | undefined;
+  return r ? Number(r.value) : null;
+}
 
 /**
  * Once, when the log starts: each profile's last play of each film and episode on a TV (Kodi's) and on the phone

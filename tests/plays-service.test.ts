@@ -55,6 +55,19 @@ test('a film played on a TV is logged for whoever watches, with its minutes with
   );
 });
 
+test("a TV gone mid-play: the play's end was missed, not timed until the next play", async () => {
+  using s = await setup();
+  await s.svc.onPlayer('tv1', film);
+  mock.timers.tick(20 * MIN);
+  s.svc.kodiLost('tv1');
+  mock.timers.tick(24 * 60 * MIN);
+  await s.svc.onPlayer('tv1', episode(101));
+  assert.deepEqual(
+    rows(s.db).map((r) => [r.kind, r.minutes, r.estimated, r.ended_at]),
+    [['film', null, 1, null], ['episode', null, 0, null]],
+  );
+});
+
 test('stopped by hand: not finished', async () => {
   using s = await setup();
   await s.svc.onPlayer('tv1', episode(101));
