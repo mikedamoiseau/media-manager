@@ -1,8 +1,9 @@
 import { useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useLocation, useRoute } from 'wouter';
-import { useStore, library, prefs, toast, loadLibrary, personRequest, profileChoice, useKids } from '../store.ts';
+import { useStore, library, prefs, toast, loadLibrary, personRequest, profileChoice, useKids, yearStore } from '../store.ts';
 import { ProfileBadge } from './WhosWatching.tsx';
+import { YearCard } from './YearInFilm.tsx';
 import {
   applyFilters, allGenres, groupCards, groupSets, isSet, setName, splitSet, displayTitle, formatDay, CATEGORIES, DECADES, DEFAULT_FILTERS,
   type Filters, type SortKey, type StatusKey,
@@ -94,6 +95,7 @@ export function Library({ active }: { active: boolean }) {
   const people = useMemo(() => peopleTitles((name) => api.get<{ g: string[] }>(`/api/person?name=${encodeURIComponent(name)}`).then((r) => r.g)), []);
   const { keys: peopleKeys, error: peopleError } = useSyncExternalStore(people.subscribe, people.get);
   const person = useStore(personRequest);
+  const year = useStore(yearStore);
 
   useEffect(() => {
     sessionStorage.setItem('mm.filters', JSON.stringify(chosen));
@@ -320,6 +322,7 @@ export function Library({ active }: { active: boolean }) {
           </div>
         </header>
 
+        {year?.asked && !filters.q && activeFilterCount === 0 && <YearCard year={year} />}
         {showContinue && !filters.q && activeFilterCount === 0 && started.length > 0 && <ContinueShelf entries={started} lang={titleLang} onDismiss={dismiss} />}
       {showSuggested && !filters.q && activeFilterCount === 0 && shelf.length >= 3 && <Shelf entries={shelf} lang={titleLang} />}
       {/* Films not on the NAS: only with films in view. */}

@@ -3,7 +3,7 @@ import { api, setKodiTv, setProfile } from './api.ts';
 import { chosenTv } from './tvs.ts';
 import { chosenProfile } from './profiles.ts';
 import { allowedAtFirst, kidsLibrary } from './kids.ts';
-import type { Card, NowPlaying, Profile, Status, TitleLang, TvStatus } from './types.ts';
+import type { Card, NowPlaying, Profile, Status, TitleLang, TvStatus, YearInFilm } from './types.ts';
 
 type Listener = () => void;
 
@@ -281,8 +281,12 @@ profileChoice.subscribe(() => {
     /* private mode */
   }
   marks.set({ w: new Set(), rs: new Set() });
+  yearStore.set(null);
   startOver(chosenProfile(status.get()?.profiles ?? [], id));
-  if (id) void loadMarks();
+  if (id) {
+    void loadMarks();
+    void loadYear();
+  }
 });
 // The profile picked was removed (on any device): ask again who's watching.
 status.subscribe(() => {
@@ -346,4 +350,32 @@ export function toast(text: string, kind: Toast['kind'] = 'info'): void {
   const id = ++toastId;
   toasts.set((t) => [...t.slice(-2), { id, text, kind }]);
   setTimeout(() => toasts.set((t) => t.filter((x) => x.id !== id)), kind === 'error' ? 6000 : 3000);
+}
+
+// ---------- Your year in film ----------
+
+/** This device's profile's year, from December to January; null: nothing to show. */
+export const yearStore = createStore<YearInFilm | null>(null);
+
+export async function loadYear(): Promise<void> {
+  const who = profileChoice.get();
+  if (!who) return;
+  try {
+    const y = await api.get<YearInFilm>('/api/year');
+    if (profileChoice.get() === who) yearStore.set(y);
+  } catch {
+    if (profileChoice.get() === who) yearStore.set(null);
+  }
+}
+
+/** The question was answered or closed: not asked again, on any device. */
+export async function yearAsked(): Promise<void> {
+  const y = yearStore.get();
+  if (!y || y.asked) return;
+  yearStore.set({ ...y, asked: true });
+  try {
+    await api.post(`/api/year/asked?year=${y.year}`);
+  } catch {
+    /* asked again on the next start */
+  }
 }

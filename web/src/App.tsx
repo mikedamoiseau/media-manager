@@ -12,8 +12,9 @@ import { Toasts } from './components/Toasts.tsx';
 import { KodiKeyboard } from './components/KodiKeyboard.tsx';
 import { WhosWatching } from './components/WhosWatching.tsx';
 import { KidsPlaying } from './components/Kids.tsx';
+import { YearQuestion } from './components/YearInFilm.tsx';
 import { IconFilm, IconInbox, IconPlay, IconRemote, IconSettings, IconTv } from './components/icons.tsx';
-import { useStore, status, online, profileChoice, useProfile } from './store.ts';
+import { useStore, status, online, profileChoice, useProfile, yearStore } from './store.ts';
 import { rowOf } from './rows.ts';
 
 type Tab = 'library' | 'live' | 'review' | 'remote' | 'settings';
@@ -49,6 +50,7 @@ export function App() {
   const isOnline = useStore(online);
   const choice = useStore(profileChoice);
   const me = useProfile();
+  const year = useStore(yearStore);
   const kids = !!me?.kids;
   const tabs = kids ? KIDS_TABS : TABS;
   const reviewCount = (st?.counts.unmatched ?? 0) + (st?.counts.pending ?? 0);
@@ -126,6 +128,7 @@ export function App() {
         </nav>
       </footer>
       {!kids && <KodiKeyboard />}
+      {year && !year.asked && me && tab === 'library' && !params && location !== '/year' && <YearQuestion year={year} me={me} />}
       <Toasts />
     </div>
   );

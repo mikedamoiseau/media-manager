@@ -3377,3 +3377,133 @@ select option {
 .up-next-poster .poster-fallback-year {
   display: none;
 }
+
+/* Your year in film: the question over Home (December to January), then the card on Home. */
+.year-ask {
+  max-width: 560px;
+  padding: 0 20px calc(var(--safe-bottom) + 24px);
+  overflow: visible;
+}
+
+.year-fan {
+  position: relative;
+  height: 120px;
+  margin-top: -78px;
+}
+
+.year-fan img {
+  position: absolute;
+  top: 0;
+  width: 96px;
+  aspect-ratio: 2 / 3;
+  object-fit: cover;
+  border-radius: 10px;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.55);
+}
+
+.year-fan img:nth-child(1) {
+  left: calc(50% - 150px);
+  rotate: -12deg;
+  animation: year-float 5s ease-in-out infinite;
+}
+
+.year-fan img:nth-child(2) {
+  left: calc(50% - 48px);
+  top: -10px;
+  z-index: 1;
+  animation: year-float 6s ease-in-out infinite reverse;
+}
+
+.year-fan img:nth-child(3) {
+  left: calc(50% + 54px);
+  rotate: 12deg;
+  animation: year-float 5.5s ease-in-out infinite;
+}
+
+@keyframes year-float {
+  50% {
+    translate: 0 -9px;
+  }
+}
+
+.year-kicker {
+  margin-top: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--brume);
+}
+
+.year-ask-title {
+  font-family: var(--font-display);
+  font-size: 46px;
+  font-weight: 900;
+  line-height: 0.95;
+  text-transform: uppercase;
+}
+
+.year-ask-teaser {
+  margin: 12px 0 22px;
+  color: #c9cfcc;
+}
+
+.year-ask-actions {
+  display: grid;
+  gap: 10px;
+}
+
+.year-ask-note {
+  margin-top: 14px;
+  font-size: 13px;
+  color: var(--brume);
+  text-align: center;
+}
+
+.year-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: calc(100% - 2 * var(--gutter));
+  margin: 4px var(--gutter) 18px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: var(--rideau);
+  box-shadow: inset 0 0 0 1px rgba(242, 179, 61, 0.45);
+  color: var(--ecran);
+  text-align: left;
+  animation: rise 0.4s ease-out;
+}
+
+.year-card:hover {
+  background: var(--rideau-2);
+}
+
+.year-card-year {
+  font-family: var(--font-display);
+  font-size: 34px;
+  font-weight: 900;
+  line-height: 1;
+  color: var(--lampe);
+}
+
+.year-card-text {
+  display: grid;
+  flex: 1;
+}
+
+.year-card-text span {
+  font-size: 14px;
+  color: var(--brume);
+}
+
+.year-card svg {
+  color: var(--lampe);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .year-fan img,
+  .year-card {
+    animation: none;
+  }
+}

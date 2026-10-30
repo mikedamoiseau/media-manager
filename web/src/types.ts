@@ -419,3 +419,35 @@ export interface ShowToGet {
 export type SoonEntry =
   | { kind: 'season'; tmdbId: number; itemId: number; season: number; date: string | null }
   | { kind: 'film'; film: Film; date: string | null; set: string | null; cinema: boolean; reminder: boolean };
+
+/** A film or series in Your year in film (`itemId`: its copy to open). */
+export interface YearTitle {
+  itemId: number;
+  name: string;
+  poster: string | null;
+}
+
+/** Your year in film, as the server works it out for this device's profile (see server/yearInFilm.ts). */
+export interface YearInFilm {
+  year: number;
+  from: number;
+  to: number;
+  films: number;
+  episodes: number;
+  hours: number;
+  estimated: boolean;
+  titles: number;
+  genres: Array<{ name: string; n: number }>;
+  actor: { name: string; n: number; tie: string | null; photo: string | null; titles: YearTitle[] } | null;
+  series: Array<YearTitle & { episodes: number; backdrop: string | null }>;
+  hours24: number[];
+  primeHour: number | null;
+  primeCount: number;
+  plays: number;
+  afterMidnight: number;
+  tvs: { since: number; rows: Array<{ name: string; n: number }> } | null;
+  oldest: (YearTitle & { year: number }) | null;
+  posters: string[];
+  /** The question was answered on some device. */
+  asked: boolean;
+}
