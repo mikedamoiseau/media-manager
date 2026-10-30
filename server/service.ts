@@ -20,7 +20,7 @@ import { TvOwners, notePlay, kodiStates, attributeKodiChanges } from './owners.t
 import { pickTv, addTv, editTv, tvNumber, firstTvChanged, firstRun } from './tvs.ts';
 import { upNext, upNextEntries, takeFromUpNext, removeFromUpNext, dropStale, sleepOf, clearSleep, dueSleeps, forgetTv, type UpNextEntry, type Sleep } from './upnext.ts';
 import { PlayError, playItem } from './playItem.ts';
-import { libraryTitle, openPlay, closePlay, closeLeftOpen, fillPlays } from './plays.ts';
+import { libraryTitle, openPlay, closePlay, closeLeftOpen, fillPlays, logKodiChanges } from './plays.ts';
 import { refreshCatalog, refreshGuides, checkStreams, writeChannelFile, channelFileText, pickedChannels, setPicks, setStream } from './livetv.ts';
 
 /** How long after a play ends the next of Up next starts: Kodi has closed the last one. */
@@ -354,7 +354,7 @@ export class Service extends EventEmitter {
     if (!o) return;
     this.open.delete(tvId);
     const paused = o.paused + (o.pausedAt === null ? 0 : now - o.pausedAt);
-    closePlay(this.db, o.id, (now - o.at - paused) / 60_000, finished);
+    closePlay(this.db, o.id, (now - o.at - paused) / 60_000, finished, now);
   }
 
   /** A TV's events connection came up or went: one that connects again is told again what plays next. */
@@ -641,7 +641,7 @@ export class Service extends EventEmitter {
       const prefix = tv.pathPrefix;
       const before = kodiStates(this.db);
       const r = await syncFromKodi(this.db, cfg, prefix);
-      attributeKodiChanges(this.db, before);
+      logKodiChanges(this.db, attributeKodiChanges(this.db, before));
       this.libraryChanged(true);
       // Kodi may have re-scraped a title and lost its tag, or got new ones.
       this.kidsChanged();

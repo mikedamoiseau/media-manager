@@ -1,5 +1,6 @@
 import type { DB } from './db.ts';
 import { FINISHED, STARTED, kodiTime } from './watching.ts';
+import { CLAIM_WINDOW, CLOCK_SLACK, type KodiChange } from './owners.ts';
 
 // The play log, for Your year in film: every film or episode played on a TV (from Kodi's events) or on the
 // phone (from what the server streams), and estimates of plays the app only knows from how far they got.
@@ -39,12 +40,12 @@ export function openPlay(db: DB, p: { profileId: number; itemId: number; episode
   );
 }
 
-/** It stopped: what played, at most the runtime. */
-export function closePlay(db: DB, id: number, minutes: number, finished: boolean): void {
+/** It stopped at `endedAt`: what played, at most the runtime. */
+export function closePlay(db: DB, id: number, minutes: number, finished: boolean, endedAt: number): void {
   const r = db.prepare('SELECT item_id, episode_id FROM plays WHERE id = ?').get(id) as { item_id: number; episode_id: number | null } | undefined;
   if (!r) return;
   const runtime = runtimeOf(db, r.item_id, r.episode_id);
-  db.prepare('UPDATE plays SET minutes = ?, finished = ? WHERE id = ?').run(Math.max(0, Math.min(minutes, runtime ?? Infinity)), finished ? 1 : 0, id);
+  db.prepare('UPDATE plays SET ended_at = ?, minutes = ?, finished = ? WHERE id = ?').run(endedAt, Math.max(0, Math.min(minutes, runtime ?? Infinity)), finished ? 1 : 0, id);
 }
 
 /** Plays still open when the app stopped: their end was missed, so they only count with what Kodi says later. */
@@ -127,6 +128,38 @@ export function fillPlays(db: DB): number {
   } catch (e) {
     db.exec('ROLLBACK');
     throw e;
+  }
+  return added;
+}
+
+/**
+ * After a Kodi sync, the changes given to profiles: a play the log has (started not long before Kodi's new last
+ * play) learns how it ended; a play the app missed (it wasn't running) comes in as an estimate, when it was
+ * watched or got past the start. How many were added.
+ */
+export function logKodiChanges(db: DB, changes: KodiChange[]): number {
+  // Kodi stamps a play's last play when it stops. The play it reports: a TV's that stopped then; one whose stop
+  // the app missed, started not long before; one Kodi told of before, for that same last play. Never the phone's.
+  const near = (col: string) => `${col} BETWEEN ?4 - ${CLOCK_SLACK} AND ?4 + ${CLOCK_SLACK}`;
+  const covering = db.prepare(`SELECT id FROM plays WHERE profile_id = ?1 AND item_id = ?2 AND episode_id IS ?3 AND device IS NOT 'phone'
+    AND (ended_at IS NOT NULL AND ${near('ended_at')}
+      OR device IS NOT NULL AND ended_at IS NULL AND at BETWEEN ?4 - ${CLAIM_WINDOW} AND ?4 + ${CLOCK_SLACK}
+      OR device IS NULL AND ${near('at')})
+    ORDER BY at DESC LIMIT 1`);
+  const learn = db.prepare(`UPDATE plays SET finished = MAX(finished, ?1),
+    reached = CASE WHEN ?1 THEN 1 WHEN ?2 IS NOT NULL THEN MAX(COALESCE(reached, 0), ?2) ELSE reached END WHERE id = ?3`);
+  const add = db.prepare('INSERT INTO plays (profile_id, item_id, kind, episode_id, at, reached, finished, estimated) VALUES (?, ?, ?, ?, ?, ?, ?, 1)');
+  let added = 0;
+  for (const c of changes) {
+    if (!c.lastPlayed) continue;
+    const at = kodiTime(c.lastPlayed);
+    const finished = c.watched || (c.resume ?? 0) >= FINISHED;
+    const known = covering.get(c.profileId, c.itemId, c.episodeId, at) as { id: number } | undefined;
+    if (known) learn.run(finished ? 1 : 0, c.resume, known.id);
+    else if (finished || (c.resume ?? 0) >= STARTED) {
+      add.run(c.profileId, c.itemId, c.episodeId === null ? 'film' : 'episode', c.episodeId, at, finished ? 1 : c.resume, finished ? 1 : 0);
+      added++;
+    }
   }
   return added;
 }

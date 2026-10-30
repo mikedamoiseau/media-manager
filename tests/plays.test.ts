@@ -9,7 +9,7 @@ import { Service } from '../server/service.ts';
 import { createApi } from '../server/api.ts';
 import { applyKodiLibrary } from '../server/metadata.ts';
 import { PROFILE_COLORS, addProfile } from '../server/profiles.ts';
-import { libraryTitle, runtimeOf, openPlay, closePlay, closeLeftOpen, notePhonePlay, playMinutes, fillPlays } from '../server/plays.ts';
+import { libraryTitle, runtimeOf, openPlay, closePlay, closeLeftOpen, notePhonePlay, playMinutes, fillPlays, logKodiChanges } from '../server/plays.ts';
 
 const MIN = 60_000;
 
@@ -48,10 +48,10 @@ test('a play closed: its minutes, at most the runtime', () => {
   const { db, film } = library();
   const id = openPlay(db, { profileId: 1, itemId: film, episodeId: null, device: 'tv1', at: 1000 });
   assert.equal(rows(db)[0]!.minutes, null, 'none while it plays');
-  closePlay(db, id, 130, true);
+  closePlay(db, id, 130, true, 1000 + 140 * MIN);
   assert.deepEqual(
-    rows(db).map((r) => [r.kind, r.device, r.minutes, r.finished, r.estimated]),
-    [['film', 'tv1', 100, 1, 0]],
+    rows(db).map((r) => [r.kind, r.device, r.ended_at, r.minutes, r.finished, r.estimated]),
+    [['film', 'tv1', 1000 + 140 * MIN, 100, 1, 0]],
   );
 });
 
@@ -177,6 +177,66 @@ test('a title the log already has is not put in again', () => {
   assert.equal(rows(db).length, 1);
 });
 
+const change = (itemId: number, lastPlayed: string, o: { watched?: boolean; resume?: number | null; episodeId?: number | null } = {}) => ({
+  profileId: 1, itemId, episodeId: o.episodeId ?? null, lastPlayed, watched: o.watched ?? false, resume: o.resume ?? null,
+});
+
+test('a TV play logged in the afternoon is not the one Kodi reports in the evening', () => {
+  const { db, film } = library();
+  const id = openPlay(db, { profileId: 1, itemId: film, episodeId: null, device: 'tv1', at: new Date('2026-11-02T16:00:00').getTime() });
+  closePlay(db, id, 100, true, new Date('2026-11-02T17:40:00').getTime());
+  assert.equal(logKodiChanges(db, [change(film, '2026-11-02 21:40:00', { watched: true })]), 1);
+  assert.equal(rows(db).length, 2);
+});
+
+test('two watches the app missed, hours apart, are two plays', () => {
+  const { db, film } = library();
+  logKodiChanges(db, [change(film, '2026-11-02 16:00:00', { watched: true })]);
+  logKodiChanges(db, [change(film, '2026-11-02 21:40:00', { watched: true })]);
+  assert.equal(rows(db).length, 2);
+});
+
+test("a phone play is never what Kodi's change is about", () => {
+  const { db, film } = library();
+  const t = new Date('2026-11-02T20:30:00').getTime();
+  notePhonePlay(db, 1, film, null, t, 0.3, t + 20 * MIN);
+  assert.equal(logKodiChanges(db, [change(film, '2026-11-02 21:40:00', { watched: true })]), 1);
+  assert.deepEqual(rows(db).map((r) => [r.device, r.finished, r.estimated]), [['phone', 0, 0], [null, 1, 1]]);
+});
+
+test('a play the app logged is marked finished when Kodi counts it watched', () => {
+  const { db, film } = library();
+  const id = openPlay(db, { profileId: 1, itemId: film, episodeId: null, device: 'tv1', at: new Date('2026-11-02T20:00:00').getTime() });
+  closePlay(db, id, 95, false, new Date('2026-11-02T21:39:00').getTime());
+  assert.equal(logKodiChanges(db, [change(film, '2026-11-02 21:40:00', { watched: true })]), 0);
+  assert.deepEqual(rows(db).map((r) => [r.minutes, r.finished]), [[95, 1]]);
+});
+
+test('a play the app missed comes in as an estimate', () => {
+  const { db, film } = library();
+  assert.equal(logKodiChanges(db, [change(film, '2026-11-02 21:40:00', { watched: true })]), 1);
+  assert.deepEqual(
+    rows(db).map((r) => [r.kind, r.device, r.at, r.reached, r.finished, r.estimated]),
+    [['film', null, new Date('2026-11-02T21:40:00').getTime(), 1, 1, 1]],
+  );
+});
+
+test("a change that is only a few seconds' start adds nothing", () => {
+  const { db, film } = library();
+  assert.equal(logKodiChanges(db, [change(film, '2026-11-02 21:40:00')]), 0);
+  assert.deepEqual(rows(db), []);
+});
+
+test('a play left open, then reported by Kodi, gets how far Kodi says', () => {
+  const { db, film } = library();
+  openPlay(db, { profileId: 1, itemId: film, episodeId: null, device: 'tv1', at: new Date('2026-11-02T20:00:00').getTime() });
+  closeLeftOpen(db);
+  logKodiChanges(db, [change(film, '2026-11-02 21:00:00', { resume: 0.6 })]);
+  const r = rows(db);
+  assert.deepEqual(r.map((x) => [x.estimated, x.reached, x.finished]), [[1, 0.6, 0]]);
+  assert.equal(playMinutes(r[0] as { minutes: number | null; reached: number | null }, 100, false), 60);
+});
+
 test('the fill runs when the service starts', () => {
   const { db, film } = library();
   db.prepare("INSERT INTO film_states (profile_id, item_id, playcount, last_played) VALUES (1, ?, 1, '2026-03-14 21:05:00')").run(film);
@@ -194,7 +254,7 @@ test('an estimate counts its share of the runtime; an episode without one, 40 mi
 test('the log and its tables exist', () => {
   const db = openDb(':memory:');
   const cols = (t: string) => (db.prepare(`PRAGMA table_info(${t})`).all() as Array<{ name: string }>).map((c) => c.name);
-  assert.deepEqual(cols('plays'), ['id', 'profile_id', 'item_id', 'kind', 'episode_id', 'device', 'at', 'minutes', 'reached', 'finished', 'estimated']);
+  assert.deepEqual(cols('plays'), ['id', 'profile_id', 'item_id', 'kind', 'episode_id', 'device', 'at', 'ended_at', 'minutes', 'reached', 'finished', 'estimated']);
   assert.deepEqual(cols('year_asked'), ['profile_id', 'year', 'at']);
   assert.deepEqual(cols('person_photos'), ['name', 'url', 'fetched_at']);
   assert.ok(cols('episodes').includes('runtime'));

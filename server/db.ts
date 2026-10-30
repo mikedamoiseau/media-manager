@@ -365,6 +365,7 @@ export const MIGRATIONS: string[] = [
     episode_id INTEGER REFERENCES episodes(id) ON DELETE SET NULL,
     device TEXT,                        -- a TV's id, 'phone'; null: estimated
     at INTEGER NOT NULL,                -- when it started
+    ended_at INTEGER,                   -- when a TV's play stopped (Kodi stamps its last play then)
     minutes REAL,                       -- played, without pauses; null while it plays, or not known
     reached REAL,                       -- how far it got (0..1), when known
     finished INTEGER NOT NULL DEFAULT 0,

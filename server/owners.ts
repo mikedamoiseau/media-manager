@@ -12,7 +12,7 @@ export const CHAIN_WINDOW = 2 * 60_000;
 /** A play noted this long before the change Kodi reports didn't make it (a Play that never started). */
 export const CLAIM_WINDOW = 12 * 3600_000;
 // Kodi's clock and ours may differ a little.
-const CLOCK_SLACK = 5 * 60_000;
+export const CLOCK_SLACK = 5 * 60_000;
 
 /** Who is watching on each TV, from the app's use of it; the main profile when nobody used the app. */
 export class TvOwners {
@@ -88,9 +88,19 @@ export interface KodiStates {
   episodes: Map<number, State>;
 }
 
-type Row = { id: number; kodi_id: number; playcount: number | null; resume: number | null; last_played: string | null };
-const FILMS = "SELECT id, kodi_id, playcount, resume, last_played FROM items WHERE kodi_type = 'movie' AND kodi_id IS NOT NULL";
-const EPISODES = 'SELECT id, kodi_id, playcount, resume, last_played FROM episodes WHERE kodi_id IS NOT NULL';
+type Row = { id: number; item_id: number; kodi_id: number; playcount: number | null; resume: number | null; last_played: string | null };
+const FILMS = "SELECT id, id AS item_id, kodi_id, playcount, resume, last_played FROM items WHERE kodi_type = 'movie' AND kodi_id IS NOT NULL";
+const EPISODES = 'SELECT id, item_id, kodi_id, playcount, resume, last_played FROM episodes WHERE kodi_id IS NOT NULL';
+
+/** A change of Kodi's given to a profile: the film (or episode of a series), its new last play, whether Kodi's play count went up. */
+export interface KodiChange {
+  profileId: number;
+  itemId: number;
+  episodeId: number | null;
+  lastPlayed: string | null;
+  watched: boolean;
+  resume: number | null;
+}
 
 export function kodiStates(db: DB): KodiStates {
   const read = (sql: string, kodiType: State['kodiType']) =>
@@ -103,16 +113,16 @@ export function kodiStates(db: DB): KodiStates {
  * started it on a TV (noted after its previous play, not long before this one, and not given yet: a noted
  * play is one play), else to the main profile. That profile gets
  * Kodi's new resume point and last play, and the plays added (or none, when Kodi's count went to 0).
- * How many changes were given.
+ * The changes given.
  */
-export function attributeKodiChanges(db: DB, before: KodiStates, now = Date.now()): number {
+export function attributeKodiChanges(db: DB, before: KodiStates, now = Date.now()): KodiChange[] {
   const owner = db.prepare('SELECT profile_id, at, used_at FROM tv_plays WHERE kodi_type = ? AND kodi_id = ?');
   const used = db.prepare('UPDATE tv_plays SET used_at = ? WHERE kodi_type = ? AND kodi_id = ?');
   const tables = [
     { sql: FILMS, kind: 'movie' as const, prev: before.films, table: 'film_states', key: 'item_id' },
     { sql: EPISODES, kind: 'episode' as const, prev: before.episodes, table: 'episode_states', key: 'episode_id' },
   ];
-  let given = 0;
+  const given: KodiChange[] = [];
   for (const t of tables) {
     const current = db.prepare(`SELECT playcount FROM ${t.table} WHERE profile_id = ? AND ${t.key} = ?`);
     const save = db.prepare(`INSERT INTO ${t.table} (profile_id, ${t.key}, playcount, resume, last_played) VALUES (?, ?, ?, ?, ?)
@@ -130,7 +140,9 @@ export function attributeKodiChanges(db: DB, before: KodiStates, now = Date.now(
       const playcount = (r.playcount ?? 0) === 0 ? 0 : had + Math.max(0, added);
       save.run(profile, r.id, playcount, r.resume, r.last_played);
       if (claimed) used.run(now, t.kind, r.kodi_id);
-      given++;
+      given.push({
+        profileId: profile, itemId: r.item_id, episodeId: t.kind === 'episode' ? r.id : null, lastPlayed: r.last_played, watched: added > 0, resume: r.resume,
+      });
     }
   }
   return given;

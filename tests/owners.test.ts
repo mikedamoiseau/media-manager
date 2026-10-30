@@ -60,27 +60,32 @@ function seed() {
   const show = Number(db.prepare(`INSERT INTO items (path, folder, category, is_dir, kodi_id, kodi_type, added_at, updated_at)
     VALUES ('SERIES/S', 'SERIES', 'series', 1, 5, 'tvshow', 1, 1)`).run().lastInsertRowid);
   const ep = Number(db.prepare(`INSERT INTO episodes (item_id, path, season, episode, kodi_id, playcount) VALUES (?, 'SERIES/S/E01.mkv', 1, 1, 101, 0)`).run(show).lastInsertRowid);
-  return { db, anna, film, ep };
+  return { db, anna, film, show, ep };
 }
 
 const states = (db: DB, table: 'film_states' | 'episode_states', key: 'item_id' | 'episode_id', id: number) =>
   db.prepare(`SELECT profile_id, playcount, resume, last_played FROM ${table} WHERE ${key} = ? ORDER BY profile_id`).all(id).map((r) => ({ ...r }));
 
 test('Kodi changes after a sync go to the owner of the play, or to the main profile', () => {
-  const { db, anna, film, ep } = seed();
+  const { db, anna, film, show, ep } = seed();
   notePlay(db, 'movie', 12, anna, NOW);
   notePlay(db, 'episode', 101, anna, NOW);
   const before = kodiStates(db);
   // What the sync writes: Anna stopped the film halfway and watched the episode to the end.
   db.prepare('UPDATE items SET resume = 0.5, last_played = ? WHERE id = ?').run(kodiDate(NOW + 60 * MIN), film);
   db.prepare('UPDATE episodes SET playcount = 1, last_played = ? WHERE id = ?').run(kodiDate(NOW + 30 * MIN), ep);
-  assert.equal(attributeKodiChanges(db, before), 2);
+  const given = attributeKodiChanges(db, before);
+  assert.equal(given.length, 2);
+  assert.deepEqual(given, [
+    { profileId: anna, itemId: film, episodeId: null, lastPlayed: kodiDate(NOW + 60 * MIN), watched: false, resume: 0.5 },
+    { profileId: anna, itemId: show, episodeId: ep, lastPlayed: kodiDate(NOW + 30 * MIN), watched: true, resume: null },
+  ]);
   assert.deepEqual(states(db, 'film_states', 'item_id', film), [
     { profile_id: 1, playcount: 1, resume: null, last_played: kodiDate(NOW - 5 * 24 * 60 * MIN) },
     { profile_id: anna, playcount: 0, resume: 0.5, last_played: kodiDate(NOW + 60 * MIN) },
   ]);
   assert.deepEqual(states(db, 'episode_states', 'episode_id', ep), [{ profile_id: anna, playcount: 1, resume: null, last_played: kodiDate(NOW + 30 * MIN) }]);
-  assert.equal(attributeKodiChanges(db, kodiStates(db)), 0, 'nothing changed since');
+  assert.equal(attributeKodiChanges(db, kodiStates(db)).length, 0, 'nothing changed since');
 });
 
 test('a change with no play noted, or noted before the previous one, is the main profile\'s', () => {
