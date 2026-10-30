@@ -8,7 +8,8 @@ import { reconcile, applySheetHints, syncSheetOnlyItems, importSheetRows } from 
 import { fetchSheet } from './sheet.ts';
 import { type KodiConfig, KodiError, kodiCall, discoverKodi, detectPathPrefix, libraryPathPrefix, remote } from './kodi.ts';
 import { listProfiles, type Profile } from './profiles.ts';
-import { hasParentsCode, kidsProfile, bedtimeStop } from './kids.ts';
+import { hasParentsCode, kidsProfile, kidsProfiles, bedtimeStop, isBedtime } from './kids.ts';
+import { holdsNext, entryName, nextLabel, tellSkin } from './holdNext.ts';
 import { syncKidsTag, kidsViewProfile } from './kidsTag.ts';
 import { syncAgeRatings } from './kodiRatings.ts';
 import { syncFromKodi, matchPending, enrichTitles } from './metadata.ts';
@@ -104,6 +105,13 @@ export class Service extends EventEmitter {
   private playingNow = new Map<string, { type: string; id: number }>();
   /** TVs whose "after this" timer ran out at an end: Kodi going on by itself is stopped too. */
   private stopChain = new Set<string>();
+  /** What each TV's skin was last told about what plays next (or refused): not told again until it changes. */
+  private toldSkin = new Map<string, string>();
+  /** The last error each TV gave, noted once. */
+  private skinErrors = new Map<string, string>();
+  private skinTurn: Promise<void> = Promise.resolve();
+  /** TVs whose events connection is up. */
+  private liveTvs = new Set<string>();
 
   constructor(db: DB, dataDir: string) {
     super();
@@ -196,7 +204,7 @@ export class Service extends EventEmitter {
     }
     for (const tv of tvs) {
       let e = this.events.get(tv.id);
-      if (!e) this.events.set(tv.id, (e = { host: '', ev: new KodiEvents(() => this.tvsChanged(), undefined, undefined, (p) => this.onPlayer(tv.id, p)) }));
+      if (!e) this.events.set(tv.id, (e = { host: '', ev: new KodiEvents(() => this.eventsChanged(tv.id), undefined, undefined, (p) => this.onPlayer(tv.id, p)) }));
       if (e.host === tv.host) continue;
       e.host = tv.host;
       e.ev.connect(tv.host);
@@ -306,6 +314,55 @@ export class Service extends EventEmitter {
       if (tv) await remote(tv, 'stop').catch((err: Error) => console.warn(`Sleep timer stop on ${tv.name}: ${err.message}`));
     }
     if (stop.length || lapsed.length || stale.length) this.tvsChanged();
+    // A kid's bedtime comes with the clock.
+    await this.syncHoldNext(now);
+  }
+
+  /** A TV's events connection came up or went: one that connects again is told again what plays next. */
+  private eventsChanged(tvId: string): void {
+    const live = this.events.get(tvId)?.ev.live ?? false;
+    if (live && !this.liveTvs.has(tvId)) this.kodiConnected(tvId);
+    else if (!live) this.liveTvs.delete(tvId);
+    this.tvsChanged();
+  }
+
+  /** The TV connected (again): Kodi keeps what a skin is told in memory until it quits cleanly, so it may have lost it. */
+  kodiConnected(tvId: string): void {
+    this.liveTvs.add(tvId);
+    this.toldSkin.delete(tvId);
+  }
+
+  /**
+   * Each TV's skin is told whether the app decides what plays after this, and what that is (Lumen's "Next
+   * episode" card plays nothing then). One round at a time, so older news never comes last.
+   */
+  syncHoldNext(now = Date.now()): Promise<void> {
+    this.skinTurn = this.skinTurn.then(() => this.tellSkins(now)).catch((err: Error) => console.warn(`What plays next not told: ${err.message}`));
+    return this.skinTurn;
+  }
+
+  private async tellSkins(now: number): Promise<void> {
+    const kid = kidsProfiles(this.db)[0];
+    const bedtime = !!kid && isBedtime(kid.bedtime, new Date(now));
+    // A TV that isn't connected (off) is told when it connects.
+    for (const tv of this.tvs().filter((t) => this.liveTvs.has(t.id))) {
+      try {
+        const kidsBedtime = bedtime && (await kidsViewProfile(this.db, tv)) === kid.id;
+        const { hold, first } = holdsNext(this.db, tv.id, now, kidsBedtime);
+        const news = `${hold}:${first?.id ?? ''}`;
+        if (this.toldSkin.get(tv.id) === news) continue;
+        // Noted before telling: a refusal (a skin without the settings) waits for news, or the TV connecting again.
+        this.toldSkin.set(tv.id, news);
+        await tellSkin(tv, hold, first ? nextLabel(await entryName(this.db, tv, first)) : '');
+        this.skinErrors.delete(tv.id);
+      } catch (err) {
+        // A call that didn't get through is made again at the next look.
+        if (!(err instanceof KodiError && err.code === 'rpc')) this.toldSkin.delete(tv.id);
+        const message = (err as Error).message;
+        if (this.skinErrors.get(tv.id) !== message) console.warn(`What plays next on ${tv.name} not told to Kodi: ${message}`);
+        this.skinErrors.set(tv.id, message);
+      }
+    }
   }
 
   /** The series (item id) of the episode Kodi started; none for a film, or an episode the app doesn't know. */
@@ -321,6 +378,7 @@ export class Service extends EventEmitter {
   private tvsChanged(): void {
     this.refreshTvs();
     this.emitStatus();
+    void this.syncHoldNext();
   }
 
   private refreshTvs(): void {
