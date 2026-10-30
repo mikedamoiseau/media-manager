@@ -352,6 +352,37 @@ export const MIGRATIONS: string[] = [
     until INTEGER NOT NULL              -- an "after this" left behind lapses then
   );
   `,
+  `
+  -- Every play of a film or episode, for Your year in film. A play from Kodi's events or the phone has a device
+  -- and, once over, its minutes; an estimated one (put in from Kodi's last plays, the phone's last streams, or a
+  -- play the app missed) has no device and only how far it got.
+  CREATE TABLE plays (
+    id INTEGER PRIMARY KEY,
+    profile_id INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+    item_id INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE, -- the film, or the episode's series
+    kind TEXT NOT NULL,                 -- film|episode
+    -- A rescan drops an episode whose file was renamed or replaced: its plays stay, as an episode's of that series.
+    episode_id INTEGER REFERENCES episodes(id) ON DELETE SET NULL,
+    device TEXT,                        -- a TV's id, 'phone'; null: estimated
+    at INTEGER NOT NULL,                -- when it started
+    minutes REAL,                       -- played, without pauses; null while it plays, or not known
+    reached REAL,                       -- how far it got (0..1), when known
+    finished INTEGER NOT NULL DEFAULT 0,
+    estimated INTEGER NOT NULL DEFAULT 0
+  );
+  CREATE INDEX plays_profile ON plays(profile_id, at);
+  -- Whether each profile was asked about its year (either answer).
+  CREATE TABLE year_asked (
+    profile_id INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+    year INTEGER NOT NULL,
+    at INTEGER NOT NULL,
+    PRIMARY KEY (profile_id, year)
+  );
+  -- An actor's TMDB photo (url null: TMDB has none), looked up by name.
+  CREATE TABLE person_photos (name TEXT PRIMARY KEY, url TEXT, fetched_at INTEGER NOT NULL);
+  -- An episode's runtime in minutes, from Kodi.
+  ALTER TABLE episodes ADD COLUMN runtime INTEGER;
+  `,
 ];
 
 export function openDb(file: string): DB {

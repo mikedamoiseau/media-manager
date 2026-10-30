@@ -109,7 +109,7 @@ export interface KodiSyncResult {
 export interface KodiLibrary {
   movies: KodiVideo[];
   shows: KodiVideo[];
-  episodes: Array<{ episodeid: number; file: string; playcount: number; resume?: { position: number; total: number }; lastplayed?: string }>;
+  episodes: Array<{ episodeid: number; file: string; playcount: number; resume?: { position: number; total: number }; lastplayed?: string; runtime?: number }>;
 }
 
 export async function fetchKodiLibrary(cfg: KodiConfig): Promise<KodiLibrary> {
@@ -120,7 +120,7 @@ export async function fetchKodiLibrary(cfg: KodiConfig): Promise<KodiLibrary> {
   const [movies, shows, episodes] = await Promise.all([
     paged<KodiVideo>(cfg, 'VideoLibrary.GetMovies', 'movies', { properties: movieProps }),
     paged<KodiVideo>(cfg, 'VideoLibrary.GetTVShows', 'tvshows', { properties: showProps }),
-    paged<KodiLibrary['episodes'][number]>(cfg, 'VideoLibrary.GetEpisodes', 'episodes', { properties: ['file', 'playcount', 'resume', 'lastplayed'] }),
+    paged<KodiLibrary['episodes'][number]>(cfg, 'VideoLibrary.GetEpisodes', 'episodes', { properties: ['file', 'playcount', 'resume', 'lastplayed', 'runtime'] }),
   ]);
   return { movies, shows, episodes };
 }
@@ -144,8 +144,9 @@ export function applyKodiLibrary(db: DB, prefix: string, lib: KodiLibrary, now =
   // 'kodi-doubted': Kodi's match for this file looked wrong and was sent to the review list instead.
   const adopt = db.prepare(`UPDATE items SET tmdb_id = ?, media_type = ?, match_state = 'matched', match_source = 'kodi', candidates = NULL, updated_at = ?
     WHERE id = ? AND match_state IN ('pending', 'unmatched') AND match_source IS NOT 'kodi-doubted'`);
-  const epLink = db.prepare(`UPDATE episodes SET kodi_id = ?1, playcount = ?2, resume = ?3, last_played = ?4
-    WHERE id = ?5 AND (kodi_id IS NOT ?1 OR playcount IS NOT ?2 OR resume IS NOT ?3 OR last_played IS NOT ?4)`);
+  // Kodi gives an episode's runtime in seconds (0: not known); kept in minutes.
+  const epLink = db.prepare(`UPDATE episodes SET kodi_id = ?1, playcount = ?2, resume = ?3, last_played = ?4, runtime = ?6
+    WHERE id = ?5 AND (kodi_id IS NOT ?1 OR playcount IS NOT ?2 OR resume IS NOT ?3 OR last_played IS NOT ?4 OR runtime IS NOT ?6)`);
   const touch = db.prepare('UPDATE items SET updated_at = ? WHERE id = ?');
   let linked = 0;
   let epLinked = 0;
@@ -175,7 +176,7 @@ export function applyKodiLibrary(db: DB, prefix: string, lib: KodiLibrary, now =
       if (!ep) continue;
       epLinked++;
       const resume = e.resume && e.resume.total > 0 ? e.resume.position / e.resume.total : null;
-      if (epLink.run(e.episodeid, e.playcount, resume, e.lastplayed || null, ep.id).changes) touch.run(now, ep.item_id);
+      if (epLink.run(e.episodeid, e.playcount, resume, e.lastplayed || null, ep.id, e.runtime ? Math.round(e.runtime / 60) : null).changes) touch.run(now, ep.item_id);
     }
   });
   return { movies: lib.movies.length, shows: lib.shows.length, linked, episodes: epLinked };
