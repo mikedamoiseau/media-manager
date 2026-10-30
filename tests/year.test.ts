@@ -175,8 +175,16 @@ test('the year a play started is the one it counts in', () => {
 test('a title gone from the NAS still counts', () => {
   const db = openDb(':memory:');
   enough(db, 2);
-  play(db, { item: title(db, { name: 'Gone', present: 0 }), at: at(7, 1), finished: true });
-  assert.equal(yearInFilm(db, 1, 2026, NOW, TVS)!.films, 3);
+  play(db, { item: title(db, { name: 'Gone', year: 1900, present: 0 }), at: at(7, 1), finished: true });
+  const hidden = title(db, { name: 'Copy', tmdb: 5000, year: 1901 });
+  db.prepare('UPDATE items SET hidden = 1 WHERE id = ?').run(hidden);
+  const copy = title(db, { name: 'Copy', tmdb: 5000 });
+  play(db, { item: title(db, { name: 'Copy', tmdb: 5000, present: 0 }), at: at(7, 2), finished: true });
+  const y = yearInFilm(db, 1, 2026, NOW, TVS)!;
+  assert.equal(y.films, 4);
+  assert.equal(y.oldest!.name, 'Gone', 'counted, the only copy');
+  db.prepare("UPDATE titles SET year = 1800 WHERE tmdb_id = 5000").run();
+  assert.equal(yearInFilm(db, 1, 2026, NOW, TVS)!.oldest!.itemId, copy, 'opens the copy on the NAS, not one hidden');
 });
 
 test('too little: null', () => {

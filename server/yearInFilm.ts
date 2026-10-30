@@ -59,9 +59,10 @@ const byCount = (a: { name: string; n: number }, b: { name: string; n: number })
 /**
  * The profile's year (`tvNames`: a TV's id, or 'phone', to what to call it). A play counts from 5 minutes;
  * one whose length isn't known (a film without a runtime that Kodi says was watched) counts when finished.
- * Null when fewer than MIN_WATCHED films and episodes were watched.
+ * For a kids profile (`sees`: the items kids mode shows it), only titles it may see count, whichever copy was
+ * played. Null when fewer than MIN_WATCHED films and episodes were watched.
  */
-export function yearInFilm(db: DB, profileId: number, year: number, now: number, tvNames: Map<string, string>): YearInFilm | null {
+export function yearInFilm(db: DB, profileId: number, year: number, now: number, tvNames: Map<string, string>, sees: Set<number> | null = null): YearInFilm | null {
   const from = new Date(year, 0, 1).getTime();
   const end = new Date(year + 1, 0, 1).getTime();
   const all = db.prepare(`SELECT p.item_id, p.kind, p.device, p.at, p.minutes, p.reached, p.finished, p.estimated,
@@ -73,8 +74,17 @@ export function yearInFilm(db: DB, profileId: number, year: number, now: number,
       AND (p.kind = 'film' AND i.media_type = 'movie' OR p.kind = 'episode' AND i.media_type = 'tv')
     ORDER BY p.at DESC`).all(profileId, from, end) as Row[];
 
+  // The copies that open: on the NAS and not hidden; for a kid, those kids mode shows. A kid's title counts when one does.
+  const opens = new Set<number>();
+  const copyOf = new Map<string, number>();
+  for (const i of db.prepare("SELECT id, media_type || ':' || tmdb_id AS key, present, hidden FROM items WHERE tmdb_id IS NOT NULL").all() as Array<{ id: number; key: string; present: number; hidden: number }>) {
+    if (sees ? !sees.has(i.id) : !i.present || i.hidden) continue;
+    opens.add(i.id);
+    if (!copyOf.has(i.key)) copyOf.set(i.key, i.id);
+  }
   const plays: Array<Row & { length: number }> = [];
   for (const r of all) {
+    if (sees && !copyOf.has(r.key)) continue;
     const runtime = r.runtime || null;
     const known = r.minutes !== null || runtime !== null || r.kind === 'episode';
     const length = known ? playMinutes(r, runtime, r.kind === 'episode') : 0;
@@ -85,7 +95,8 @@ export function yearInFilm(db: DB, profileId: number, year: number, now: number,
   const episodes = finished.length - films;
   if (films + episodes < MIN_WATCHED) return null;
 
-  const title = (r: Row): YearTitle => ({ itemId: r.item_id, name: r.name, poster: img(r.poster, 342) });
+  // The copy played, else one that opens.
+  const title = (r: Row): YearTitle => ({ itemId: opens.has(r.item_id) ? r.item_id : copyOf.get(r.key) ?? r.item_id, name: r.name, poster: img(r.poster, 342) });
   // Each title watched, as its latest play.
   const watched = new Map<string, Row>();
   for (const r of finished) if (!watched.has(r.key)) watched.set(r.key, r);

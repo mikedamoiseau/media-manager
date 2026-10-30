@@ -164,6 +164,13 @@ export class Tmdb {
     return (d.results ?? []).map((r) => r.id);
   }
 
+  /** A person's photo, by name: the first (most popular) match's; none: null. */
+  async personPhoto(name: string): Promise<string | null> {
+    const d = await this.get<{ results?: Array<{ profile_path?: string | null }> }>('/search/person', { query: name });
+    const p = d.results?.[0]?.profile_path;
+    return p ? `${IMG}/w342${p}` : null;
+  }
+
   /** The collection (film set) a movie belongs to. */
   async collectionOf(movieId: number): Promise<number | undefined> {
     const d = await this.get<{ belongs_to_collection?: { id: number } | null }>(`/movie/${movieId}`);

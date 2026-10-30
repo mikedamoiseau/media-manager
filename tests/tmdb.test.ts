@@ -213,3 +213,17 @@ test("showSeasons: a show's seasons, last and next episode, and status", async (
   });
   assert.deepEqual(calls, ['/3/tv/5?en-US']);
 });
+
+test("a person's photo: the first result's, else none", async () => {
+  const calls: string[] = [];
+  const fn = (async (input: string | URL) => {
+    const url = new URL(String(input));
+    calls.push(url.pathname);
+    const known = url.searchParams.get('query') === 'Known Actor';
+    return new Response(JSON.stringify({ results: known ? [{ profile_path: '/a.jpg' }, { profile_path: '/b.jpg' }] : [{ profile_path: null }] }));
+  }) as typeof fetch;
+  const tmdb = new Tmdb('k', fn, 0);
+  assert.equal(await tmdb.personPhoto('Known Actor'), 'https://image.tmdb.org/t/p/w342/a.jpg');
+  assert.equal(await tmdb.personPhoto('Nobody'), null);
+  assert.deepEqual(calls, ['/3/search/person', '/3/search/person']);
+});

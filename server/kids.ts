@@ -123,12 +123,12 @@ export function kidsProfiles(db: DB): KidsProfile[] {
 
 // The server's side of kids mode: the app shows no more than this, and a kids profile can't reach more.
 const KIDS_ROUTES: Array<[string, RegExp]> = [
-  ['GET', /^\/(library|marks|continue|suggestions|status|events|profiles|img|kids\/allowed|kodi\/now|kodi\/streams)$/],
+  ['GET', /^\/(library|marks|continue|suggestions|status|events|profiles|img|year|kids\/allowed|kodi\/now|kodi\/streams)$/],
   ['GET', /^\/(items|thumb|poster)\/\d+$/],
   ['POST', /^\/items\/\d+\/(play|activity)$/],
   ['PUT', /^\/items\/\d+\/rating$/],
   ['POST', /^\/continue\/\d+\/dismiss$/],
-  ['POST', /^\/(kodi\/remote|kids\/unlock|refresh)$/],
+  ['POST', /^\/(kodi\/remote|kids\/unlock|refresh|year\/asked)$/],
 ];
 
 /** Whether a kids profile may make this request (path as under /api). */

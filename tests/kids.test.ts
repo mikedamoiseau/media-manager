@@ -166,12 +166,13 @@ test('a kids profile reaches only its own routes', () => {
     ['POST', '/items/12/activity'], ['PUT', '/items/12/rating'], ['GET', '/continue'], ['POST', '/continue/12/dismiss'],
     ['GET', '/suggestions'], ['GET', '/kodi/now'], ['GET', '/kodi/streams'], ['POST', '/kodi/remote'], ['GET', '/status'],
     ['GET', '/events'], ['GET', '/profiles'], ['GET', '/kids/allowed'], ['POST', '/kids/unlock'], ['POST', '/refresh'],
-    ['GET', '/img'], ['GET', '/thumb/12'], ['GET', '/poster/12']]) assert.equal(kidsRoute(m, p), true, `${m} ${p}`);
+    ['GET', '/img'], ['GET', '/thumb/12'], ['GET', '/poster/12'], ['GET', '/year'], ['POST', '/year/asked']]) assert.equal(kidsRoute(m, p), true, `${m} ${p}`);
   for (const [m, p] of [['GET', '/elsewhere'], ['GET', '/cinema'], ['GET', '/films/3'], ['POST', '/kodi/power'], ['POST', '/kodi/input'],
     ['PUT', '/settings'], ['GET', '/settings'], ['PUT', '/profiles/1'], ['POST', '/profiles'], ['DELETE', '/profiles/2'], ['GET', '/person'],
     ['GET', '/people'], ['GET', '/set'], ['POST', '/items/12/match'], ['PATCH', '/items/12'], ['GET', '/media/item/12/a.mkv'],
     ['GET', '/handoff/item/12/x/a.mkv'], ['POST', '/items/12/trailer'], ['PUT', '/kids/code'], ['PUT', '/kids/items/12'], ['GET', '/kids/items/12'],
-    ['POST', '/tvs'], ['POST', '/scan'], ['GET', '/reports/wanted'], ['GET', '/items/12/posters'], ['GET', '/items/12/x'], ['DELETE', '/items/12']])
+    ['POST', '/tvs'], ['POST', '/scan'], ['GET', '/reports/wanted'], ['GET', '/items/12/posters'], ['GET', '/items/12/x'], ['DELETE', '/items/12'],
+    ['POST', '/year'], ['GET', '/year/asked']])
     assert.equal(kidsRoute(m, p), false, `${m} ${p}`);
   assert.deepEqual([...KIDS_REMOTE].sort(), ['audio', 'mute', 'playpause', 'stop', 'subtitles', 'volume']);
 });

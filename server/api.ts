@@ -31,6 +31,7 @@ import { ProfileError, listProfiles, addProfile, editProfile, removeProfile, pro
 import { KidsError, setParentsCode, checkParentsCode, kidsProfile, kidsProfiles, allowedItems, itemKey, itemOverride, setItemOverride, kidsRoute, KIDS_REMOTE, type Override } from './kids.ts';
 import { PlayError, playItem } from './playItem.ts';
 import { upNextRoutes } from './upnextApi.ts';
+import { yearRoutes } from './yearApi.ts';
 import { liveTvRoutes } from './liveApi.ts';
 
 function sendFile(file: string, maxAge = 31536000): Response {
@@ -265,6 +266,10 @@ export function createApi(svc: Service): Hono {
   // ---------- Up next and the sleep timer ----------
 
   upNextRoutes(api, svc, kodi, who);
+
+  // ---------- Your year in film ----------
+
+  yearRoutes(api, svc, who, kidSees);
 
   /**
    * The original video file with byte ranges, so a player on the phone (VLC) can seek. kind "item": a film,
