@@ -14,6 +14,7 @@ discussion before it is built.
 | 7 | Your year in film | Small to medium | Idea |
 | 8 | Live TV | Large | Done: [design](superpowers/specs/2026-10-28-live-tv-design.md) |
 | 9 | Move the app off the M1 | Medium | Idea (parked) |
+| 10 | Age ratings on the TVs | Small | Done |
 
 ## 1. Who's watching (profiles)
 
@@ -112,3 +113,13 @@ locally built add-on would be copied into every Home Assistant backup
 (about 68 MB, daily, in three places). This is a project of its own, to
 discuss first: see the parked note in the
 [Live TV design](superpowers/specs/2026-10-28-live-tv-design.md).
+
+## 10. Age ratings on the TVs
+
+Kodi's scrapers give each title its US rating ("Rated PG-13"), while the app
+and kids mode go by FSK. The TVs should show the same rating as the app.
+
+Done: the app writes the FSK rating ("FSK 12") into Kodi's library for every
+title on the NAS that TMDB has one for, and again after each Kodi sync. Titles
+without one keep Kodi's rating. The Lumen skin shows it as a badge. A
+"Refresh" in Kodi brings the US rating back until the next sync.
