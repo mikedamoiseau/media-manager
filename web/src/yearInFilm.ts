@@ -45,6 +45,16 @@ export function teaser(y: YearInFilm): string {
   return parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)}` : parts[0] ?? '';
 }
 
+/** An hour inside a sentence: 'between 11 PM and midnight'. */
+const clock = (h: number) => (h % 12 === 0 ? hourLabel(h).toLowerCase() : hourLabel(h));
+
+/** Prime time's line: '50 of your 149 films and episodes started between 10 PM and 11 PM.' */
+export function primeLine(y: YearInFilm): string {
+  const h = y.primeHour ?? 0;
+  const what = y.films && y.episodes ? 'films and episodes' : y.films ? 'films' : 'episodes';
+  return `${y.primeCount} of your ${y.plays} ${what} started between ${clock(h)} and ${clock((h + 1) % 24)}.`;
+}
+
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const dayMonth = (t: number) => `${new Date(t).getDate()} ${MONTHS[new Date(t).getMonth()]}`;
 

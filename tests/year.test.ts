@@ -101,7 +101,7 @@ test('genres, the actor and the oldest film count each title once', () => {
   ]);
   assert.deepEqual(
     { ...y.actor!, titles: y.actor!.titles.map((t) => t.name) },
-    { name: 'X', n: 2, tie: 'Y', photo: null, titles: ['F2', 'F1'] },
+    { name: 'X', n: 2, tie: 'Y', photo: null, titles: ['F2', 'F1'], onlyFilms: true },
   );
   assert.deepEqual(y.oldest, { itemId: f2, name: 'F2', poster: img('https://tmdb/F2.jpg', 342), year: 1985 }, 'a film, not the series');
 });
@@ -113,6 +113,14 @@ test('the actor: in at least two titles, among the first eight names of each', (
   play(db, { item: title(db, { name: 'G2', cast: ['W', 'B1'] }), at: at(3, 2), finished: true });
   play(db, { item: title(db, { name: 'G3', cast: ['C1', 'W2'] }), at: at(3, 3), finished: true });
   assert.equal(yearInFilm(db, 1, 2026, NOW, TVS)!.actor, null);
+});
+
+test('the actor: in films only, or in a series too', () => {
+  const db = openDb(':memory:');
+  for (const name of ['H1', 'H2']) play(db, { item: title(db, { name, cast: ['Star'] }), at: at(3, 1), finished: true });
+  play(db, { item: title(db, { name: 'HS', type: 'tv', cast: ['Star'] }), at: at(3, 2), minutes: 40, finished: true });
+  const actor = yearInFilm(db, 1, 2026, NOW, TVS)!.actor!;
+  assert.deepEqual([actor.name, actor.n, actor.onlyFilms], ['Star', 3, false]);
 });
 
 test('the series: most episodes first', () => {

@@ -3507,3 +3507,757 @@ select option {
     animation: none;
   }
 }
+
+/* Your year in film, the story: full screen over everything, a card at a time. */
+.story {
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  overflow: hidden;
+  background: var(--nuit);
+  color: var(--ecran);
+  outline: none;
+}
+
+.story-card {
+  position: absolute;
+  inset: 0;
+  animation: fade 0.3s ease-out;
+}
+
+.story-progress {
+  position: absolute;
+  top: calc(var(--safe-top) + 14px);
+  left: 12px;
+  right: 12px;
+  z-index: 3;
+  display: flex;
+  gap: 4px;
+}
+
+.story-progress > span {
+  flex: 1;
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(237, 235, 228, 0.25);
+  overflow: hidden;
+}
+
+.story-progress .done,
+.story-progress .now {
+  display: block;
+  height: 100%;
+  background: var(--ecran);
+}
+
+.story-progress .now {
+  animation: story-fill linear both;
+}
+
+@keyframes story-fill {
+  from {
+    width: 0;
+  }
+  to {
+    width: 100%;
+  }
+}
+
+.story-close {
+  position: absolute;
+  top: calc(var(--safe-top) + 24px);
+  right: 8px;
+  z-index: 3;
+  width: 44px;
+  height: 44px;
+}
+
+.story-tap {
+  position: absolute;
+  top: calc(var(--safe-top) + 72px);
+  bottom: 0;
+  z-index: 2;
+  background: transparent;
+}
+
+.story-tap.prev {
+  left: 0;
+  width: 33.4%;
+}
+
+.story-tap.next {
+  right: 0;
+  width: 66.6%;
+}
+
+.story-nothing {
+  display: grid;
+  place-content: center;
+  gap: 16px;
+  text-align: center;
+}
+
+/* Motion, each with its delay (--d). */
+.story-in {
+  animation: story-rise 0.7s var(--ease) var(--d, 0ms) both;
+}
+
+.story-pop {
+  animation: story-pop 0.6s cubic-bezier(0.2, 0.9, 0.3, 1.2) var(--d, 0ms) both;
+}
+
+@keyframes story-rise {
+  from {
+    opacity: 0;
+    transform: translateY(28px);
+  }
+}
+
+@keyframes story-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+}
+
+/* The text of a card, in a column no wider than a phone's on a tablet. */
+.story-body {
+  position: absolute;
+  inset: 0;
+  max-width: 520px;
+  margin: 0 auto;
+  padding: calc(var(--safe-top) + 96px) 24px calc(var(--safe-bottom) + 24px);
+  display: flex;
+  flex-direction: column;
+}
+
+.story-center {
+  align-items: center;
+  text-align: center;
+}
+
+.story-lead {
+  font-size: 22px;
+  font-weight: 600;
+}
+
+.story-line {
+  margin-top: 12px;
+  font-size: 18px;
+  color: #c9cfcc;
+}
+
+.story-muted {
+  margin-top: 10px;
+  color: var(--brume);
+}
+
+.story-kicker {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--brume);
+}
+
+.story-figure {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0 14px;
+}
+
+.story-number,
+.story-big,
+.story-year,
+.story-name,
+.story-unit,
+.story-headline {
+  font-family: var(--font-display);
+  line-height: 0.85;
+  text-transform: uppercase;
+}
+
+.story-number {
+  font-size: min(150px, 36vw);
+  font-weight: 900;
+  color: var(--lampe);
+  font-variant-numeric: tabular-nums;
+}
+
+.story-unit {
+  font-size: 48px;
+  font-weight: 800;
+}
+
+.story-big {
+  font-size: min(112px, 24vw);
+  font-weight: 900;
+  line-height: 0.9;
+  color: var(--lampe);
+  overflow-wrap: anywhere;
+}
+
+.story-name {
+  margin-top: 6px;
+  font-size: min(64px, 15vw);
+  font-weight: 900;
+  line-height: 0.95;
+  color: var(--lampe);
+  overflow-wrap: anywhere;
+}
+
+.story-name.plain {
+  font-size: min(58px, 13vw);
+  color: var(--ecran);
+}
+
+.story-poster {
+  display: block;
+  aspect-ratio: 2 / 3;
+  border-radius: 8px;
+  overflow: hidden;
+  background: linear-gradient(160deg, var(--rideau-3) 0%, var(--rideau) 78%);
+}
+
+.story-poster img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* open: the year's posters drifting in three columns behind a dark fade. */
+.story-columns {
+  position: absolute;
+  top: 0;
+  left: -24px;
+  right: -24px;
+  display: flex;
+  gap: 12px;
+  opacity: 0.85;
+}
+
+.story-column {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  animation: story-up 46s linear infinite;
+}
+
+.story-column.down {
+  animation: story-down 52s linear infinite;
+}
+
+@keyframes story-up {
+  to {
+    transform: translateY(-50%);
+  }
+}
+
+@keyframes story-down {
+  from {
+    transform: translateY(-50%);
+  }
+  to {
+    transform: none;
+  }
+}
+
+.story-fade {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(13, 27, 33, 0.35) 0%, rgba(13, 27, 33, 0.75) 45%, var(--nuit) 78%);
+}
+
+.story-open {
+  position: absolute;
+  left: 24px;
+  right: 24px;
+  bottom: calc(var(--safe-bottom) + 96px);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.story-who {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px 6px 6px;
+  border-radius: 999px;
+  background: var(--rideau-2);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.story-who.plain {
+  padding: 0;
+  background: none;
+}
+
+.story-who .avatar {
+  width: 24px;
+  height: 24px;
+  font-size: 13px;
+}
+
+.story-year {
+  margin-top: 12px;
+  font-size: min(168px, 42vw);
+  font-weight: 900;
+  line-height: 0.82;
+  color: var(--lampe);
+}
+
+.story-headline {
+  margin-top: 10px;
+  font-size: 44px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.story-headline.small {
+  font-size: 34px;
+}
+
+.story-hint {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(var(--safe-bottom) + 36px);
+  text-align: center;
+  font-size: 14px;
+  color: var(--brume);
+}
+
+/* count: a wall of posters. */
+.story-count {
+  padding-top: calc(var(--safe-top) + 64px);
+}
+
+/* As wide as the screen (a little past the text), narrower when the screen is short so the text below fits. */
+.story-wall {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  align-self: center;
+  width: min(calc(100% + 16px), calc((100dvh - 270px) * 0.88));
+  margin-bottom: 26px;
+}
+
+/* hours: a film strip running underneath. */
+.story-strip {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(var(--safe-bottom) + 64px);
+  height: 214px;
+  overflow: hidden;
+  background: #070f12;
+}
+
+.story-strip::before,
+.story-strip::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 10px;
+  opacity: 0.35;
+  background: repeating-linear-gradient(90deg, var(--ecran) 0 14px, transparent 14px 28px);
+}
+
+.story-strip::before {
+  top: 10px;
+}
+
+.story-strip::after {
+  bottom: 10px;
+}
+
+.story-strip-run {
+  position: absolute;
+  top: 32px;
+  display: flex;
+  gap: 14px;
+  width: max-content;
+  animation: story-left 22s linear infinite;
+}
+
+.story-strip-run .story-poster {
+  width: 100px;
+  border-radius: 4px;
+}
+
+@keyframes story-left {
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+/* genres and TVs: bars growing one after another, the first gold. */
+.story-bars {
+  margin-top: 44px;
+  display: grid;
+  gap: 18px;
+}
+
+.story-bar-row {
+  display: grid;
+  grid-template-columns: minmax(0, 7.5em) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  font-weight: 600;
+}
+
+.story-bar-row > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.story-bar {
+  height: 16px;
+  border-radius: 8px;
+  background: rgba(237, 235, 228, 0.08);
+  overflow: hidden;
+}
+
+.story-grow {
+  display: block;
+  height: 100%;
+  border-radius: 8px;
+  background: var(--brume);
+  transform-origin: left center;
+  animation: story-grow-x 0.9s var(--ease) var(--d, 0ms) both;
+}
+
+.story-grow.top,
+.story-rise.top {
+  background: var(--lampe);
+}
+
+@keyframes story-grow-x {
+  from {
+    transform: scaleX(0);
+  }
+}
+
+.story-bar-n {
+  font-weight: 700;
+  text-align: right;
+}
+
+/* actor: their posters fanning out, their photo in front. */
+.story-fan {
+  position: relative;
+  width: 150px;
+  flex: none;
+}
+
+.story-fan .story-poster {
+  width: 150px;
+  border-radius: 10px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.55);
+}
+
+.story-fan .story-fan-left,
+.story-fan .story-fan-right {
+  position: absolute;
+  inset: 0 auto auto 0;
+  animation: story-fan-left 0.9s var(--ease) 0.3s both;
+}
+
+.story-fan .story-fan-right {
+  animation-name: story-fan-right;
+}
+
+@keyframes story-fan-left {
+  from {
+    opacity: 0;
+  }
+  to {
+    transform: translate(-92px, 18px) rotate(-13deg);
+  }
+}
+
+@keyframes story-fan-right {
+  from {
+    opacity: 0;
+  }
+  to {
+    transform: translate(92px, 18px) rotate(13deg);
+  }
+}
+
+.story-photo {
+  display: grid;
+  place-items: center;
+  width: 96px;
+  height: 96px;
+  margin: -40px 0 18px;
+  position: relative;
+  border-radius: 50%;
+  border: 4px solid var(--nuit);
+  overflow: hidden;
+  background: linear-gradient(160deg, #c9cfcc 0%, #5e6f73 100%);
+  color: var(--nuit);
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: 36px;
+}
+
+.story-photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* series: the backdrop slowly zooming, the count below it. */
+.story-backdrop {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 52%;
+  overflow: hidden;
+  background: linear-gradient(170deg, var(--rideau) 0%, #070f12 100%);
+}
+
+.story-backdrop::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, transparent 40%, var(--nuit) 100%);
+}
+
+.story-zoom {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  animation: story-zoom 9s ease-out both;
+}
+
+@keyframes story-zoom {
+  from {
+    transform: scale(1.02);
+  }
+  to {
+    transform: scale(1.18) translate(-14px, 10px);
+  }
+}
+
+.story-below {
+  justify-content: flex-end;
+  padding-bottom: calc(var(--safe-bottom) + 48px);
+}
+
+.story-below .story-number {
+  font-size: min(130px, 32vw);
+}
+
+.story-below .story-unit {
+  font-size: 38px;
+}
+
+.story-list {
+  margin-top: 24px;
+  display: grid;
+  gap: 10px;
+}
+
+.story-list > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+/* prime time: plays by hour, bar by bar. */
+.story-chart {
+  margin-top: 48px;
+  height: 180px;
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+}
+
+.story-rise {
+  flex: 1;
+  border-radius: 3px 3px 0 0;
+  background: var(--rideau-3);
+  transform-origin: center bottom;
+  animation: story-grow-y 0.8s var(--ease) var(--d, 0ms) both;
+}
+
+@keyframes story-grow-y {
+  from {
+    transform: scaleY(0);
+  }
+}
+
+.story-axis {
+  margin-top: 8px;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  font-size: 13px;
+  color: var(--brume);
+}
+
+/* summary: the year on one card. */
+.story-summary {
+  position: absolute;
+  inset: 0;
+  max-width: 520px;
+  margin: 0 auto;
+  padding: calc(var(--safe-top) + 72px) 20px calc(var(--safe-bottom) + 28px);
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  overflow-y: auto;
+}
+
+.story-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 22px;
+  border-radius: 24px;
+  background: var(--rideau);
+  box-shadow: inset 0 0 0 1px rgba(242, 179, 61, 0.4);
+}
+
+.story-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.story-panel-year {
+  font-family: var(--font-display);
+  font-size: 34px;
+  font-weight: 900;
+  line-height: 1;
+  color: var(--lampe);
+}
+
+.story-cells {
+  margin-top: 22px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px 16px;
+}
+
+.story-cells > div,
+.story-more > div {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.story-label {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--brume);
+}
+
+.story-value {
+  font-family: var(--font-display);
+  font-size: 30px;
+  font-weight: 800;
+  line-height: 1.05;
+  overflow-wrap: anywhere;
+}
+
+.story-more {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+  display: grid;
+  gap: 10px;
+}
+
+.story-oldest {
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.story-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+/* A short screen (a browser's bars, a small phone): smaller strip, fan and type, so every card fits. */
+@media (max-height: 620px) {
+  .story-body {
+    padding-top: calc(var(--safe-top) + 80px);
+  }
+
+  .story-number {
+    font-size: min(150px, 36vw, 22dvh);
+  }
+
+  .story-big {
+    font-size: min(112px, 24vw, 16dvh);
+  }
+
+  .story-strip {
+    bottom: calc(var(--safe-bottom) + 24px);
+    height: 150px;
+  }
+
+  .story-strip-run {
+    top: 26px;
+  }
+
+  .story-strip-run .story-poster {
+    width: 66px;
+  }
+
+  .story-fan,
+  .story-fan .story-poster {
+    width: 110px;
+  }
+
+  .story-bars,
+  .story-chart {
+    margin-top: 28px;
+  }
+
+  .story-chart {
+    height: 120px;
+  }
+}
+
+/* Reduced motion: cards fade in place; nothing drifts, runs or zooms; numbers are there at once. */
+@media (prefers-reduced-motion: reduce) {
+  .story-in,
+  .story-pop,
+  .story-grow,
+  .story-rise,
+  .story-fan .story-fan-left,
+  .story-fan .story-fan-right {
+    animation: fade 0.4s ease-out both;
+  }
+
+  .story-fan .story-fan-left {
+    transform: translate(-92px, 18px) rotate(-13deg);
+  }
+
+  .story-fan .story-fan-right {
+    transform: translate(92px, 18px) rotate(13deg);
+  }
+
+  .story-column,
+  .story-column.down,
+  .story-strip-run,
+  .story-zoom {
+    animation: none;
+  }
+}

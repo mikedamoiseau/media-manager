@@ -438,7 +438,7 @@ export interface YearInFilm {
   estimated: boolean;
   titles: number;
   genres: Array<{ name: string; n: number }>;
-  actor: { name: string; n: number; tie: string | null; photo: string | null; titles: YearTitle[] } | null;
+  actor: { name: string; n: number; tie: string | null; photo: string | null; titles: YearTitle[]; onlyFilms: boolean } | null;
   series: Array<YearTitle & { episodes: number; backdrop: string | null }>;
   hours24: number[];
   primeHour: number | null;

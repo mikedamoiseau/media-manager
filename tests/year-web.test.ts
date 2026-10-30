@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { coveredLine, daysLine, hourLabel, storyCards, teaser } from '../web/src/yearInFilm.ts';
+import { coveredLine, daysLine, hourLabel, primeLine, storyCards, teaser } from '../web/src/yearInFilm.ts';
 import type { YearInFilm } from '../web/src/types.ts';
 
 const at = (month: number, day: number, year = 2026) => new Date(year, month, day, 20).getTime();
@@ -17,7 +17,7 @@ test('the cards: those with something to say, the first and the last always', ()
   assert.deepEqual(storyCards(year()), ['open', 'count', 'hours', 'genres', 'prime', 'summary']);
   assert.deepEqual(
     storyCards(year({
-      actor: { name: 'X', n: 2, tie: null, photo: null, titles: [title] },
+      actor: { name: 'X', n: 2, tie: null, photo: null, titles: [title], onlyFilms: true },
       series: [{ ...title, episodes: 3, backdrop: null }],
       tvs: { since: at(9, 30), rows: [{ name: 'Living room', n: 2 }] },
     })),
@@ -40,13 +40,19 @@ test('the hours in days', () => {
 });
 
 test('the teaser: films, episodes, and the actor when there is one', () => {
-  assert.equal(teaser(year({ actor: { name: 'X', n: 2, tie: null, photo: null, titles: [] } })), '46 films, 103 episodes and one actor you kept coming back to');
+  assert.equal(teaser(year({ actor: { name: 'X', n: 2, tie: null, photo: null, titles: [], onlyFilms: true } })), '46 films, 103 episodes and one actor you kept coming back to');
   assert.equal(teaser(year()), '46 films and 103 episodes');
   assert.equal(teaser(year({ films: 1, episodes: 0 })), '1 film');
-  assert.equal(teaser(year({ films: 0, episodes: 3, actor: { name: 'X', n: 2, tie: null, photo: null, titles: [] } })), '3 episodes and one actor you kept coming back to');
+  assert.equal(teaser(year({ films: 0, episodes: 3, actor: { name: 'X', n: 2, tie: null, photo: null, titles: [], onlyFilms: true } })), '3 episodes and one actor you kept coming back to');
 });
 
 test('the dates covered: while the year runs, up to today', () => {
   assert.equal(coveredLine(year(), at(9, 29)), '1 January to 29 October');
   assert.equal(coveredLine(year({ to: at(11, 31) }), at(0, 3, 2027)), null);
+});
+
+test('prime time, as said', () => {
+  assert.equal(primeLine(year()), '5 of your 5 films and episodes started between 10 PM and 11 PM.');
+  assert.equal(primeLine(year({ primeHour: 23, primeCount: 2, plays: 9, episodes: 0 })), '2 of your 9 films started between 11 PM and midnight.');
+  assert.equal(primeLine(year({ primeHour: 11, primeCount: 1, plays: 4, films: 0 })), '1 of your 4 episodes started between 11 AM and noon.');
 });

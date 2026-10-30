@@ -12,7 +12,7 @@ import { Toasts } from './components/Toasts.tsx';
 import { KodiKeyboard } from './components/KodiKeyboard.tsx';
 import { WhosWatching } from './components/WhosWatching.tsx';
 import { KidsPlaying } from './components/Kids.tsx';
-import { YearQuestion } from './components/YearInFilm.tsx';
+import { YearQuestion, YearStory } from './components/YearInFilm.tsx';
 import { IconFilm, IconInbox, IconPlay, IconRemote, IconSettings, IconTv } from './components/icons.tsx';
 import { useStore, status, online, profileChoice, useProfile, yearStore } from './store.ts';
 import { rowOf } from './rows.ts';
@@ -41,6 +41,7 @@ export function App() {
   const [location, navigate] = useLocation();
   const [, titleParams] = useRoute('/title/:id');
   const [, filmParams] = useRoute('/film/:id');
+  const [onYear] = useRoute('/year');
   const params = titleParams ?? filmParams;
   const lastTab = useRef<Tab>('library');
   const current = tabFor(location);
@@ -61,8 +62,8 @@ export function App() {
   };
 
   useEffect(() => {
-    document.body.classList.toggle('has-overlay', !!params);
-  }, [params]);
+    document.body.classList.toggle('has-overlay', !!params || onYear);
+  }, [params, onYear]);
 
   // Kids mode has no Live TV, To review, Settings, film pages (films not on the NAS), sets' pages or the rows of other films: back to the library.
   const offLimits =
@@ -128,7 +129,8 @@ export function App() {
         </nav>
       </footer>
       {!kids && <KodiKeyboard />}
-      {year && !year.asked && me && tab === 'library' && !params && location !== '/year' && <YearQuestion year={year} me={me} />}
+      {year && !year.asked && me && tab === 'library' && !params && !onYear && <YearQuestion year={year} me={me} />}
+      {onYear && <YearStory onClose={closeDetail} />}
       <Toasts />
     </div>
   );

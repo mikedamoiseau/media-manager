@@ -30,7 +30,8 @@ export interface YearInFilm {
   estimated: boolean; // any counted play estimated
   titles: number; // films and series watched (each once)
   genres: Array<{ name: string; n: number }>; // top by titles, then name
-  actor: { name: string; n: number; tie: string | null; photo: string | null; titles: YearTitle[] } | null; // in 2 titles or more
+  // In 2 titles or more; onlyFilms: none of them a series.
+  actor: { name: string; n: number; tie: string | null; photo: string | null; titles: YearTitle[]; onlyFilms: boolean } | null;
   series: Array<YearTitle & { episodes: number; backdrop: string | null }>; // most episodes first
   hours24: number[]; // plays by the local hour they started
   primeHour: number | null;
@@ -102,11 +103,11 @@ export function yearInFilm(db: DB, profileId: number, year: number, now: number,
   for (const r of finished) if (!watched.has(r.key)) watched.set(r.key, r);
 
   const genres = new Map<string, number>();
-  const cast = new Map<string, YearTitle[]>();
+  const cast = new Map<string, Row[]>();
   for (const r of watched.values()) {
     for (const g of new Set(JSON.parse(r.genres ?? '[]') as string[])) genres.set(g, (genres.get(g) ?? 0) + 1);
     const names = (JSON.parse(r.cast_json ?? '[]') as Array<{ name: string }>).slice(0, CAST).map((c) => c.name);
-    for (const n of new Set(names)) cast.set(n, [...(cast.get(n) ?? []), title(r)]);
+    for (const n of new Set(names)) cast.set(n, [...(cast.get(n) ?? []), r]);
   }
   const actors = [...cast].map(([name, titles]) => ({ name, n: titles.length, titles })).sort(byCount);
   const top = actors[0];
@@ -148,7 +149,10 @@ export function yearInFilm(db: DB, profileId: number, year: number, now: number,
     titles: watched.size,
     genres: [...genres].map(([name, n]) => ({ name, n })).sort(byCount).slice(0, GENRES),
     actor: top && top.n >= 2
-      ? { name: top.name, n: top.n, tie: actors[1]?.n === top.n ? actors[1].name : null, photo: null, titles: top.titles.slice(0, ACTOR_TITLES) }
+      ? {
+        name: top.name, n: top.n, tie: actors[1]?.n === top.n ? actors[1].name : null, photo: null,
+        titles: top.titles.slice(0, ACTOR_TITLES).map(title), onlyFilms: top.titles.every((r) => r.kind === 'film'),
+      }
       : null,
     series: [...series.values()]
       .map((s) => ({ ...title(s), episodes: s.episodes, backdrop: img(s.backdrop, 1280) }))
