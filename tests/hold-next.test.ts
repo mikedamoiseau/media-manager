@@ -161,20 +161,40 @@ test("a call that didn't get through is made again at the next look, though noth
   }
 });
 
-test("a skin without the settings refuses: noted once, tried again when there's news", async () => {
+test('a skin without the settings refuses: noted once, asked again at each look (a skin update brings them)', async () => {
   using s = await setup();
   const warn = mock.method(console, 'warn', () => {});
   try {
     s.kodi.invalid.add('Settings.SetSkinSettingValue');
     await s.svc.syncHoldNext();
-    await s.svc.syncHoldNext();
-    assert.equal(s.told().length, 1, 'no label after the refusal, and no second try');
-    assert.equal(warn.mock.callCount(), 1);
-    addToUpNext(s.db, 'tv1', MAIN_PROFILE, s.film, null, Date.now());
+    assert.equal(s.told().length, 1, 'no label after the refusal');
     await s.svc.syncHoldNext();
     assert.equal(s.told().length, 2);
     assert.equal(warn.mock.callCount(), 1, 'the same refusal is noted once');
+    s.kodi.invalid.delete('Settings.SetSkinSettingValue');
+    await s.svc.syncHoldNext();
+    await s.svc.syncHoldNext();
+    assert.deepEqual(s.told().slice(2), free, 'told once it has them, then not again');
   } finally {
     warn.mock.restore();
   }
+});
+
+test('each play on the TV tells it again: a skin reloaded meanwhile went back to what it had saved', async () => {
+  using s = await setup();
+  addToUpNext(s.db, 'tv1', MAIN_PROFILE, s.film, null, Date.now());
+  await s.svc.syncHoldNext();
+  await s.svc.onPlayer('tv1', { kind: 'play', item: { type: 'episode', id: 101 } });
+  await s.svc.syncHoldNext();
+  assert.deepEqual(s.told(), [...holds('Next: Bee'), ...holds('Next: Bee')]);
+});
+
+test('a play while the TV is still being told: it is told again after', async () => {
+  using s = await setup();
+  addToUpNext(s.db, 'tv1', MAIN_PROFILE, s.film, null, Date.now());
+  const telling = s.svc.syncHoldNext();
+  await s.svc.onPlayer('tv1', { kind: 'play', item: { type: 'episode', id: 101 } });
+  await telling;
+  await s.svc.syncHoldNext();
+  assert.deepEqual(s.told(), [...holds('Next: Bee'), ...holds('Next: Bee')]);
 });
