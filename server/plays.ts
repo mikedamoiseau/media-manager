@@ -1,5 +1,5 @@
 import type { DB } from './db.ts';
-import { FINISHED } from './watching.ts';
+import { FINISHED, STARTED, kodiTime } from './watching.ts';
 
 // The play log, for Your year in film: every film or episode played on a TV (from Kodi's events) or on the
 // phone (from what the server streams), and estimates of plays the app only knows from how far they got.
@@ -69,6 +69,66 @@ export function notePhonePlay(db: DB, profileId: number, itemId: number, episode
     db.prepare("INSERT INTO plays (profile_id, item_id, kind, episode_id, device, at, minutes, reached, finished) VALUES (?, ?, ?, ?, 'phone', ?, ?, ?, ?)")
       .run(profileId, itemId, episodeId === null ? 'film' : 'episode', episodeId, at, minutes, far, far >= FINISHED ? 1 : 0);
   }
+}
+
+// In the settings table but not among the app's settings: the fill below ran.
+const FILLED_KEY = 'playsFilled';
+
+/**
+ * Once, when the log starts: each profile's last play of each film and episode on a TV (Kodi's) and on the phone
+ * (the last stream), as an estimated play, when it was watched or got past the start. A title in both keeps the
+ * one that got further. Titles only opened (no play count, no progress) are left out. How many were added.
+ */
+export function fillPlays(db: DB): number {
+  if (db.prepare('SELECT 1 FROM settings WHERE key = ?').get(FILLED_KEY)) return 0;
+  type Last = { profile: number; item: number; episode: number | null; at: number; reached: number; finished: boolean };
+  const best = new Map<string, Last>();
+  const keep = (l: Last) => {
+    const k = `${l.profile}:${l.item}:${l.episode}`;
+    const was = best.get(k);
+    if (!was || l.reached > was.reached) best.set(k, l);
+  };
+  const fromKodi = (profile: number, item: number, episode: number | null, playcount: number | null, resume: number | null, lastPlayed: string | null) => {
+    const at = lastPlayed ? kodiTime(lastPlayed) : 0;
+    // Kodi's play count is for all time; a resume point says the last play stopped there (Kodi clears it at the end).
+    const finished = resume ? resume >= FINISHED : (playcount ?? 0) > 0;
+    if (at && (finished || (resume ?? 0) >= STARTED)) keep({ profile, item, episode, at, reached: finished ? 1 : resume!, finished });
+  };
+  const fromPhone = (profile: number, item: number, episode: number | null, fraction: number | null, at: number | null) => {
+    if (at && (fraction ?? 0) >= STARTED) keep({ profile, item, episode, at, reached: fraction!, finished: fraction! >= FINISHED });
+  };
+  type FilmRow = { profile_id: number; item_id: number; playcount: number | null; resume: number | null; last_played: string | null };
+  for (const r of db.prepare('SELECT profile_id, item_id, playcount, resume, last_played FROM film_states').all() as FilmRow[]) {
+    fromKodi(r.profile_id, r.item_id, null, r.playcount, r.resume, r.last_played);
+  }
+  type PhoneRow = { profile_id: number; item_id: number; fraction: number | null; played_at: number | null };
+  for (const r of db.prepare('SELECT profile_id, item_id, fraction, played_at FROM watching').all() as PhoneRow[]) {
+    fromPhone(r.profile_id, r.item_id, null, r.fraction, r.played_at);
+  }
+  type EpisodeRow = FilmRow & { episode_id: number; streamed: number | null; streamed_at: number | null };
+  for (const r of db.prepare(`SELECT s.profile_id, e.item_id, s.episode_id, s.playcount, s.resume, s.last_played, s.streamed, s.streamed_at
+    FROM episode_states s JOIN episodes e ON e.id = s.episode_id`).all() as EpisodeRow[]) {
+    fromKodi(r.profile_id, r.item_id, r.episode_id, r.playcount, r.resume, r.last_played);
+    fromPhone(r.profile_id, r.item_id, r.episode_id, r.streamed, r.streamed_at);
+  }
+  // A title the log already has (it ran before the fill) isn't put in twice.
+  const logged = db.prepare('SELECT 1 FROM plays WHERE profile_id = ? AND item_id = ? AND episode_id IS ?');
+  const add = db.prepare(`INSERT INTO plays (profile_id, item_id, kind, episode_id, at, reached, finished, estimated) VALUES (?, ?, ?, ?, ?, ?, ?, 1)`);
+  let added = 0;
+  db.exec('BEGIN');
+  try {
+    for (const l of best.values()) {
+      if (logged.get(l.profile, l.item, l.episode)) continue;
+      add.run(l.profile, l.item, l.episode === null ? 'film' : 'episode', l.episode, l.at, l.reached, l.finished ? 1 : 0);
+      added++;
+    }
+    db.prepare('INSERT INTO settings (key, value) VALUES (?, ?)').run(FILLED_KEY, String(Date.now()));
+    db.exec('COMMIT');
+  } catch (e) {
+    db.exec('ROLLBACK');
+    throw e;
+  }
+  return added;
 }
 
 /** What a play counts for: the minutes measured, else its share of the runtime; never more than the runtime. */

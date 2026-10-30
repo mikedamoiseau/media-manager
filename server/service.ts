@@ -20,7 +20,7 @@ import { TvOwners, notePlay, kodiStates, attributeKodiChanges } from './owners.t
 import { pickTv, addTv, editTv, tvNumber, firstTvChanged, firstRun } from './tvs.ts';
 import { upNext, upNextEntries, takeFromUpNext, removeFromUpNext, dropStale, sleepOf, clearSleep, dueSleeps, forgetTv, type UpNextEntry, type Sleep } from './upnext.ts';
 import { PlayError, playItem } from './playItem.ts';
-import { libraryTitle, openPlay, closePlay, closeLeftOpen } from './plays.ts';
+import { libraryTitle, openPlay, closePlay, closeLeftOpen, fillPlays } from './plays.ts';
 import { refreshCatalog, refreshGuides, checkStreams, writeChannelFile, channelFileText, pickedChannels, setPicks, setStream } from './livetv.ts';
 
 /** How long after a play ends the next of Up next starts: Kodi has closed the last one. */
@@ -123,8 +123,9 @@ export class Service extends EventEmitter {
     this.setMaxListeners(100);
     this.db = db;
     this.dataDir = dataDir;
-    // Plays still open when the app last stopped: their end was missed.
+    // Plays still open when the app last stopped: their end was missed. The log's start: what the app knew before.
     closeLeftOpen(db);
+    fillPlays(db);
     const s = this.settings();
     this.status = {
       nas: { mounted: existsSync(s.mediaRoot), root: s.mediaRoot },

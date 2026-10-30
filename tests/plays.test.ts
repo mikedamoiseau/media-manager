@@ -9,7 +9,7 @@ import { Service } from '../server/service.ts';
 import { createApi } from '../server/api.ts';
 import { applyKodiLibrary } from '../server/metadata.ts';
 import { PROFILE_COLORS, addProfile } from '../server/profiles.ts';
-import { libraryTitle, runtimeOf, openPlay, closePlay, closeLeftOpen, notePhonePlay, playMinutes } from '../server/plays.ts';
+import { libraryTitle, runtimeOf, openPlay, closePlay, closeLeftOpen, notePhonePlay, playMinutes, fillPlays } from '../server/plays.ts';
 
 const MIN = 60_000;
 
@@ -116,6 +116,72 @@ test('a film or an episode streamed to the phone is a phone play of that profile
       [anna, show, 'episode', ep, 'phone', 1, 1],
     ],
   );
+});
+
+test("Kodi's last plays and the phone's last streams become estimated plays, once", () => {
+  const { db, film, show, eps } = library();
+  const t = (s: string) => new Date(s).getTime();
+  const other = Number(db.prepare(`INSERT INTO items (path, folder, category, is_dir, match_state, present, added_at, updated_at)
+    VALUES (?, 'MOVIES', 'movies', 0, 'unmatched', 1, 1, 1)`).run('MOVIES/B.mkv').lastInsertRowid);
+  const opened = Number(db.prepare(`INSERT INTO items (path, folder, category, is_dir, match_state, present, added_at, updated_at)
+    VALUES (?, 'MOVIES', 'movies', 0, 'unmatched', 1, 1, 1)`).run('MOVIES/C.mkv').lastInsertRowid);
+  const phoneOnly = Number(db.prepare(`INSERT INTO items (path, folder, category, is_dir, match_state, present, added_at, updated_at)
+    VALUES (?, 'MOVIES', 'movies', 0, 'unmatched', 1, 1, 1)`).run('MOVIES/D.mkv').lastInsertRowid);
+  const fs = db.prepare('INSERT INTO film_states (profile_id, item_id, playcount, resume, last_played) VALUES (1, ?, ?, ?, ?)');
+  fs.run(film, 1, null, '2026-03-14 21:05:00');
+  fs.run(other, 0, 0.4, '2026-04-02 20:00:00');
+  fs.run(opened, 0, null, '2026-10-29 20:37:57');
+  db.prepare("INSERT INTO episode_states (profile_id, episode_id, playcount, last_played) VALUES (1, ?, 1, '2026-05-01 22:00:00')").run(eps[0]);
+  db.prepare('INSERT INTO watching (profile_id, item_id, fraction, played_at) VALUES (1, ?, 0.95, ?)').run(phoneOnly, t('2026-06-01T20:00:00'));
+  assert.equal(fillPlays(db), 4);
+  assert.deepEqual(
+    rows(db).map((r) => [r.item_id, r.kind, r.episode_id, r.device, r.at, r.reached, r.finished, r.estimated]).sort((a, b) => Number(a[4]) - Number(b[4])),
+    [
+      [film, 'film', null, null, t('2026-03-14T21:05:00'), 1, 1, 1],
+      [other, 'film', null, null, t('2026-04-02T20:00:00'), 0.4, 0, 1],
+      [show, 'episode', eps[0], null, t('2026-05-01T22:00:00'), 1, 1, 1],
+      [phoneOnly, 'film', null, null, t('2026-06-01T20:00:00'), 0.95, 1, 1],
+    ],
+  );
+  assert.equal(fillPlays(db), 0, 'once');
+});
+
+test('a title known on both the TV and the phone keeps the one that got further', () => {
+  const { db, film, show, eps } = library();
+  db.prepare("INSERT INTO film_states (profile_id, item_id, playcount, resume, last_played) VALUES (1, ?, 0, 0.5, '2026-03-14 21:05:00')").run(film);
+  db.prepare('INSERT INTO watching (profile_id, item_id, fraction, played_at) VALUES (1, ?, 0.8, ?)').run(film, Date.UTC(2026, 2, 20));
+  db.prepare("INSERT INTO episode_states (profile_id, episode_id, playcount, resume, last_played, streamed, streamed_at) VALUES (1, ?, 0, 0.3, '2026-05-01 22:00:00', 0.7, ?)")
+    .run(eps[1], Date.UTC(2026, 4, 2));
+  fillPlays(db);
+  assert.deepEqual(
+    rows(db).map((r) => [r.item_id, r.episode_id, r.reached]),
+    [
+      [film, null, 0.8],
+      [show, eps[1], 0.7],
+    ],
+  );
+});
+
+test('watched before, then stopped partway: the last play is the partial one', () => {
+  const { db, film } = library();
+  db.prepare("INSERT INTO film_states (profile_id, item_id, playcount, resume, last_played) VALUES (1, ?, 1, 0.3, '2026-03-14 21:05:00')").run(film);
+  fillPlays(db);
+  assert.deepEqual(rows(db).map((r) => [r.reached, r.finished]), [[0.3, 0]]);
+});
+
+test('a title the log already has is not put in again', () => {
+  const { db, film } = library();
+  openPlay(db, { profileId: 1, itemId: film, episodeId: null, device: 'tv1', at: Date.UTC(2026, 9, 31, 20) });
+  db.prepare("INSERT INTO film_states (profile_id, item_id, playcount, last_played) VALUES (1, ?, 1, '2026-10-31 22:00:00')").run(film);
+  assert.equal(fillPlays(db), 0);
+  assert.equal(rows(db).length, 1);
+});
+
+test('the fill runs when the service starts', () => {
+  const { db, film } = library();
+  db.prepare("INSERT INTO film_states (profile_id, item_id, playcount, last_played) VALUES (1, ?, 1, '2026-03-14 21:05:00')").run(film);
+  new Service(db, mkdtempSync(join(tmpdir(), 'data-')));
+  assert.equal(rows(db).length, 1);
 });
 
 test('an estimate counts its share of the runtime; an episode without one, 40 minutes', () => {
