@@ -17,7 +17,7 @@ export interface KodiInput {
 
 /** Kodi started or stopped playing: the film or episode of its library (none for other videos), and whether it reached its end. */
 export interface PlayerEvent {
-  kind: 'play' | 'stop';
+  kind: 'play' | 'stop' | 'pause' | 'resume';
   item?: { type: string; id: number };
   ended?: boolean;
 }
@@ -209,6 +209,8 @@ export class KodiEvents {
       const item = it?.type && Number.isInteger(it.id) && it.id! > 0 ? { type: it.type, id: it.id! } : undefined;
       if (m.method === 'Player.OnPlay') this.onPlayer?.({ kind: 'play', item });
       else this.onPlayer?.({ kind: 'stop', item, ended: !!m.params?.data?.end });
+    } else if (m.method === 'Player.OnPause' || m.method === 'Player.OnResume') {
+      this.onPlayer?.({ kind: m.method === 'Player.OnPause' ? 'pause' : 'resume' });
     }
   }
 }

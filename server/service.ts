@@ -20,6 +20,7 @@ import { TvOwners, notePlay, kodiStates, attributeKodiChanges } from './owners.t
 import { pickTv, addTv, editTv, tvNumber, firstTvChanged, firstRun } from './tvs.ts';
 import { upNext, upNextEntries, takeFromUpNext, removeFromUpNext, dropStale, sleepOf, clearSleep, dueSleeps, forgetTv, type UpNextEntry, type Sleep } from './upnext.ts';
 import { PlayError, playItem } from './playItem.ts';
+import { libraryTitle, openPlay, closePlay, closeLeftOpen } from './plays.ts';
 import { refreshCatalog, refreshGuides, checkStreams, writeChannelFile, channelFileText, pickedChannels, setPicks, setStream } from './livetv.ts';
 
 /** How long after a play ends the next of Up next starts: Kodi has closed the last one. */
@@ -114,12 +115,16 @@ export class Service extends EventEmitter {
   private skinTurn: Promise<void> = Promise.resolve();
   /** TVs whose events connection is up. */
   private liveTvs = new Set<string>();
+  /** What each TV plays now, in the play log: when it started and how long it was paused. */
+  private open = new Map<string, { id: number; at: number; pausedAt: number | null; paused: number }>();
 
   constructor(db: DB, dataDir: string) {
     super();
     this.setMaxListeners(100);
     this.db = db;
     this.dataDir = dataDir;
+    // Plays still open when the app last stopped: their end was missed.
+    closeLeftOpen(db);
     const s = this.settings();
     this.status = {
       nas: { mounted: existsSync(s.mediaRoot), root: s.mediaRoot },
@@ -227,7 +232,10 @@ export class Service extends EventEmitter {
 
   /** A TV started a film or episode of Kodi's library: noted for whoever is watching there. */
   private async player(tvId: string, e: PlayerEvent, now: number): Promise<void> {
+    if (e.kind === 'pause' || e.kind === 'resume') return this.paused(tvId, e.kind === 'pause', now);
     if (e.kind === 'stop') return this.stopped(tvId, !!e.ended, now);
+    // Kodi went on to something else without saying the last one stopped.
+    this.endPlay(tvId, now, false);
     if (e.item) this.playingNow.set(tvId, e.item);
     else this.playingNow.delete(tvId);
     // A skin reloaded since (a Lumen update) went back to what it had saved: told again, long before an end needs it.
@@ -237,7 +245,11 @@ export class Service extends EventEmitter {
     // A TV in its kids view: what starts there is the kid's.
     const kid = tv && (await kidsViewProfile(this.db, tv));
     const owner = this.owners.start(tvId, now, this.seriesOf(e), kid);
-    if (e.item?.type === 'movie' || e.item?.type === 'episode') notePlay(this.db, e.item.type, e.item.id, owner, now);
+    if (e.item?.type === 'movie' || e.item?.type === 'episode') {
+      notePlay(this.db, e.item.type, e.item.id, owner, now);
+      const title = libraryTitle(this.db, e.item.type, e.item.id);
+      if (title) this.open.set(tvId, { id: openPlay(this.db, { profileId: owner, ...title, device: tvId, at: now }), at: now, pausedAt: null, paused: 0 });
+    }
     // A kid's bedtime, or "stop after this" that ran out at the last one's end: Kodi doesn't go on with the next episode.
     const chained = this.owners.chained(tvId);
     const afterThis = this.stopChain.delete(tvId) && chained;
@@ -248,6 +260,7 @@ export class Service extends EventEmitter {
 
   /** A TV stopped: an "after this" timer is done; at the end of what played, Up next goes on. */
   private async stopped(tvId: string, ended: boolean, now: number): Promise<void> {
+    this.endPlay(tvId, now, ended);
     this.owners.stop(tvId, ended, now);
     this.playingNow.delete(tvId);
     const sleep = sleepOf(this.db, tvId, now);
@@ -321,6 +334,26 @@ export class Service extends EventEmitter {
     if (stop.length || lapsed.length || stale.length) this.tvsChanged();
     // A kid's bedtime comes with the clock.
     await this.syncHoldNext(now);
+  }
+
+  /** What plays on the TV was paused or goes on: the pause doesn't count in its minutes. */
+  private paused(tvId: string, pausing: boolean, now: number): void {
+    const o = this.open.get(tvId);
+    if (!o) return;
+    if (pausing) o.pausedAt ??= now;
+    else if (o.pausedAt !== null) {
+      o.paused += now - o.pausedAt;
+      o.pausedAt = null;
+    }
+  }
+
+  /** What played on the TV is over: logged with its minutes, without the pauses. */
+  private endPlay(tvId: string, now: number, finished: boolean): void {
+    const o = this.open.get(tvId);
+    if (!o) return;
+    this.open.delete(tvId);
+    const paused = o.paused + (o.pausedAt === null ? 0 : now - o.pausedAt);
+    closePlay(this.db, o.id, (now - o.at - paused) / 60_000, finished);
   }
 
   /** A TV's events connection came up or went: one that connects again is told again what plays next. */
