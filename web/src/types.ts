@@ -264,6 +264,8 @@ export interface CatalogRow {
   stream: string | null;
   /** the owner's own logo for it (then `logo` too); null: iptv-org's */
   ownLogo: string | null;
+  /** the player the TVs open it with; null: their usual one (the adaptive player, for HLS) */
+  player: 'ffmpegdirect' | null;
   /** one of the owner's, made for kids (in the TVs' Kids group, the kids profiles' to watch) */
   kids: boolean;
 }

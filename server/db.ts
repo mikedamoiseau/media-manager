@@ -403,6 +403,11 @@ export const MIGRATIONS: string[] = [
   -- The owner's own logo for a channel of theirs (null: iptv-org's), for one whose listed logo doesn't load.
   ALTER TABLE live_channels ADD COLUMN logo TEXT;
   `,
+  `
+  -- The player the TVs open a channel of the owner's with: null, their usual one; 'ffmpegdirect' for one
+  -- that crashes or stalls the adaptive player (IPTV Simple's per-channel choice).
+  ALTER TABLE live_channels ADD COLUMN player TEXT;
+  `,
 ];
 
 export function openDb(file: string): DB {

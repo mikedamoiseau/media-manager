@@ -67,3 +67,17 @@ test('channels picked before own logos keep the listed logo', () => {
   db.close();
   rmSync(dir, { recursive: true });
 });
+
+test('channels picked before the TV player choice play with the TVs\' usual player', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mm-'));
+  const file = join(dir, 'media.db');
+  const old = new DatabaseSync(file);
+  for (const m of MIGRATIONS.slice(0, 18)) old.exec(m);
+  old.exec('PRAGMA user_version = 18');
+  old.prepare("INSERT INTO live_channels (key, position) VALUES ('TF1.fr@SD', 1)").run();
+  old.close();
+  const db = openDb(file);
+  assert.deepEqual({ ...db.prepare('SELECT key, player FROM live_channels').get() }, { key: 'TF1.fr@SD', player: null });
+  db.close();
+  rmSync(dir, { recursive: true });
+});

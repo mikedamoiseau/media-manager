@@ -151,6 +151,7 @@ export function LiveTvSettings({ activity, sources, onSources }: { activity: Rea
                     <StreamState ok={r.ok} />
                     {r.stream && <span className="muted small">Own stream address</span>}
                     {r.ownLogo && <span className="muted small">Own logo</span>}
+                    {r.player && <span className="muted small">Other player on the TVs</span>}
                     {r.kids && <span className="muted small">For kids</span>}
                   </button>
                   <button className="icon-btn" aria-label={`Remove ${r.name}`} onClick={() => save(orderRef.current.filter((k) => k !== key))}>
@@ -271,6 +272,7 @@ function ChannelSheet({ row, onSaved, onClose }: { row: CatalogRow; onSaved: () 
     <Sheet title={row.name} onClose={onClose} wide>
       <OwnStream key={row.stream ?? ''} row={row} onSaved={onSaved} />
       <OwnLogo key={row.ownLogo ?? ''} row={row} onSaved={onSaved} />
+      <TvPlayer row={row} onSaved={onSaved} />
       <ForKids row={row} onSaved={onSaved} />
       <h3 className="field-label">Guide</h3>
       <p className="muted">Now: {guideLabel(row)}</p>
@@ -302,6 +304,34 @@ function ChannelSheet({ row, onSaved, onClose }: { row: CatalogRow; onSaved: () 
         {all && nq && !shown.length && <li className="muted">No guide channel matches.</li>}
       </ul>
     </Sheet>
+  );
+}
+
+/** The player the TVs open a channel with: their usual one, or ffmpegdirect for a channel that crashes or stalls it. */
+function TvPlayer({ row, onSaved }: { row: CatalogRow; onSaved: () => void }) {
+  const save = async (player: 'ffmpegdirect' | null) => {
+    try {
+      const r = await api.put<{ file: 'written' | 'same' | 'not_mounted' }>(`/api/livetv/channels/${encodeURIComponent(row.key)}/player`, { player });
+      if (r.file === 'not_mounted') toast("Saved, but the NAS isn't mounted: the TVs keep the old list", 'error');
+      else toast(player ? 'The TVs will open it with the other player' : 'Back to the usual player');
+      onSaved();
+    } catch (e) {
+      toast((e as Error).message, 'error');
+    }
+  };
+  return (
+    <>
+      <h3 className="field-label">Player on the TVs</h3>
+      <p className="muted small">Try the other player (ffmpegdirect) if Kodi crashes or stalls on this channel. The TVs see it when they reread the list.</p>
+      <div className="tool-row">
+        <button className="btn small" aria-pressed={!row.player} onClick={() => void save(null)}>
+          Usual
+        </button>
+        <button className="btn small" aria-pressed={row.player === 'ffmpegdirect'} onClick={() => void save('ffmpegdirect')}>
+          Other player
+        </button>
+      </div>
+    </>
   );
 }
 

@@ -61,7 +61,7 @@ test("a kids profile sees and starts the kids channels only; the rest of live TV
   assert.equal((await app.request(path('TF1.fr@SD', '/play'), { method: 'POST', ...as(kid) })).status, 200);
   assert.deepEqual(kodi.opened(), [{ file: 'pvr://channels/tv/Kids@1/4@pvr.iptvsimple_70.pvr' }], "in the Kids group: the TV's keys stay among the kids channels");
   assert.equal((await app.request(path('M6.fr@HD', '/playing'), as(kid))).status, 403);
-  for (const [method, url] of [['GET', '/api/livetv/catalog'], ['GET', path('TF1.fr@SD', '/vlc.m3u')], ['PUT', '/api/livetv/channels'], ['PUT', '/api/livetv/channels/TF1.fr%40SD/kids'], ['PUT', '/api/livetv/channels/TF1.fr%40SD/logo'], ['POST', '/api/livetv/refresh']] as const) {
+  for (const [method, url] of [['GET', '/api/livetv/catalog'], ['GET', path('TF1.fr@SD', '/vlc.m3u')], ['PUT', '/api/livetv/channels'], ['PUT', '/api/livetv/channels/TF1.fr%40SD/kids'], ['PUT', '/api/livetv/channels/TF1.fr%40SD/logo'], ['PUT', '/api/livetv/channels/TF1.fr%40SD/player'], ['POST', '/api/livetv/refresh']] as const) {
     assert.equal((await app.request(url, { method, ...as(kid) })).status, 403, `${method} ${url}`);
   }
 });
@@ -133,6 +133,21 @@ test("the owner's own logo for a channel: http(s) only, one of the owner's chann
   assert.equal((await app.request(url('M6.fr@HD'), json('PUT', { url: 'https://own/m6.png' }))).status, 400, 'not picked');
   assert.equal((await app.request(url('TF1.fr@SD'), json('PUT', { url: null }))).status, 200);
   assert.equal((await row()).ownLogo, null);
+});
+
+test("the TVs' player for a channel: ffmpegdirect or their usual one, one of the owner's channels", async () => {
+  const { svc, app, json } = setup();
+  svc.saveLivePicks(['TF1.fr@SD']);
+  const url = (key: string) => `/api/livetv/channels/${encodeURIComponent(key)}/player`;
+  const row = async () => ((await (await app.request('/api/livetv/catalog')).json()) as { rows: Array<{ key: string; player: string | null }> }).rows.find((x) => x.key === 'TF1.fr@SD')!;
+  const r = await app.request(url('TF1.fr@SD'), json('PUT', { player: 'ffmpegdirect' }));
+  assert.equal(r.status, 200);
+  assert.deepEqual(await r.json(), { file: 'not_mounted' });
+  assert.equal((await row()).player, 'ffmpegdirect');
+  assert.equal((await app.request(url('TF1.fr@SD'), json('PUT', { player: 'vlc' }))).status, 400);
+  assert.equal((await app.request(url('M6.fr@HD'), json('PUT', { player: 'ffmpegdirect' }))).status, 400, 'not picked');
+  assert.equal((await app.request(url('TF1.fr@SD'), json('PUT', { player: null }))).status, 200);
+  assert.equal((await row()).player, null);
 });
 
 test('picking channels saves them even when the NAS is not mounted, and says so', async () => {

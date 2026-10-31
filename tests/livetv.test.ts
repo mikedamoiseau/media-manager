@@ -5,7 +5,7 @@ import type { M3uEntry } from '../server/iptv.ts';
 import type { Programme } from '../server/epg.ts';
 import {
   LiveError, saveCatalog, setPicks, setGuidePick, setStream, pickedChannels, channelFileText, storeGuide, liveGuide, liveCatalog, guideOf, addressToward, appAddress,
-  kodiPath, guideAddress, guideFileText, setKids, setLogo,
+  kodiPath, guideAddress, guideFileText, setKids, setLogo, setPlayer,
 } from '../server/livetv.ts';
 import { EXTRA_CHANNELS } from '../server/extraChannels.ts';
 import { guideCandidates } from '../server/epg.ts';
@@ -575,4 +575,29 @@ test("a channel's own logo: on the TVs' list, the guide and the settings, kept w
   const back = liveCatalog(db, [X]).find((r) => r.key === 'M6.fr@HD')!;
   assert.deepEqual([back.logo, back.ownLogo], ['https://listed/m6-new.png', null], "back to iptv-org's, as listed now");
   assert.throws(() => setLogo(db, 'BX1.be@SD', 'https://own/bx1.png'), LiveError, "only one of the owner's channels");
+});
+
+test("a channel the TVs play with ffmpegdirect: its lines on the TVs' list only, kept when reordered", () => {
+  const db = catalog();
+  saveCatalog(db, [{ list: 'fr', entries: [TF1, M6, LCI, LCI_HD, { ...entry('France3.fr@SD', 'France 3'), url: 'http://relay/udp/239.1.1.1:5000' }] }], at(2));
+  setPicks(db, ['TF1.fr@SD', 'M6.fr@HD', 'France3.fr@SD']);
+  setPlayer(db, 'TF1.fr@SD', 'ffmpegdirect');
+  setPlayer(db, 'France3.fr@SD', 'ffmpegdirect');
+  setPicks(db, ['M6.fr@HD', 'TF1.fr@SD', 'France3.fr@SD']);
+  const text = channelFileText(db);
+  assert.match(
+    text,
+    /tvg-name="TF1"[^\n]*\n#KODIPROP:inputstream=inputstream\.ffmpegdirect\n#KODIPROP:inputstream\.ffmpegdirect\.is_realtime_stream=true\n#KODIPROP:inputstream\.ffmpegdirect\.manifest_type=hls\nhttp:\/\/s\/TF1\.fr@SD\.m3u8\n/,
+  );
+  assert.match(text, /tvg-name="France 3"[^\n]*\n#KODIPROP:inputstream=inputstream\.ffmpegdirect\n#KODIPROP:inputstream\.ffmpegdirect\.is_realtime_stream=true\nhttp:\/\/relay\//, 'not HLS: no manifest type');
+  assert.match(text, /tvg-name="M6 HD"[^\n]*\n#EXTVLCOPT:http-user-agent=UA\nhttp:\/\/s\/M6\.fr@HD\.m3u8\n/, 'the others as before');
+  assert.equal(liveGuide(db, [X], 0, at(23)).find((c) => c.key === 'TF1.fr@SD')!.vlc, 'direct', "the phone's VLC doesn't get Kodi's lines");
+  assert.equal(liveCatalog(db, [X]).find((r) => r.key === 'TF1.fr@SD')!.player, 'ffmpegdirect');
+  setPlayer(db, 'TF1.fr@SD', null);
+  assert.equal(liveCatalog(db, [X]).find((r) => r.key === 'TF1.fr@SD')!.player, null);
+  assert.doesNotMatch(channelFileText(db), /tvg-name="TF1"[^\n]*\n#KODIPROP/);
+  assert.throws(() => setPlayer(db, 'BX1.be@SD', 'ffmpegdirect'), LiveError, "only one of the owner's channels");
+  setStream(db, 'M6.fr@HD', 'https://own/m6.m3u8#token');
+  setPlayer(db, 'M6.fr@HD', 'ffmpegdirect');
+  assert.match(channelFileText(db), /manifest_type=hls\nhttps:\/\/own\/m6\.m3u8#token\n/, 'HLS, whatever follows its extension');
 });

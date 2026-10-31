@@ -1,7 +1,7 @@
 import type { Context, Hono } from 'hono';
 import type { Service } from './service.ts';
 import type { KodiConfig } from './kodi.ts';
-import { LiveError, liveGuide, liveCatalog, guideChannels, hasGuideChannel, pickedChannels, channelHeaders } from './livetv.ts';
+import { LiveError, TV_PLAYERS, type TvPlayer, liveGuide, liveCatalog, guideChannels, hasGuideChannel, pickedChannels, channelHeaders } from './livetv.ts';
 import { channelPlaylist, withoutBackups } from './iptv.ts';
 import { startChannel, isPlaying } from './liveKodi.ts';
 import { isBedtime, NOT_FOR_KIDS, type KidsProfile } from './kids.ts';
@@ -89,6 +89,18 @@ export function liveTvRoutes(
     if (url !== null && !(typeof url === 'string' && /^https?:\/\/[^\s]+$/i.test(url.trim()))) return c.json({ error: 'A logo address starts with http:// or https://' }, 400);
     try {
       return c.json({ file: svc.setLiveLogo(c.req.param('key'), url === null ? null : url.trim()) });
+    } catch (e) {
+      if (e instanceof LiveError) return c.json({ error: e.message }, 400);
+      throw e;
+    }
+  });
+
+  /** The player the TVs open a channel of the owner's with (null: their usual one), for one that crashes or stalls theirs. */
+  api.put('/livetv/channels/:key/player', async (c) => {
+    const { player } = (await c.req.json().catch(() => ({}))) as { player?: unknown };
+    if (player !== null && !TV_PLAYERS.includes(player as TvPlayer)) return c.json({ error: `The player is null or one of: ${TV_PLAYERS.join(', ')}` }, 400);
+    try {
+      return c.json({ file: svc.setLivePlayer(c.req.param('key'), player as TvPlayer | null) });
     } catch (e) {
       if (e instanceof LiveError) return c.json({ error: e.message }, 400);
       throw e;
