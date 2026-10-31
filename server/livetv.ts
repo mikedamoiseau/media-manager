@@ -164,9 +164,12 @@ export function kodiPath(file: string, mediaRoot: string, prefix: string): strin
   return server + posix.join(dir, relative(mediaRoot, file));
 }
 
+/** Kodi's guide file: next to the list. */
+export const guideFile = (liveFile: string): string => join(dirname(liveFile), 'guide.xml');
+
 /** Where the TVs read the guide file, when every TV whose path is known reaches it at the same address. */
 export function guideAddress(tvs: Array<{ pathPrefix: string }>, mediaRoot: string, liveFile: string): string | null {
-  const file = join(dirname(liveFile), 'guide.xml');
+  const file = guideFile(liveFile);
   const seen = new Set(tvs.map((t) => kodiPath(file, mediaRoot, t.pathPrefix)).filter((p) => p !== null));
   return seen.size === 1 ? [...seen][0]! : null;
 }

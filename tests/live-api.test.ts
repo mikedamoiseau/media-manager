@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Hono } from 'hono';
@@ -232,4 +232,39 @@ test("what plays: one of the owner's channels, with what's on and what's next; n
   } finally {
     kodi.server.close();
   }
+});
+
+test("a TV's media path found by the app puts the guide's address in the TVs' list", async () => {
+  const { db, svc } = setup();
+  const kodi = await standInKodi();
+  try {
+    const share = mkdtempSync(join(tmpdir(), 'share-'));
+    mkdirSync(join(share, 'MEDIA', 'MOVIES'), { recursive: true });
+    saveSettings(db, { liveFile: join(share, 'IPTV', 'channels.m3u'), mediaRoot: join(share, 'MEDIA'), kodiTvs: [{ id: 'tv1', name: 'TV', host: '127.0.0.1', port: kodi.port, user: '', pass: '', pathPrefix: '' }] });
+    svc.saveLivePicks(['TF1.fr@SD']);
+    const first = () => readFileSync(join(share, 'IPTV', 'channels.m3u'), 'utf8').split('\n')[0];
+    assert.equal(first(), '#EXTM3U', 'no TV path known yet: no guide named');
+    kodi.answers['Files.GetSources'] = { sources: [{ file: 'smb://nas/video/MEDIA/MOVIES/' }] };
+    assert.equal(await svc.findPathPrefix('tv1'), 'smb://nas/video/MEDIA');
+    assert.equal(first(), '#EXTM3U x-tvg-url="smb://nas/video/IPTV/guide.xml"');
+  } finally {
+    kodi.server.close();
+  }
+});
+
+test("a guide picked by hand reaches Kodi's guide file even while the guides are being read", async (t) => {
+  const { db, svc, app, json } = setup();
+  const share = mkdtempSync(join(tmpdir(), 'share-'));
+  saveSettings(db, { liveFile: join(share, 'IPTV', 'channels.m3u') });
+  const now = Date.now();
+  storeGuide(db, X, [{ id: 'TF1.fr', name: 'TF1' }, { id: 'TMC.fr', name: 'TMC' }], [
+    { channel: 'TF1.fr', start: now - 600_000, stop: now + 600_000, title: 'Le 13h' },
+    { channel: 'TMC.fr', start: now - 600_000, stop: now + 600_000, title: 'Quotidien' },
+  ], now);
+  svc.saveLivePicks(['TF1.fr@SD']);
+  // Another live TV task runs: reading the guides again waits for another day.
+  t.mock.method(svc, 'refreshLiveGuides', async () => {});
+  const r = await app.request(`/api/livetv/channels/${encodeURIComponent('TF1.fr@SD')}/guide`, json('PUT', { guide: { source: X, id: 'TMC.fr' } }));
+  assert.equal(r.status, 200);
+  assert.match(readFileSync(join(share, 'IPTV', 'guide.xml'), 'utf8'), /<title>Quotidien<\/title>/);
 });

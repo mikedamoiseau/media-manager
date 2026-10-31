@@ -18,9 +18,11 @@ list the app writes on the NAS. Two things are missing to watch them like televi
 
 While one of the owner's channels plays on the TV this phone controls:
 
-- The now-playing card shows the channel: its logo, its number and name, the programme on now with its
-  times, how far into it the programme is, and what comes next. The position bar (meaningless for a live
-  stream) is gone. The programme's picture, when the guide has one, is the card's backdrop.
+- The now-playing card shows the channel: its logo, its number and name, the programme on now (title,
+  sub-title, the start of its description) with its times, how far into it the programme is, and what
+  comes next. The position bar (meaningless for a live stream) is gone, and so is Up next's "Next" line
+  (the next programme takes its place). The programme's picture, when the guide has one, is the card's
+  backdrop.
 - A channel row: **−** and **+**, like a TV remote's CH buttons, around the channel to come.
   - Each tap moves one channel along the owner's numbering, wrapping around (after the last channel, the
     first; before the first, the last). Categories don't stop the count.
@@ -29,6 +31,9 @@ While one of the owner's channels plays on the TV this phone controls:
     between.
   - After the switch, the same check as on the Live TV page: if the channel doesn't play a few seconds
     later, a message says its stream may be down.
+  - Taps right after a switch count from the channel asked for, while the TV still shows the old one
+    (up to 15 s). Taps that come all the way round start nothing.
+  - Taps not yet sent are dropped when the phone leaves the Remote, or takes another TV.
 - On a computer, Page Up and Page Down do the same as + and −.
 
 Not shown when the TV plays anything else (a film, an episode, a channel that isn't the owner's), nor
@@ -46,7 +51,8 @@ the now-playing answer hides what isn't one of the kid's titles.
   - A channel without a guide has its `<channel>` and no programme.
   - Written whole (a temporary file renamed), and only when the share is mounted, as `channels.m3u` is.
   - Written again: after each refresh of the guides (daily, or from Settings), when the owner changes
-    their channels or a channel's guide, and when the app starts.
+    their channels or a channel's guide, and when the app starts. The list is written again when the app
+    works out a TV's media path (its guide line may change).
 - **Where Kodi finds it.** The list's first line names it, as the TVs reach the NAS:
   `#EXTM3U x-tvg-url="smb://<nas>/<share>/IPTV/guide.xml"`. IPTV Simple reads that address when no guide
   is set on the TV, which is the case on both: no setting to change on the boxes. The address comes from

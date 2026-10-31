@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events';
 import { existsSync, readdirSync } from 'node:fs';
-import { basename, dirname, join } from 'node:path';
+import { basename, join } from 'node:path';
 import { type DB, type KodiTv, type Settings, getSettings, saveSettings } from './db.ts';
 import { scanMediaRoot, pool } from './scanner.ts';
 import { cachedImage, isAllowedImage } from './images.ts';
@@ -21,7 +21,7 @@ import { pickTv, addTv, editTv, tvNumber, firstTvChanged, firstRun } from './tvs
 import { upNext, upNextEntries, takeFromUpNext, removeFromUpNext, dropStale, sleepOf, clearSleep, dueSleeps, forgetTv, type UpNextEntry, type Sleep } from './upnext.ts';
 import { PlayError, playItem } from './playItem.ts';
 import { libraryTitle, openPlay, closePlay, closeLeftOpen, missedEnd, fillPlays, logKodiChanges } from './plays.ts';
-import { refreshCatalog, refreshGuides, checkStreams, writeChannelFile, channelFileText, guideFileText, pickedChannels, setPicks, setStream, setGuidePick, appAddress, guideAddress } from './livetv.ts';
+import { refreshCatalog, refreshGuides, checkStreams, writeChannelFile, channelFileText, guideFileText, pickedChannels, setPicks, setStream, setGuidePick, appAddress, guideAddress, guideFile } from './livetv.ts';
 
 /** How long after a play ends the next of Up next starts: Kodi has closed the last one. */
 export const NEXT_PAUSE = 1000;
@@ -639,6 +639,8 @@ export class Service extends EventEmitter {
     // The TVs may have changed while Kodi answered.
     if (prefix && this.tvs().some((t) => t.id === id && t.host === tv.host && !t.pathPrefix)) {
       saveSettings(this.db, { kodiTvs: editTv(this.tvs(), id, { pathPrefix: prefix }) });
+      // The TVs' list names the guide as they reach the NAS.
+      this.rewriteLiveFile();
     }
     return prefix;
   }
@@ -737,7 +739,7 @@ export class Service extends EventEmitter {
   private writeGuideFile(): string | undefined {
     const { liveFile, liveGuides } = this.settings();
     try {
-      writeChannelFile(join(dirname(liveFile), 'guide.xml'), guideFileText(this.db, liveGuides, Date.now()));
+      writeChannelFile(guideFile(liveFile), guideFileText(this.db, liveGuides, Date.now()));
     } catch (e) {
       console.warn(`Live TV guide file: ${(e as Error).message}`);
       return (e as Error).message;
@@ -765,12 +767,13 @@ export class Service extends EventEmitter {
 
   /**
    * A channel's guide picked by hand, back to the one found for it (null), or none; then Kodi's guide file. A guide
-   * channel no channel used until now has no programmes kept from the last refresh: the guides are read again first.
+   * channel no channel used until now has no programmes kept from the last refresh: the guides are read again (and
+   * the file written again) after.
    */
   setLiveGuide(key: string, guide: { source: string; id: string } | 'none' | null): void {
     setGuidePick(this.db, key, guide);
+    this.writeGuideFile();
     if (guide && guide !== 'none') void this.refreshLiveGuides();
-    else this.writeGuideFile();
   }
 
   /** A channel of the owner's at their own stream address (or back to iptv-org's): the file on the NAS, then whether it answers. */

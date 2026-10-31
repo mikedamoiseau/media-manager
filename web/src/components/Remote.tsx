@@ -86,14 +86,16 @@ export function Remote() {
 
   const active = np?.active;
   const playing = active && (np.speed ?? 0) !== 0;
+  // One of the owner's live channels plays (never for a kid: what's on is hidden from them).
+  const live = active ? np.live : undefined;
   // The link is ready before the tap: Safari opens VLC only straight from a tap.
   const handoff = isIOS && active ? handoffLink(location.origin, np, vlcBack(), Date.now().toString(36), tv.id, profileChoice.get() ?? undefined) : null;
   // Up next and the sleep timer are for grown-ups.
-  const first = !kid && active && !np.live ? tv.upNext[0] : undefined;
+  const first = !kid && active && !live ? tv.upNext[0] : undefined;
   const next = first && [[titleOf(first).title, entryLabel(first)].filter(Boolean).join(', '), first.episodeTitle].filter(Boolean).join(' · ');
   const sleep = kid ? null : sleepLabel(tv.sleep, Date.now(), !!np?.showTitle);
   // A live channel's backdrop: the programme's picture, from the guide.
-  const backdrop = active && np.live ? nowAndNext(np.live.programmes, Date.now()).now?.icon : undefined;
+  const backdrop = live && nowAndNext(live.programmes, Date.now()).now?.icon;
 
   return (
     <>
@@ -102,11 +104,11 @@ export function Remote() {
           <ProfileBadge />
         </div>
         <section className={`np-card${active ? '' : ' is-idle'}`}>
-          {active && !np.live && np.fanart && <img className="np-fanart" src={`/api/img?w=780&u=${encodeURIComponent(np.fanart)}`} alt="" aria-hidden="true" />}
+          {active && !live && np.fanart && <img className="np-fanart" src={`/api/img?w=780&u=${encodeURIComponent(np.fanart)}`} alt="" aria-hidden="true" />}
           {backdrop && <img key={backdrop} className="np-fanart" src={backdrop} alt="" aria-hidden="true" onError={(e) => (e.currentTarget.hidden = true)} />}
           <div className="np-inner">
-            {active && np.live ? (
-              <LiveCard live={np.live} />
+            {live ? (
+              <LiveCard live={live} />
             ) : active ? (
               <>
                 <p className="np-label">{np.showTitle ? `${np.showTitle}${np.season ? `, season ${np.season}` : ''}${np.episode ? ` episode ${np.episode}` : ''}` : 'Now playing'}</p>
@@ -163,7 +165,7 @@ export function Remote() {
           )}
         </section>
 
-        {!kid && active && np.live && <ChannelZap live={np.live} tvName={tv.name} />}
+        {!kid && live && <ChannelZap live={live} tvName={tv.name} />}
 
         <div className="transport" aria-label="Playback">
           <button className="round" onClick={() => void send('rewind')} aria-label="Back 10 seconds" disabled={!active}>

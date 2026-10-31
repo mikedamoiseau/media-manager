@@ -52,12 +52,12 @@ export function ChannelZap({ live, tvName }: { live: LiveChannel; tvName?: strin
   const asked = useRef<{ key: string; at: number } | null>(null);
   const timer = useRef(0);
 
-  // The owner's channels with what's on now: where the taps lead.
+  // The owner's channels with what's on, the next hour (it holds what's on until the next load): where the taps lead.
   useEffect(() => {
     let gone = false;
     const load = () => {
       const now = Date.now();
-      api.get<{ channels: LiveChannel[] }>(`/api/livetv/guide?from=${now}&to=${now + 60_000}`).then(
+      api.get<{ channels: LiveChannel[] }>(`/api/livetv/guide?from=${now}&to=${now + 3_600_000}`).then(
         (r) => !gone && setChannels(r.channels),
         () => {},
       );
@@ -69,13 +69,14 @@ export function ChannelZap({ live, tvName }: { live: LiveChannel; tvName?: strin
       clearInterval(t);
     };
   }, []);
+  // Taps not yet sent go with the row (the Remote left, or nothing plays any more).
+  useEffect(() => () => clearTimeout(timer.current), []);
 
   // Taps right after a switch count from the channel asked for, not the one the TV still shows.
   const a = asked.current;
   const from = a && a.key !== live.key && Date.now() - a.at < ASKED_MS ? a.key : live.key;
 
-  // The TV is told even when the card blinks out meanwhile (Kodi between two channels); not when this device
-  // took another TV since: the taps were for the first.
+  // Not sent when this device took another TV meanwhile: the taps were for the first.
   const tap = (step: 1 | -1) => {
     const next = channels && zapTarget(channels, toRef.current?.key ?? from, step);
     if (!next) return;
