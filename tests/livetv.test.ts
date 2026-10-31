@@ -5,6 +5,7 @@ import type { M3uEntry } from '../server/iptv.ts';
 import type { Programme } from '../server/epg.ts';
 import {
   LiveError, saveCatalog, setPicks, setGuidePick, setStream, pickedChannels, channelFileText, storeGuide, liveGuide, liveCatalog, guideOf, addressToward, appAddress,
+  kodiPath, guideAddress, guideFileText,
 } from '../server/livetv.ts';
 import { EXTRA_CHANNELS } from '../server/extraChannels.ts';
 
@@ -266,6 +267,36 @@ test("the daily refresh leaves the NAS file alone until the owner has picked cha
   assert.ok(getSettings(db).liveRefreshedAt > 0);
 });
 
+test("Kodi's guide sits next to the list: written with the owner's channels, again once the guides are read", async (t) => {
+  mock.timers.enable({ apis: ['Date'], now: at(11) });
+  try {
+    const tmp = mkdtempSync(join(tmpdir(), 'live-'));
+    mkdirSync(join(tmp, 'share'));
+    const db = openDb(':memory:');
+    saveSettings(db, { liveFile: join(tmp, 'share', 'IPTV', 'channels.m3u'), liveGuides: [X] });
+    saveCatalog(db, [{ list: 'fr', entries: [TF1] }], at(1));
+    const svc = new Service(db, join(tmp, 'data'));
+    const guide = join(tmp, 'share', 'IPTV', 'guide.xml');
+    svc.saveLivePicks(['TF1.fr@SD']);
+    assert.match(readFileSync(guide, 'utf8'), /<channel id="TF1.fr@SD"><display-name>TF1<\/display-name>/);
+    assert.doesNotMatch(readFileSync(guide, 'utf8'), /<programme/, 'no guide read yet');
+    const { fn } = fakeFetch({
+      [LIVE_LISTS[0]!.url]: new Response(M3U('#EXTINF:-1 tvg-id="TF1.fr@SD" group-title="General",TF1', 'http://s/TF1.fr@SD.m3u8')),
+      [LIVE_LISTS[1]!.url]: new Response(M3U('#EXTINF:-1 tvg-id="BX1.be@SD",BX1', 'http://s/bx1')),
+      [X]: new Response(GUIDE),
+    });
+    await svc.refreshLiveNow(fn);
+    assert.match(readFileSync(guide, 'utf8'), /channel="TF1.fr@SD"><title>Le 13h<\/title>/);
+    // The guides alone (a guide channel picked by hand) write it too.
+    storeGuide(db, X, [{ id: 'TF1.fr', name: 'TF1' }], [], at(11));
+    t.mock.method(globalThis, 'fetch', fakeFetch({ [X]: new Response(GUIDE.replace('Le 13h', 'Le 13h, en direct')) }).fn);
+    await svc.refreshLiveGuides();
+    assert.match(readFileSync(guide, 'utf8'), /<title>Le 13h, en direct<\/title>/);
+  } finally {
+    mock.timers.reset();
+  }
+});
+
 test('a stream that answers with nothing or a text error does not count', async () => {
   const e = (url: string) => ({ key: 'K', name: 'K', logo: '', group: '', opts: [], url });
   const { fn } = fakeFetch({
@@ -472,4 +503,37 @@ test("the owner's channels are numbered category by category, each kept in the o
   saveCatalog(db, [{ list: 'extra', entries: [entry('Pocoyo.extra', 'Pocoyo')] }], at(1));
   setPicks(db, ['Pocoyo.extra', 'BX1.be@SD', 'M6.fr@HD', 'TF1.fr@SD']);
   assert.deepEqual(pickedChannels(db).map((c) => `${c.number} ${c.entry.key}`), ['1 M6.fr@HD', '2 TF1.fr@SD', '3 BX1.be@SD', '4 Pocoyo.extra']);
+});
+
+test("where Kodi finds a file of the NAS: from its media folder's path, beside the Mac's", () => {
+  const root = '/Volumes/video/MEDIA';
+  assert.equal(kodiPath('/Volumes/video/IPTV/guide.xml', root, 'smb://nas/video/MEDIA'), 'smb://nas/video/IPTV/guide.xml');
+  assert.equal(kodiPath('/Volumes/video/IPTV/guide.xml', root, 'smb://me@nas/video/MEDIA/'), 'smb://me@nas/video/IPTV/guide.xml');
+  assert.equal(kodiPath('/Volumes/video/IPTV/guide.xml', '/Volumes/video/My Films', 'smb://nas/video/My Films'), 'smb://nas/video/IPTV/guide.xml', 'spaces as Kodi writes them');
+  assert.equal(kodiPath('/Volumes/video/IPTV/guide.xml', root, '/storage/video/MEDIA'), '/storage/video/IPTV/guide.xml', 'a local path');
+  assert.equal(kodiPath('/Volumes/video/IPTV/guide.xml', root, ''), null, 'not known yet');
+  const tv = (pathPrefix: string) => ({ pathPrefix });
+  assert.equal(guideAddress([tv('smb://nas/video/MEDIA'), tv('smb://nas/video/MEDIA/')], root, '/Volumes/video/IPTV/channels.m3u'), 'smb://nas/video/IPTV/guide.xml');
+  assert.equal(guideAddress([tv('smb://nas/video/MEDIA'), tv('')], root, '/Volumes/video/IPTV/channels.m3u'), 'smb://nas/video/IPTV/guide.xml', 'a TV whose path is not known yet');
+  assert.equal(guideAddress([tv('smb://nas/video/MEDIA'), tv('nfs://other/MEDIA')], root, '/Volumes/video/IPTV/channels.m3u'), null, 'TVs that see the NAS each its own way');
+  assert.equal(guideAddress([], root, '/Volumes/video/IPTV/channels.m3u'), null);
+  const db = catalog();
+  setPicks(db, ['TF1.fr@SD']);
+  assert.match(channelFileText(db, null, 'smb://nas/video/IPTV/guide.xml'), /^#EXTM3U x-tvg-url="smb:\/\/nas\/video\/IPTV\/guide.xml"\n/);
+  assert.match(channelFileText(db), /^#EXTM3U\n/);
+});
+
+test("Kodi's guide holds what the TVs show: from a day ago to four days ahead", () => {
+  const db = catalog();
+  setPicks(db, ['TF1.fr@SD']);
+  const now = at(12);
+  const day = 24 * 3600_000;
+  storeGuide(db, X, [{ id: 'TF1.fr', name: 'TF1' }], [
+    { channel: 'TF1.fr', start: now - day - 3600_000, stop: now - day - 60_000, title: 'Too old' },
+    { channel: 'TF1.fr', start: now - day + 60_000, stop: now - day + 3600_000, title: 'Yesterday' },
+    { channel: 'TF1.fr', start: now + 4 * day - 3600_000, stop: now + 4 * day, title: 'In four days' },
+    { channel: 'TF1.fr', start: now + 4 * day + 60_000, stop: now + 4 * day + 3600_000, title: 'Too far' },
+  ], now);
+  const titles = [...guideFileText(db, [X], now).matchAll(/<title>([^<]+)<\/title>/g)].map((m) => m[1]);
+  assert.deepEqual(titles, ['Yesterday', 'In four days']);
 });

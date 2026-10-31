@@ -144,6 +144,32 @@ export async function readXmltv(
   return ended;
 }
 
+// Characters XML 1.0 can't hold, even as entities (a guide's text may bring them along).
+const NOT_XML = /[\u0000-\u0008\u000b\u000c\u000e-\u001f￾￿]/g;
+const XML_ESCAPES: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' };
+const esc = (s: string) => s.replace(NOT_XML, '').replace(/[&<>"]/g, (c) => XML_ESCAPES[c]!);
+const utcTime = (t: number) => `${new Date(t).toISOString().slice(0, 19).replace(/\D/g, '')} +0000`;
+
+/** The owner's channels as a guide for Kodi (XMLTV), under the ids the TVs' list gives them (`key`: its tvg-id). */
+export function guideXml(channels: Array<{ key: string; name: string; logo: string; programmes: Array<Omit<Programme, 'channel'>> }>): string {
+  const out = ['<?xml version="1.0" encoding="UTF-8"?>', '<tv generator-info-name="Cinematheque">'];
+  for (const c of channels) {
+    out.push(`<channel id="${esc(c.key)}"><display-name>${esc(c.name)}</display-name>${c.logo ? `<icon src="${esc(c.logo)}"/>` : ''}</channel>`);
+  }
+  for (const c of channels) {
+    for (const p of c.programmes) {
+      const parts = [`<title>${esc(p.title)}</title>`];
+      if (p.sub) parts.push(`<sub-title>${esc(p.sub)}</sub-title>`);
+      if (p.descr) parts.push(`<desc>${esc(p.descr)}</desc>`);
+      if (p.category) parts.push(`<category>${esc(p.category)}</category>`);
+      if (p.icon) parts.push(`<icon src="${esc(p.icon)}"/>`);
+      out.push(`<programme start="${utcTime(p.start)}" stop="${utcTime(p.stop)}" channel="${esc(c.key)}">${parts.join('')}</programme>`);
+    }
+  }
+  out.push('</tv>');
+  return `${out.join('\n')}\n`;
+}
+
 /** Channels the guide still lists under their old names (playlist id without its feed, lower case → guide id). */
 export const GUIDE_ALIASES: Record<string, string> = {
   'tfx.fr': 'NT1.fr',

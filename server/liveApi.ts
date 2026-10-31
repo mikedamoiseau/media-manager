@@ -1,7 +1,7 @@
 import type { Context, Hono } from 'hono';
 import type { Service } from './service.ts';
 import type { KodiConfig } from './kodi.ts';
-import { LiveError, liveGuide, liveCatalog, guideChannels, hasGuideChannel, pickedChannels, setGuidePick, channelHeaders } from './livetv.ts';
+import { LiveError, liveGuide, liveCatalog, guideChannels, hasGuideChannel, pickedChannels, channelHeaders } from './livetv.ts';
 import { channelPlaylist, withoutBackups } from './iptv.ts';
 import { startChannel, isPlaying } from './liveKodi.ts';
 
@@ -56,13 +56,11 @@ export function liveTvRoutes(api: Hono, svc: Service, tvOf: (c: Context) => { cf
       if (!sources().includes(g.source) || !hasGuideChannel(db, g.source, g.id)) return c.json({ error: 'No such channel in the guides' }, 400);
     }
     try {
-      setGuidePick(db, c.req.param('key'), manual ? { source: (guide as { source: string }).source, id: (guide as { id: string }).id } : (guide as 'none' | null));
+      svc.setLiveGuide(c.req.param('key'), manual ? { source: (guide as { source: string }).source, id: (guide as { id: string }).id } : (guide as 'none' | null));
     } catch (e) {
       if (e instanceof LiveError) return c.json({ error: e.message }, 400);
       throw e;
     }
-    // A guide channel no channel used until now: its programmes weren't kept at the last refresh.
-    if (manual) void svc.refreshLiveGuides();
     return c.json({ ok: true });
   });
 

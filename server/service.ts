@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events';
 import { existsSync, readdirSync } from 'node:fs';
-import { basename, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { type DB, type KodiTv, type Settings, getSettings, saveSettings } from './db.ts';
 import { scanMediaRoot, pool } from './scanner.ts';
 import { cachedImage, isAllowedImage } from './images.ts';
@@ -21,7 +21,7 @@ import { pickTv, addTv, editTv, tvNumber, firstTvChanged, firstRun } from './tvs
 import { upNext, upNextEntries, takeFromUpNext, removeFromUpNext, dropStale, sleepOf, clearSleep, dueSleeps, forgetTv, type UpNextEntry, type Sleep } from './upnext.ts';
 import { PlayError, playItem } from './playItem.ts';
 import { libraryTitle, openPlay, closePlay, closeLeftOpen, missedEnd, fillPlays, logKodiChanges } from './plays.ts';
-import { refreshCatalog, refreshGuides, checkStreams, writeChannelFile, channelFileText, pickedChannels, setPicks, setStream, appAddress } from './livetv.ts';
+import { refreshCatalog, refreshGuides, checkStreams, writeChannelFile, channelFileText, guideFileText, pickedChannels, setPicks, setStream, setGuidePick, appAddress, guideAddress } from './livetv.ts';
 
 /** How long after a play ends the next of Up next starts: Kodi has closed the last one. */
 export const NEXT_PAUSE = 1000;
@@ -725,26 +725,52 @@ export class Service extends EventEmitter {
 
   /** The owner's channels into the file both TVs read; the outcome shows in Settings. */
   writeLiveFile(): 'written' | 'same' | 'not_mounted' {
+    const { liveFile, mediaRoot } = this.settings();
     const app = appAddress(this.tvs().map((t) => t.host), this.port);
-    const file = writeChannelFile(this.settings().liveFile, channelFileText(this.db, app));
+    const file = writeChannelFile(liveFile, channelFileText(this.db, app, guideAddress(this.tvs(), mediaRoot, liveFile)));
     this.status.live.file = file;
     this.emitStatus();
     return file;
   }
 
-  /** The file again when the owner has channels: the app's address in it may have changed (a TV, or this Mac, moved). */
-  private rewriteLiveFile(): void {
+  /** Kodi's guide of the owner's channels, next to their list (not mounted: not written); why it couldn't be written. */
+  private writeGuideFile(): string | undefined {
+    const { liveFile, liveGuides } = this.settings();
     try {
-      if (pickedChannels(this.db).length) this.writeLiveFile();
+      writeChannelFile(join(dirname(liveFile), 'guide.xml'), guideFileText(this.db, liveGuides, Date.now()));
     } catch (e) {
-      console.warn(`Live TV channel list: ${(e as Error).message}`);
+      console.warn(`Live TV guide file: ${(e as Error).message}`);
+      return (e as Error).message;
     }
   }
 
-  /** The owner's channels, in their order, then the file on the NAS. */
+  /** The files again when the owner has channels: the app's address in the list may have changed (a TV, or this Mac, moved). */
+  private rewriteLiveFile(): void {
+    if (!pickedChannels(this.db).length) return;
+    try {
+      this.writeLiveFile();
+    } catch (e) {
+      console.warn(`Live TV channel list: ${(e as Error).message}`);
+    }
+    this.writeGuideFile();
+  }
+
+  /** The owner's channels, in their order, then the files on the NAS. */
   saveLivePicks(keys: string[]): 'written' | 'same' | 'not_mounted' {
     setPicks(this.db, keys);
-    return this.writeLiveFile();
+    const file = this.writeLiveFile();
+    this.writeGuideFile();
+    return file;
+  }
+
+  /**
+   * A channel's guide picked by hand, back to the one found for it (null), or none; then Kodi's guide file. A guide
+   * channel no channel used until now has no programmes kept from the last refresh: the guides are read again first.
+   */
+  setLiveGuide(key: string, guide: { source: string; id: string } | 'none' | null): void {
+    setGuidePick(this.db, key, guide);
+    if (guide && guide !== 'none') void this.refreshLiveGuides();
+    else this.writeGuideFile();
   }
 
   /** A channel of the owner's at their own stream address (or back to iptv-org's): the file on the NAS, then whether it answers. */
@@ -755,7 +781,7 @@ export class Service extends EventEmitter {
     return { file, ok: (this.db.prepare('SELECT ok FROM live_catalog WHERE key = ?').get(key) as { ok: number | null }).ok === 1 };
   }
 
-  /** iptv-org's lists, the file on the NAS, the guides, then whether the owner's channels answer. */
+  /** iptv-org's lists, the file on the NAS, the guides (and Kodi's), then whether the owner's channels answer. */
   readonly refreshLive = oneAtATime(() => this.refreshLiveNow());
 
   async refreshLiveNow(fetchFn: typeof fetch = fetch): Promise<void> {
@@ -777,11 +803,13 @@ export class Service extends EventEmitter {
       }
       step('Reading the TV guides');
       const guides = await refreshGuides(this.db, this.settings().liveGuides, fetchFn, now);
+      const guideError = picked.length ? this.writeGuideFile() : undefined;
       step('Checking your channels');
       await checkStreams(this.db, picked, fetchFn, now);
       saveSettings(this.db, { liveRefreshedAt: now });
       const failed = [
         ...(fileError ? [`the file on the NAS (${fileError})`] : []),
+        ...(guideError ? [`the guide file on the NAS (${guideError})`] : []),
         ...lists.filter((l) => l.error).map((l) => `the ${l.list} list (${l.error})`),
         ...guides.filter((g) => g.error).map((g) => `${g.source} (${g.error})`),
       ];
@@ -795,7 +823,11 @@ export class Service extends EventEmitter {
       st.message = 'Reading the TV guides';
       this.emitStatus();
       const guides = await refreshGuides(this.db, this.settings().liveGuides, fetch, Date.now());
-      const failed = guides.filter((g) => g.error).map((g) => `${g.source} (${g.error})`);
+      const guideError = pickedChannels(this.db).length ? this.writeGuideFile() : undefined;
+      const failed = [
+        ...guides.filter((g) => g.error).map((g) => `${g.source} (${g.error})`),
+        ...(guideError ? [`the guide file on the NAS (${guideError})`] : []),
+      ];
       return failed.length ? `Guides read, except ${failed.join(', ')}` : 'Guides read';
     });
   });

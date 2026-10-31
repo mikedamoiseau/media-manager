@@ -43,6 +43,11 @@ test('the file both TVs read: numbers in order, the written name, option lines k
   assert.equal(channelPlaylist('M6 HD', m6), '#EXTM3U\n#EXTINF:-1,M6 HD\n#EXTVLCOPT:http-user-agent=UA\nhttp://b/m6.m3u8\n');
 });
 
+test("the file both TVs read says where Kodi's guide is", () => {
+  const tf1 = { key: 'TF1.fr@SD', name: 'TF1', logo: '', group: '', opts: [], url: 'http://a/tf1.m3u8' };
+  assert.match(buildM3u([{ entry: tf1, name: 'TF1' }], 'smb://nas/video/IPTV/guide "x".xml'), /^#EXTM3U x-tvg-url="smb:\/\/nas\/video\/IPTV\/guide x.xml"\n#EXTINF/);
+});
+
 test("a channel's qualities without the backup server's: its audio and its qualities go, the rest is kept at full addresses", () => {
   const master = [
     '#EXTM3U',

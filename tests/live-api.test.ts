@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Hono } from 'hono';
@@ -174,4 +174,26 @@ test("the TVs' list is written again when the TVs change, as the app's address i
   assert.equal(written.mock.callCount(), before + 1);
   written.mock.mockImplementation(() => { throw new Error('EACCES'); });
   assert.doesNotThrow(() => svc.saveTvs([tv('192.168.1.22')]), 'a file that cannot be written stops nothing');
+});
+
+test("a channel's guide changed by hand changes Kodi's guide file", async () => {
+  const { db, svc, app, json } = setup();
+  const share = mkdtempSync(join(tmpdir(), 'share-'));
+  saveSettings(db, { liveFile: join(share, 'IPTV', 'channels.m3u') });
+  svc.saveLivePicks(['TF1.fr@SD']);
+  const guide = () => readFileSync(join(share, 'IPTV', 'guide.xml'), 'utf8');
+  assert.match(guide(), /<title>Le 13h<\/title>/);
+  assert.equal((await app.request(`/api/livetv/channels/${encodeURIComponent('TF1.fr@SD')}/guide`, json('PUT', { guide: 'none' }))).status, 200);
+  assert.doesNotMatch(guide(), /<programme/, 'no guide for it now');
+  assert.equal((await app.request(`/api/livetv/channels/${encodeURIComponent('TF1.fr@SD')}/guide`, json('PUT', { guide: null }))).status, 200);
+  assert.match(guide(), /<title>Le 13h<\/title>/, 'back to the one found for it');
+});
+
+test("the TVs' list tells Kodi where its guide is, as the TVs reach the NAS", () => {
+  const { db, svc } = setup();
+  const share = mkdtempSync(join(tmpdir(), 'share-'));
+  const tv = (id: string) => ({ id, name: id, host: '127.0.0.1', port: 9, user: '', pass: '', pathPrefix: 'smb://nas/video/MEDIA' });
+  saveSettings(db, { liveFile: join(share, 'IPTV', 'channels.m3u'), mediaRoot: join(share, 'MEDIA'), kodiTvs: [tv('tv1'), tv('tv2')] });
+  svc.saveLivePicks(['TF1.fr@SD']);
+  assert.equal(readFileSync(join(share, 'IPTV', 'channels.m3u'), 'utf8').split('\n')[0], '#EXTM3U x-tvg-url="smb://nas/video/IPTV/guide.xml"');
 });

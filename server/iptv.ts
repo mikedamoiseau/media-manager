@@ -81,9 +81,9 @@ export function uniqueNames(names: string[]): string[] {
 const value = (s: string) => s.replace(/["\r\n]/g, '').trim();
 const line = (s: string) => s.replace(/[\r\n]/g, '').trim();
 
-/** The list both TVs read: numbered in this order (tvg-chno), under the names given. */
-export function buildM3u(channels: Array<{ entry: M3uEntry; name: string }>): string {
-  const lines = ['#EXTM3U'];
+/** The list both TVs read: numbered in this order (tvg-chno), under the names given; `guide`: where Kodi reads their guide. */
+export function buildM3u(channels: Array<{ entry: M3uEntry; name: string }>, guide?: string): string {
+  const lines = [guide ? `#EXTM3U x-tvg-url="${value(guide)}"` : '#EXTM3U'];
   channels.forEach(({ entry: e, name }, i) => {
     const n = value(name);
     lines.push(`#EXTINF:-1 tvg-id="${value(e.key)}" tvg-chno="${i + 1}" tvg-name="${n}" tvg-logo="${value(e.logo)}" group-title="${value(e.group)}",${n}`);

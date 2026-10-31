@@ -1,11 +1,11 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { networkInterfaces } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, posix, relative } from 'node:path';
 import { Readable } from 'node:stream';
 import { createGunzip } from 'node:zlib';
 import { type DB, tx } from './db.ts';
 import { buildM3u, parseM3u, uniqueNames, type M3uEntry } from './iptv.ts';
-import { guideCandidates, matchGuide, readXmltv, type GuideChannel, type GuideIds, type Programme } from './epg.ts';
+import { guideCandidates, guideXml, matchGuide, readXmltv, type GuideChannel, type GuideIds, type Programme } from './epg.ts';
 import { pool } from './scanner.ts';
 import { EXTRA_CHANNELS } from './extraChannels.ts';
 
@@ -132,9 +132,10 @@ const viaApp = (url: string) => /-dm\.m3u8$/.test(url);
 
 /**
  * The list both TVs read, each channel in its category's group. `app`: the app's address as they reach it, for the
- * channels they get through it (else directly).
+ * channels they get through it (else directly). `guide`: where they read the guide file (Kodi's IPTV Simple takes
+ * it from the list's first line when no guide is set on the TV).
  */
-export function channelFileText(db: DB, app: string | null = null): string {
+export function channelFileText(db: DB, app: string | null = null, guide: string | null = null): string {
   return buildM3u(pickedChannels(db).map((c) => ({
     entry: {
       ...c.entry,
@@ -142,7 +143,32 @@ export function channelFileText(db: DB, app: string | null = null): string {
       ...(app && viaApp(c.entry.url) ? { url: `${app}/api/livetv/${encodeURIComponent(c.entry.key)}/tv.m3u8` } : {}),
     },
     name: c.name,
-  })));
+  })), guide ?? undefined);
+}
+
+const DAY = 24 * 3600_000;
+
+/** The guide both TVs read, next to the list: their channels over the days the TVs show (one back, four ahead). */
+export function guideFileText(db: DB, sources: string[], now: number): string {
+  return guideXml(liveGuide(db, sources, now - DAY, now + 4 * DAY));
+}
+
+/**
+ * A file of the NAS as a TV reaches it, from where that TV reaches the media folder (its path prefix, as Kodi writes
+ * it: smb://nas/video/MEDIA) and where this Mac does. Null while the TV's path isn't known.
+ */
+export function kodiPath(file: string, mediaRoot: string, prefix: string): string | null {
+  if (!prefix) return null;
+  const m = /^([a-z][a-z0-9+.-]*:\/\/[^/]*)(\/.*)?$/i.exec(prefix);
+  const [server, dir] = m ? [m[1]!, m[2] ?? '/'] : ['', prefix];
+  return server + posix.join(dir, relative(mediaRoot, file));
+}
+
+/** Where the TVs read the guide file, when every TV whose path is known reaches it at the same address. */
+export function guideAddress(tvs: Array<{ pathPrefix: string }>, mediaRoot: string, liveFile: string): string | null {
+  const file = join(dirname(liveFile), 'guide.xml');
+  const seen = new Set(tvs.map((t) => kodiPath(file, mediaRoot, t.pathPrefix)).filter((p) => p !== null));
+  return seen.size === 1 ? [...seen][0]! : null;
 }
 
 type Nets = Record<string, Array<{ address: string; netmask: string; family: string; internal: boolean }> | undefined>;
@@ -260,7 +286,7 @@ export function liveCatalog(db: DB, sources: string[]): CatalogRow[] {
 // ---------- refresh, stream checks, the file on the NAS ----------
 
 /**
- * The list both TVs read, on the NAS share. Not mounted (the share's folder is missing): nothing is written,
+ * A file both TVs read (the list, the guide), on the NAS share. Not mounted (the share's folder is missing): nothing is written,
  * not even a folder, which would sit on the Mac's own disk in the share's place. Written whole (a temporary
  * file renamed), so Kodi never reads half of it; not again when unchanged.
  */

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { xmltvTime, readXmltv, matchGuide, type GuideChannel, type GuideIds, type Programme } from '../server/epg.ts';
+import { xmltvTime, readXmltv, matchGuide, guideXml, type GuideChannel, type GuideIds, type Programme } from '../server/epg.ts';
 
 const XML = `<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE tv SYSTEM "xmltv.dtd"><tv>
 <channel id="TF1.fr"><display-name>TF1</display-name><icon src="http://x/tf1.png"/></channel>
@@ -82,4 +82,31 @@ test('the end of a guide split across two chunks still counts as its end', async
     yield '<tv><channel id="a"><display-name>A</display-name></channel>\n';
   }
   assert.equal(await readXmltv(cut(), none), false);
+});
+
+test("Kodi's guide file reads back as the programmes it was written from", async () => {
+  const at = Date.UTC(2026, 9, 31, 19, 5);
+  const channels = [
+    { key: 'TF1.fr@SD', name: 'TF1', logo: 'http://x/tf1.png?a=1&b=2', programmes: [
+      { start: at, stop: at + 3_300_000, title: 'Le 20h & "météo"', sub: "L'édition", descr: 'Infos <du jour>', category: 'Info', icon: 'http://x/1.jpg?w=1&h=2' },
+      { start: at + 3_300_000, stop: at + 9_000_000, title: 'Film' },
+    ] },
+    { key: 'Nope.fr@SD', name: 'Sans guide', logo: '', programmes: [] },
+  ];
+  const xml = guideXml(channels);
+  assert.match(xml, /^<\?xml version="1.0" encoding="UTF-8"\?>\n<tv/);
+  assert.match(xml, /start="20261031190500 \+0000" stop="20261031200000 \+0000" channel="TF1.fr@SD"/);
+  const ch: GuideChannel[] = [];
+  const pr: Programme[] = [];
+  assert.equal(await readXmltv((async function* () { yield xml; })(), { channel: (c) => ch.push(c), programme: (p) => pr.push(p) }), true);
+  assert.deepEqual(ch, [{ id: 'TF1.fr@SD', name: 'TF1' }, { id: 'Nope.fr@SD', name: 'Sans guide' }]);
+  assert.deepEqual(pr, channels[0]!.programmes.map((p) => ({ channel: 'TF1.fr@SD', ...p })));
+  assert.match(xml, /<icon src="http:\/\/x\/tf1.png\?a=1&amp;b=2"\/>/, "the channel's logo");
+  assert.doesNotMatch(xml, /Sans guide<\/display-name><icon/, 'no logo: no icon');
+});
+
+test("Kodi's guide file leaves out characters XML can't hold", () => {
+  const xml = guideXml([{ key: 'A', name: 'A\u0001', logo: '', programmes: [{ start: 0, stop: 60_000, title: 'T\u000bitre\ttab' }] }]);
+  assert.match(xml, /<display-name>A<\/display-name>/);
+  assert.match(xml, /<title>Titre\ttab<\/title>/);
 });
