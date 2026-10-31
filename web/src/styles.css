@@ -2814,6 +2814,20 @@ select option {
   gap: 10px;
 }
 
+/* A category's heading among the owner's channels in Settings. */
+.live-list-head {
+  margin: 14px 0 6px;
+  font-size: 13px;
+  color: var(--brume);
+}
+
+/* The categories: all, or one. */
+.live-lists {
+  margin-top: 10px;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
 .live-scroll {
   flex: 1;
   height: auto;

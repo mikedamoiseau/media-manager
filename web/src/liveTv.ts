@@ -44,6 +44,27 @@ export function liveVlcHref(origin: string, ch: LiveChannel, back: string | null
   return vlcLink(ch.vlc === 'direct' ? ch.url : `${origin}/api/livetv/${encodeURIComponent(ch.key)}/vlc.m3u`, back);
 }
 
+// The channels' categories: their lists, as the server names them too (LIST_NAMES in server/livetv.ts).
+const LISTS = ['fr', 'be', 'extra'];
+const NAMES: Record<string, string> = { fr: 'France', be: 'Belgium', extra: 'Extra' };
+
+/** A category's name. */
+export const listName = (list: string): string => NAMES[list] ?? list;
+
+/** The categories among these, each once, in their order (an unknown one last). */
+export function listsIn(lists: string[]): string[] {
+  const rank = (l: string) => (LISTS.includes(l) ? LISTS.indexOf(l) : LISTS.length);
+  return [...new Set(lists)].sort((a, b) => rank(a) - rank(b));
+}
+
+/** `keys` with the places of `subset`'s channels filled with `subset`, in its order: the other channels stay put. */
+export function inSlots(keys: string[], subset: string[]): string[] {
+  const members = new Set(subset);
+  let i = 0;
+  const next = keys.map((k) => (members.has(k) ? subset[i++]! : k));
+  return next.every((k, j) => k === keys[j]) ? keys : next;
+}
+
 /** The list with `key` moved one place (`by`: -1 up, 1 down); unchanged at the ends. */
 export function moveKey(keys: string[], key: string, by: -1 | 1): string[] {
   const i = keys.indexOf(key);

@@ -154,7 +154,8 @@ export const GUIDE_ALIASES: Record<string, string> = {
 
 /**
  * The guide channel of a playlist channel, sources in their order: its tvg-id without the feed ("TF1.fr@SD" is
- * "TF1.fr"), then an old name, then a Pluto TV id read from its stream address ("…/plu-<id>.m3u8").
+ * "TF1.fr"), then an old name, then a Pluto TV or Samsung TV Plus id read from its stream address ("…/plu-<id>.m3u8",
+ * "…/stvp-<id>").
  */
 export function matchGuide(entry: { key: string; url: string }, guides: GuideIds[]): { source: string; id: string } | null {
   const candidates = guideCandidates(entry);
@@ -172,5 +173,6 @@ export function guideCandidates(entry: { key: string; url: string }): string[] {
   const base = entry.key.replace(/@.*$/, '').toLowerCase();
   const alias = GUIDE_ALIASES[base]?.toLowerCase();
   const pluto = /plu-([0-9a-f]{24})/.exec(entry.url)?.[1];
-  return [base, alias, pluto].filter((k): k is string => !!k);
+  const samsung = /stvp-([A-Za-z0-9]+)/.exec(entry.url)?.[1]?.toLowerCase();
+  return [base, alias, pluto, samsung].filter((k): k is string => !!k);
 }

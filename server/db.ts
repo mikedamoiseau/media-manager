@@ -384,6 +384,17 @@ export const MIGRATIONS: string[] = [
   -- An episode's runtime in minutes, from Kodi.
   ALTER TABLE episodes ADD COLUMN runtime INTEGER;
   `,
+  `
+  -- The Samsung TV Plus guide (the Extra channels'), also where the guide sources were saved before it was a default.
+  UPDATE settings SET value = json_insert(value, '$[#]', 'https://i.mjh.nz/SamsungTVPlus/fr.xml.gz')
+    WHERE key = 'liveGuides' AND json_valid(value) AND value NOT LIKE '%i.mjh.nz/SamsungTVPlus/%';
+  -- The owner's channels numbered category by category (France, Belgium, Extra), each in the owner's order.
+  CREATE TEMP TABLE regroup AS SELECT p.key, ROW_NUMBER() OVER (
+    ORDER BY CASE c.list WHEN 'fr' THEN 0 WHEN 'be' THEN 1 WHEN 'extra' THEN 2 ELSE 3 END, p.position
+  ) AS n FROM live_channels p LEFT JOIN live_catalog c ON c.key = p.key;
+  UPDATE live_channels SET position = (SELECT n FROM regroup WHERE regroup.key = live_channels.key);
+  DROP TABLE regroup;
+  `,
 ];
 
 export function openDb(file: string): DB {
@@ -458,7 +469,7 @@ export const DEFAULT_SETTINGS: Settings = {
   sheetImportedAt: 0,
   cinemaCountry: '',
   liveFile: '/Volumes/video/IPTV/channels.m3u',
-  liveGuides: ['https://xmltvfr.fr/xmltv/xmltv.xml.gz', 'https://i.mjh.nz/PlutoTV/fr.xml.gz'],
+  liveGuides: ['https://xmltvfr.fr/xmltv/xmltv.xml.gz', 'https://i.mjh.nz/PlutoTV/fr.xml.gz', 'https://i.mjh.nz/SamsungTVPlus/fr.xml.gz'],
   liveRefreshedAt: 0,
 };
 

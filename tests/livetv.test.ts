@@ -6,6 +6,7 @@ import type { Programme } from '../server/epg.ts';
 import {
   LiveError, saveCatalog, setPicks, setGuidePick, setStream, pickedChannels, channelFileText, storeGuide, liveGuide, liveCatalog, guideOf, addressToward, appAddress,
 } from '../server/livetv.ts';
+import { EXTRA_CHANNELS } from '../server/extraChannels.ts';
 
 const X = 'https://xmltvfr.fr/xmltv/xmltv.xml.gz';
 const entry = (key: string, name: string, more: Partial<M3uEntry> = {}): M3uEntry => ({ key, name, logo: `https://logo/${name}.png`, group: 'General', opts: [], url: `http://s/${key}.m3u8`, ...more });
@@ -25,7 +26,7 @@ function catalog() {
 test('the settings for live TV have their defaults', () => {
   const s = getSettings(openDb(':memory:'));
   assert.equal(s.liveFile, '/Volumes/video/IPTV/channels.m3u');
-  assert.deepEqual(s.liveGuides, [X, 'https://i.mjh.nz/PlutoTV/fr.xml.gz']);
+  assert.deepEqual(s.liveGuides, [X, 'https://i.mjh.nz/PlutoTV/fr.xml.gz', 'https://i.mjh.nz/SamsungTVPlus/fr.xml.gz']);
   assert.equal(s.liveRefreshedAt, 0);
 });
 
@@ -193,11 +194,11 @@ test('a list that fails to download leaves its channels as they were', async () 
   });
   const res = await refreshCatalog(db, fn, at(5));
   assert.ok(res.find((r) => r.list === 'fr')!.error);
-  setPicks(db, ['TF1.fr@SD', 'BX1.be@SD', 'LCI.fr@SD']);
+  setPicks(db, ['TF1.fr@SD', 'LCI.fr@SD', 'BX1.be@SD']);
   const picked = pickedChannels(db);
   assert.equal(picked[0]!.entry.url, 'http://s/TF1.fr@SD.m3u8', 'fr rows untouched');
-  assert.equal(picked[1]!.entry.url, 'http://new/bx1.m3u8', 'be rows updated');
-  assert.equal(picked[2]!.entry.url, 'http://s/LCI.fr@SD.m3u8', 'still the first list’s channel');
+  assert.equal(picked[2]!.entry.url, 'http://new/bx1.m3u8', 'be rows updated');
+  assert.equal(picked[1]!.entry.url, 'http://s/LCI.fr@SD.m3u8', 'still the first list’s channel');
   assert.equal(liveCatalog(db, [X]).find((r) => r.key === 'TF1.fr@SD')!.listed, true, 'a failed list says nothing about its channels');
 });
 
@@ -206,7 +207,7 @@ test('a list that downloads empty counts as failed', async () => {
   const { fn } = fakeFetch({ [LIVE_LISTS[0]!.url]: new Response('#EXTM3U\n'), [LIVE_LISTS[1]!.url]: new Response('') });
   const res = await refreshCatalog(db, fn, at(5));
   assert.ok(res.every((r) => r.error));
-  assert.equal(liveCatalog(db, [X]).filter((r) => r.listed).length, 5);
+  assert.equal(liveCatalog(db, [X]).filter((r) => r.listed && r.list !== 'extra').length, 5);
 });
 
 const GUIDE = `<?xml version="1.0"?><tv>
@@ -432,4 +433,43 @@ test("the app's address in the TVs' list: only one that every TV reaches", () =>
   assert.equal(appAddress(['192.168.1.20', '192.168.1.21'], 8642, NETS), 'http://192.168.1.10:8642');
   assert.equal(appAddress(['192.168.1.20', '10.20.7.9'], 8642, NETS), null, 'two TVs on two networks');
   assert.equal(appAddress([], 8642, NETS), null, 'no TV');
+});
+
+test('the Extra channels: always offered after the lists, even when a list fails', async () => {
+  const db = catalog();
+  const { fn } = fakeFetch({ [LIVE_LISTS[0]!.url]: new Response('down', { status: 500 }), [LIVE_LISTS[1]!.url]: new Response('down', { status: 500 }) });
+  const res = await refreshCatalog(db, fn, at(5));
+  assert.deepEqual(res.map((r) => r.list), ['fr', 'be'], 'only the lists downloaded say how it went');
+  const rows = liveCatalog(db, [X]);
+  const extra = rows.filter((r) => r.list === 'extra');
+  assert.equal(extra.length, EXTRA_CHANNELS.length);
+  assert.ok(extra.every((r) => r.listed));
+  assert.equal(rows.findIndex((r) => r.list === 'extra'), rows.length - extra.length, 'after the lists');
+});
+
+test('the Extra channels: one key each, an https address, a name and a logo', () => {
+  assert.equal(new Set(EXTRA_CHANNELS.map((e) => e.key)).size, EXTRA_CHANNELS.length);
+  for (const e of EXTRA_CHANNELS) {
+    assert.match(e.url, /^https:\/\//, e.name);
+    assert.ok(e.name && e.logo.startsWith('https://') && e.group, e.key);
+    assert.deepEqual(e.opts, []);
+  }
+});
+
+test("each channel's category: the TVs get it as their group, the guide says it", () => {
+  const db = catalog();
+  saveCatalog(db, [{ list: 'extra', entries: [entry('Pocoyo.extra', 'Pocoyo', { group: 'Kids' })] }], at(1));
+  setPicks(db, ['TF1.fr@SD', 'BX1.be@SD', 'Pocoyo.extra']);
+  const text = channelFileText(db);
+  assert.match(text, /tvg-name="TF1" tvg-logo="[^"]*" group-title="France"/);
+  assert.match(text, /tvg-name="BX1" tvg-logo="[^"]*" group-title="Belgium"/);
+  assert.match(text, /tvg-name="Pocoyo" tvg-logo="[^"]*" group-title="Extra"/);
+  assert.deepEqual(liveGuide(db, [X], 0, at(23)).map((c) => c.list), ['fr', 'be', 'extra']);
+});
+
+test("the owner's channels are numbered category by category, each kept in the owner's order", () => {
+  const db = catalog();
+  saveCatalog(db, [{ list: 'extra', entries: [entry('Pocoyo.extra', 'Pocoyo')] }], at(1));
+  setPicks(db, ['Pocoyo.extra', 'BX1.be@SD', 'M6.fr@HD', 'TF1.fr@SD']);
+  assert.deepEqual(pickedChannels(db).map((c) => `${c.number} ${c.entry.key}`), ['1 M6.fr@HD', '2 TF1.fr@SD', '3 BX1.be@SD', '4 Pocoyo.extra']);
 });

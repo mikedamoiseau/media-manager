@@ -239,6 +239,8 @@ export interface LiveChannel {
   name: string;
   logo: string;
   url: string;
+  /** Its list: its category */
+  list: string;
   /** How VLC on the phone gets it: the stream itself, or the app's one-channel playlist (for request headers) */
   vlc: 'direct' | 'playlist';
   programmes: LiveProgramme[];

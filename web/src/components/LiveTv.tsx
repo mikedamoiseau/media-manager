@@ -7,7 +7,7 @@ import { TvPicker } from './TvBar.tsx';
 import { Sheet } from './Sheet.tsx';
 import { IconDevice, IconDown, IconInfo, IconPlay } from './icons.tsx';
 import { isIOS, vlcBack, VLC_APP_STORE } from '../vlc.ts';
-import { liveView, nowAndNext, gridSpan, gridStart, gridFrom, liveVlcHref, type LiveView } from '../liveTv.ts';
+import { liveView, nowAndNext, gridSpan, gridStart, gridFrom, liveVlcHref, listName, listsIn, type LiveView } from '../liveTv.ts';
 import type { LiveChannel, LiveProgramme } from '../types.ts';
 
 const PX_PER_MIN = 4;
@@ -20,6 +20,7 @@ const PLAY_CHECK_MS = 13_000;
 const PLAY_RECHECK_MS = 10_000;
 const PLAY_RECHECKS = 2;
 const VIEW_KEY = 'mm.liveView';
+const LIST_KEY = 'mm.liveList';
 
 type Override = { view: LiveView; w: number; h: number };
 type Open = { ch: LiveChannel; p?: LiveProgramme };
@@ -44,6 +45,24 @@ function writeOverride(o: Override | null): void {
   }
 }
 
+/** The category this device shows ('': all of them). */
+function readList(): string {
+  try {
+    return localStorage.getItem(LIST_KEY) ?? '';
+  } catch {
+    return '';
+  }
+}
+
+function writeList(list: string): void {
+  try {
+    if (list) localStorage.setItem(LIST_KEY, list);
+    else localStorage.removeItem(LIST_KEY);
+  } catch {
+    /* private mode */
+  }
+}
+
 const hm = (t: number) => new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
 /** The rows' height under the grid's sticky time ruler, so a row "at the top" isn't hidden under it. */
@@ -63,6 +82,7 @@ export function LiveTv() {
   const [size, setSize] = useState(screenSize);
   const [override, setOverride] = useState(readOverride);
   const [open, setOpen] = useState<Open | null>(null);
+  const [list, setList] = useState(readList);
   const scroller = useRef<HTMLDivElement>(null);
   const anchor = useRef<string | null>(null);
   const frame = useRef(0);
@@ -189,6 +209,11 @@ export function LiveTv() {
     check(PLAY_CHECK_MS, PLAY_RECHECKS);
   };
 
+  // The categories there are, and the one shown: all of them when this device's is gone.
+  const lists = listsIn((channels ?? []).map((c) => c.list));
+  const shownList = lists.includes(list) ? list : '';
+  const shown = channels && shownList ? channels.filter((c) => c.list === shownList) : channels;
+
   let body;
   if (!channels) body = error ? <p className="error-text pad">{error}</p> : <p className="hint pad">Loading the guide…</p>;
   else if (!channels.length)
@@ -201,8 +226,8 @@ export function LiveTv() {
         </button>
       </div>
     );
-  else if (view === 'grid') body = <Grid channels={channels} from={from} now={now} onPlay={play} onOpen={(ch, p) => setOpen({ ch, p })} />;
-  else body = <List channels={channels} now={now} onPlay={play} onOpen={(ch, p) => setOpen({ ch, p })} />;
+  else if (view === 'grid') body = <Grid channels={shown!} from={from} now={now} onPlay={play} onOpen={(ch, p) => setOpen({ ch, p })} />;
+  else body = <List channels={shown!} now={now} onPlay={play} onOpen={(ch, p) => setOpen({ ch, p })} />;
 
   return (
     <div className="live">
@@ -227,6 +252,23 @@ export function LiveTv() {
             <ProfileBadge />
           </div>
         </div>
+        {lists.length > 1 && (
+          <div className="segmented live-lists" role="radiogroup" aria-label="Category">
+            {['', ...lists].map((l) => (
+              <button
+                key={l || 'all'}
+                role="radio"
+                aria-checked={shownList === l}
+                onClick={() => {
+                  setList(l);
+                  writeList(l);
+                }}
+              >
+                {l ? listName(l) : 'All'}
+              </button>
+            ))}
+          </div>
+        )}
       </header>
       {picking && <TvPicker onClose={() => setPicking(false)} />}
       <div className={`scroller live-scroll live-${view}`} ref={scroller} onScroll={onScroll}>

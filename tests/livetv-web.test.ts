@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { liveView, nowAndNext, gridSpan, gridStart, gridFrom, liveVlcHref, moveKey, dragMove, guideLabel, GRID_MIN_WIDTH } from '../web/src/liveTv.ts';
+import { liveView, nowAndNext, gridSpan, gridStart, gridFrom, liveVlcHref, moveKey, dragMove, guideLabel, GRID_MIN_WIDTH, listName, listsIn, inSlots } from '../web/src/liveTv.ts';
 import type { LiveChannel } from '../web/src/types.ts';
 
 test('grid on wide screens, list on narrow ones, the switch until the screen changes', () => {
@@ -69,4 +69,17 @@ test('a drag moves a row per row-height travelled, stops at the ends, and never 
   assert.deepEqual(dragMove(keys, 'a', 90, 40), { keys: ['b', 'c', 'a', 'd'], rows: 2 });
   assert.deepEqual(dragMove(keys, 'c', -45, 40), { keys: ['a', 'c', 'b', 'd'], rows: -1 });
   assert.deepEqual(dragMove(keys, 'c', 400, 40), { keys: ['a', 'b', 'd', 'c'], rows: 1 }, 'the last place, no further');
+});
+
+test('the categories: named, in their order, only those there are', () => {
+  assert.deepEqual(['France', 'Belgium', 'Extra', 'xx'], ['fr', 'be', 'extra', 'xx'].map(listName));
+  assert.deepEqual(listsIn(['extra', 'fr', 'extra', 'be', 'fr']), ['fr', 'be', 'extra']);
+  assert.deepEqual(listsIn(['zz', 'extra', 'fr']), ['fr', 'extra', 'zz'], 'an unknown list last');
+});
+
+test("a category's channels reordered in their own places: the others keep their numbers", () => {
+  assert.deepEqual(inSlots(['a', 'B1', 'c', 'B2', 'B3'], ['B3', 'B1', 'B2']), ['a', 'B3', 'c', 'B1', 'B2']);
+  assert.deepEqual(inSlots(['a', 'b'], ['b', 'a']), ['b', 'a']);
+  const order = ['a', 'B1', 'c', 'B2'];
+  assert.equal(inSlots(order, ['B1', 'B2']), order, 'unchanged: the same list');
 });

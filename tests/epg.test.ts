@@ -63,6 +63,12 @@ test('a guide channel for a playlist channel: id, then aliases, then Pluto, sour
     { source: pluto, id: '6823648580b2665220d9e69a' },
   );
   assert.equal(matchGuide({ key: 'Klara.be@SD', url: 'http://a' }, guides), null);
+  const samsung = 'https://i.mjh.nz/SamsungTVPlus/fr.xml.gz';
+  assert.deepEqual(
+    matchGuide({ key: 'Pocoyo.extra', url: 'https://jmp2.uk/stvp-FR700001VJ' }, [...guides, { source: samsung, ids: ids('FR700001VJ') }]),
+    { source: samsung, id: 'FR700001VJ' },
+    'a Samsung TV Plus id read from its stream address',
+  );
 });
 
 test('the end of a guide split across two chunks still counts as its end', async () => {

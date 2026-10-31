@@ -1,15 +1,13 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react';
 import { api } from '../api.ts';
 import { useStore, status, toast } from '../store.ts';
 import { normalize } from '../search.ts';
-import { dragMove, guideLabel, moveKey } from '../liveTv.ts';
+import { dragMove, guideLabel, inSlots, listName, listsIn, moveKey } from '../liveTv.ts';
 import type { CatalogRow } from '../types.ts';
 import { Sheet } from './Sheet.tsx';
 import { IconCheck, IconClose, IconMenu, IconRefresh } from './icons.tsx';
 
 type GuideChannel = { source: string; id: string; name: string };
-
-const LISTS: Record<string, string> = { fr: 'France', be: 'Belgium' };
 
 const picksOf = (rows: CatalogRow[]) =>
   rows
@@ -82,6 +80,9 @@ export function LiveTvSettings({ activity, sources, onSources }: { activity: Rea
 
   const byKey = useMemo(() => new Map((rows ?? []).map((r) => [r.key, r])), [rows]);
   const picked = useMemo(() => new Set(order), [order]);
+  // The owner's channels by category; a channel moves among its category's, the others keep their numbers.
+  const ofList = (keys: string[], list: string | undefined) => keys.filter((k) => byKey.get(k)?.list === list);
+  const pickLists = listsIn(order.flatMap((k) => byKey.get(k)?.list ?? []));
 
   const onDown = (e: PointerEvent<HTMLButtonElement>, key: string) => {
     const li = e.currentTarget.closest('li');
@@ -94,11 +95,11 @@ export function LiveTvSettings({ activity, sources, onSources }: { activity: Rea
     const d = drag.current;
     if (!d) return;
     // A row per row-height travelled (a fast drag crosses several between two events).
-    const { keys, rows } = dragMove(orderRef.current, d.key, e.clientY - d.y, d.h);
+    const { keys, rows } = dragMove(ofList(orderRef.current, byKey.get(d.key)?.list), d.key, e.clientY - d.y, d.h);
     if (!rows) return;
     d.y += rows * d.h;
     d.moved = true;
-    show(keys);
+    show(inSlots(orderRef.current, keys));
   };
   const onUp = () => {
     const d = drag.current;
@@ -109,7 +110,7 @@ export function LiveTvSettings({ activity, sources, onSources }: { activity: Rea
   const onKey = (e: KeyboardEvent<HTMLButtonElement>, key: string) => {
     if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
     e.preventDefault();
-    const next = moveKey(orderRef.current, key, e.key === 'ArrowUp' ? -1 : 1);
+    const next = inSlots(orderRef.current, moveKey(ofList(orderRef.current, byKey.get(key)?.list), key, e.key === 'ArrowUp' ? -1 : 1));
     if (next !== orderRef.current) save(next);
   };
 
@@ -121,41 +122,44 @@ export function LiveTvSettings({ activity, sources, onSources }: { activity: Rea
 
       <h3 className="field-label">Your channels</h3>
       {rows && !order.length && <p className="muted">No channel yet: add the ones you watch.</p>}
-      {order.length > 0 && (
-        <ul className="found live-picks">
-          {order.map((key, i) => {
-            const r = byKey.get(key);
-            if (!r) return null;
-            return (
-              <li key={key} className={dragging === key ? 'is-dragging' : undefined}>
-                <button
-                  className="icon-btn live-handle"
-                  aria-label={`Move ${r.name} (arrow keys)`}
-                  onPointerDown={(e) => onDown(e, key)}
-                  onPointerMove={onMove}
-                  onPointerUp={onUp}
-                  onPointerCancel={onUp}
-                  onKeyDown={(e) => onKey(e, key)}
-                >
-                  <IconMenu />
-                </button>
-                <RowLogo row={r} />
-                <button className="live-pick-text" onClick={() => setSheetFor(key)} aria-label={`${r.name}: ${guideLabel(r)}. Change its guide or stream`}>
-                  <strong>
-                    {i + 1} · {r.name}
-                  </strong>
-                  <span className={`small${r.listed ? ' muted' : ' error-text'}`}>{guideLabel(r)}</span>
-                  <StreamState ok={r.ok} />
-                  {r.stream && <span className="muted small">Own stream address</span>}
-                </button>
-                <button className="icon-btn" aria-label={`Remove ${r.name}`} onClick={() => save(orderRef.current.filter((k) => k !== key))}>
-                  <IconClose />
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-      )}
+      {pickLists.map((list) => (
+        <Fragment key={list}>
+          {pickLists.length > 1 && <h4 className="live-list-head">{listName(list)}</h4>}
+          <ul className="found live-picks">
+            {ofList(order, list).map((key) => {
+              const r = byKey.get(key)!;
+              const i = order.indexOf(key);
+              return (
+                <li key={key} className={dragging === key ? 'is-dragging' : undefined}>
+                  <button
+                    className="icon-btn live-handle"
+                    aria-label={`Move ${r.name} (arrow keys)`}
+                    onPointerDown={(e) => onDown(e, key)}
+                    onPointerMove={onMove}
+                    onPointerUp={onUp}
+                    onPointerCancel={onUp}
+                    onKeyDown={(e) => onKey(e, key)}
+                  >
+                    <IconMenu />
+                  </button>
+                  <RowLogo row={r} />
+                  <button className="live-pick-text" onClick={() => setSheetFor(key)} aria-label={`${r.name}: ${guideLabel(r)}. Change its guide or stream`}>
+                    <strong>
+                      {i + 1} · {r.name}
+                    </strong>
+                    <span className={`small${r.listed ? ' muted' : ' error-text'}`}>{guideLabel(r)}</span>
+                    <StreamState ok={r.ok} />
+                    {r.stream && <span className="muted small">Own stream address</span>}
+                  </button>
+                  <button className="icon-btn" aria-label={`Remove ${r.name}`} onClick={() => save(orderRef.current.filter((k) => k !== key))}>
+                    <IconClose />
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </Fragment>
+      ))}
       <div className="tool-row">
         <button className="btn primary" disabled={!rows} onClick={() => setAdding(true)}>
           Add channels
@@ -198,7 +202,7 @@ function StreamState({ ok }: { ok: boolean | null }) {
   );
 }
 
-/** iptv-org's channels, one list at a time, to tick. */
+/** The channels of the lists, one category at a time, to tick. */
 function AddChannels({ rows, picked, onToggle, onClose }: { rows: CatalogRow[]; picked: Set<string>; onToggle: (key: string) => void; onClose: () => void }) {
   const lists = [...new Set(rows.map((r) => r.list))];
   const [list, setList] = useState(lists[0] ?? 'fr');
@@ -210,7 +214,7 @@ function AddChannels({ rows, picked, onToggle, onClose }: { rows: CatalogRow[]; 
       <div className="segmented" role="radiogroup" aria-label="List">
         {lists.map((l) => (
           <button key={l} role="radio" aria-checked={list === l} onClick={() => setList(l)}>
-            {LISTS[l] ?? l}
+            {listName(l)}
           </button>
         ))}
       </div>

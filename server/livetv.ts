@@ -7,12 +7,16 @@ import { type DB, tx } from './db.ts';
 import { buildM3u, parseM3u, uniqueNames, type M3uEntry } from './iptv.ts';
 import { guideCandidates, matchGuide, readXmltv, type GuideChannel, type GuideIds, type Programme } from './epg.ts';
 import { pool } from './scanner.ts';
+import { EXTRA_CHANNELS } from './extraChannels.ts';
 
 /** The channel lists the owner picks from, in this order: the first wins a channel both have. */
 export const LIVE_LISTS = [
   { list: 'fr', url: 'https://iptv-org.github.io/iptv/countries/fr.m3u' },
   { list: 'be', url: 'https://iptv-org.github.io/iptv/countries/be.m3u' },
 ];
+
+/** Each list's category, as the app and the TVs (a channel group in Kodi) name it; 'extra': EXTRA_CHANNELS. */
+export const LIST_NAMES: Record<string, string> = { fr: 'France', be: 'Belgium', extra: 'Extra' };
 
 /** A change to the live TV channels that can't be made as asked: the message says why. */
 export class LiveError extends Error {}
@@ -23,6 +27,8 @@ export interface LiveChannel {
   name: string;
   logo: string;
   url: string;
+  /** Its list: its category (LIST_NAMES) */
+  list: string;
   /** How VLC on the phone gets it: the stream itself, or the app's one-channel playlist (for request headers) */
   vlc: 'direct' | 'playlist';
   programmes: Array<Omit<Programme, 'channel'>>;
@@ -71,11 +77,20 @@ export function saveCatalog(db: DB, lists: Array<{ list: string; entries: M3uEnt
   });
 }
 
-/** The owner's channels, in this order. Their guide picks and own stream addresses stay. */
-export function setPicks(db: DB, keys: string[]): void {
-  if (new Set(keys).size !== keys.length) throw new LiveError('A channel is in the list twice');
-  const known = db.prepare('SELECT 1 FROM live_catalog WHERE key = ?');
-  for (const k of keys) if (!known.get(k)) throw new LiveError(`Unknown channel: ${k}`);
+/** The owner's channels, in this order within each category. Their guide picks and own stream addresses stay. */
+export function setPicks(db: DB, picks: string[]): void {
+  if (new Set(picks).size !== picks.length) throw new LiveError('A channel is in the list twice');
+  const listOf = db.prepare('SELECT list FROM live_catalog WHERE key = ?');
+  const lists = new Map<string, string>();
+  for (const k of picks) {
+    const r = listOf.get(k) as { list: string } | undefined;
+    if (!r) throw new LiveError(`Unknown channel: ${k}`);
+    lists.set(k, r.list);
+  }
+  // Numbered category by category, as Kodi groups them: each in the owner's order.
+  const order = Object.keys(LIST_NAMES);
+  const rank = (k: string) => (order.includes(lists.get(k)!) ? order.indexOf(lists.get(k)!) : order.length);
+  const keys = [...picks].sort((a, b) => rank(a) - rank(b));
   const kept = new Map(
     (db.prepare('SELECT key, guide, url FROM live_channels').all() as Array<{ key: string; guide: string | null; url: string | null }>).map((r) => [r.key, r]),
   );
@@ -103,22 +118,29 @@ export function setGuidePick(db: DB, key: string, guide: { source: string; id: s
 }
 
 /** The owner's channels as the TVs number and name them. */
-export function pickedChannels(db: DB): Array<{ number: number; name: string; entry: M3uEntry; guide: string | null; listedUrl: string }> {
+export function pickedChannels(db: DB): Array<{ number: number; name: string; list: string; entry: M3uEntry; guide: string | null; listedUrl: string }> {
   const rows = db.prepare(`SELECT c.*, p.guide, p.url AS own FROM live_channels p JOIN live_catalog c ON c.key = p.key ORDER BY p.position`).all() as Array<
     CatalogDbRow & { guide: string | null; own: string | null }
   >;
   const names = uniqueNames(rows.map((r) => r.name));
   // listedUrl: iptv-org's address, which a guide is matched on (a Pluto channel's id is in it).
-  return rows.map((r, i) => ({ number: i + 1, name: names[i]!, entry: playedOf(r), guide: r.guide, listedUrl: r.url }));
+  return rows.map((r, i) => ({ number: i + 1, name: names[i]!, list: r.list, entry: playedOf(r), guide: r.guide, listedUrl: r.url }));
 }
 
 // ParaTV's Dailymotion copies list a backup server's qualities the TVs' adaptive player mustn't take (see withoutBackups).
 const viaApp = (url: string) => /-dm\.m3u8$/.test(url);
 
-/** The list both TVs read. `app`: the app's address as they reach it, for the channels they get through it (else directly). */
+/**
+ * The list both TVs read, each channel in its category's group. `app`: the app's address as they reach it, for the
+ * channels they get through it (else directly).
+ */
 export function channelFileText(db: DB, app: string | null = null): string {
   return buildM3u(pickedChannels(db).map((c) => ({
-    entry: app && viaApp(c.entry.url) ? { ...c.entry, url: `${app}/api/livetv/${encodeURIComponent(c.entry.key)}/tv.m3u8` } : c.entry,
+    entry: {
+      ...c.entry,
+      group: LIST_NAMES[c.list] ?? c.entry.group,
+      ...(app && viaApp(c.entry.url) ? { url: `${app}/api/livetv/${encodeURIComponent(c.entry.key)}/tv.m3u8` } : {}),
+    },
     name: c.name,
   })));
 }
@@ -205,7 +227,7 @@ export function liveGuide(db: DB, sources: string[], from: number, to: number): 
     const g = guide(c.entry.key, c.listedUrl, c.guide);
     const rows = g.source && g.id ? (q.all(g.source, g.id, from, to) as Array<Record<string, string | number | null>>) : [];
     const programmes = rows.map((r) => Object.fromEntries(Object.entries(r).filter(([, v]) => v !== null)) as Omit<Programme, 'channel'>);
-    return { key: c.entry.key, number: c.number, name: c.name, logo: c.entry.logo, url: c.entry.url, vlc: c.entry.opts.length ? 'playlist' : 'direct', programmes };
+    return { key: c.entry.key, number: c.number, name: c.name, logo: c.entry.logo, url: c.entry.url, list: c.list, vlc: c.entry.opts.length ? 'playlist' : 'direct', programmes };
   });
 }
 
@@ -333,7 +355,9 @@ export async function refreshCatalog(db: DB, fetchFn: typeof fetch, now: number)
       out.push({ list, error: (e as Error).message });
     }
   }
-  if (got.length) saveCatalog(db, got, now);
+  // The Extra channels aren't downloaded: they're there every time, after the lists.
+  got.push({ list: 'extra', entries: EXTRA_CHANNELS.filter((e) => !kept.has(e.key)) });
+  saveCatalog(db, got, now);
   return out;
 }
 
