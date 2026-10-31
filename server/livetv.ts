@@ -1,4 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { networkInterfaces } from 'node:os';
 import { dirname, join } from 'node:path';
 import { Readable } from 'node:stream';
 import { createGunzip } from 'node:zlib';
@@ -111,9 +112,38 @@ export function pickedChannels(db: DB): Array<{ number: number; name: string; en
   return rows.map((r, i) => ({ number: i + 1, name: names[i]!, entry: playedOf(r), guide: r.guide, listedUrl: r.url }));
 }
 
-/** The list both TVs read. */
-export function channelFileText(db: DB): string {
-  return buildM3u(pickedChannels(db).map((c) => ({ entry: c.entry, name: c.name })));
+// ParaTV's Dailymotion copies list a backup server's qualities the TVs' adaptive player mustn't take (see withoutBackups).
+const viaApp = (url: string) => /-dm\.m3u8$/.test(url);
+
+/** The list both TVs read. `app`: the app's address as they reach it, for the channels they get through it (else directly). */
+export function channelFileText(db: DB, app: string | null = null): string {
+  return buildM3u(pickedChannels(db).map((c) => ({
+    entry: app && viaApp(c.entry.url) ? { ...c.entry, url: `${app}/api/livetv/${encodeURIComponent(c.entry.key)}/tv.m3u8` } : c.entry,
+    name: c.name,
+  })));
+}
+
+type Nets = Record<string, Array<{ address: string; netmask: string; family: string; internal: boolean }> | undefined>;
+
+const ipv4 = (s: string) => (/^\d{1,3}(\.\d{1,3}){3}$/.test(s) ? s.split('.').reduce((n, p) => n * 256 + Number(p), 0) : null);
+const sameNet = (a: number, b: number, mask: number) => (a & mask) >>> 0 === (b & mask) >>> 0;
+
+/** This Mac's address on the network of a device at `host` (an IPv4 address, by its netmask), or null when it has none there. */
+export function addressToward(host: string, nets: Nets = networkInterfaces()): string | null {
+  const h = ipv4(host);
+  if (h === null) return null;
+  for (const a of Object.values(nets).flat()) {
+    if (!a || a.family !== 'IPv4' || a.internal) continue;
+    const ip = ipv4(a.address), mask = ipv4(a.netmask);
+    if (ip !== null && mask !== null && sameNet(ip, h, mask)) return a.address;
+  }
+  return null;
+}
+
+/** The app's address in the TVs' list: one every TV reaches, else null (they then get every channel directly). */
+export function appAddress(hosts: string[], port: number, nets: Nets = networkInterfaces()): string | null {
+  const ips = hosts.map((h) => addressToward(h, nets));
+  return ips.length && ips[0] && ips.every((ip) => ip === ips[0]) ? `http://${ips[0]}:${port}` : null;
 }
 
 /** Each source's guide channels, by lower-case id, in the sources' order. */
@@ -234,6 +264,16 @@ function vlcOpt(entry: M3uEntry, name: string): string | undefined {
   return undefined;
 }
 
+/** The request headers a channel asks for (its user agent and referrer). */
+export function channelHeaders(entry: M3uEntry): Record<string, string> {
+  const headers: Record<string, string> = {};
+  const ua = vlcOpt(entry, 'http-user-agent');
+  const referrer = vlcOpt(entry, 'http-referrer');
+  if (ua) headers['user-agent'] = ua;
+  if (referrer) headers.referer = referrer;
+  return headers;
+}
+
 /**
  * The channel's stream answers: an HLS playlist, or a raw stream (France 3's relay sends MPEG-TS: typed as
  * video or binary, or starting with its sync byte), asked with the channel's own headers. An empty answer or a
@@ -241,11 +281,7 @@ function vlcOpt(entry: M3uEntry, name: string): string | undefined {
  */
 export async function streamAnswers(entry: M3uEntry, fetchFn: typeof fetch = fetch, timeoutMs = 8000): Promise<boolean> {
   const ctrl = new AbortController();
-  const headers: Record<string, string> = {};
-  const ua = vlcOpt(entry, 'http-user-agent');
-  const referrer = vlcOpt(entry, 'http-referrer');
-  if (ua) headers['user-agent'] = ua;
-  if (referrer) headers.referer = referrer;
+  const headers = channelHeaders(entry);
   const check = async () => {
     const res = await fetchFn(entry.url, { headers, signal: ctrl.signal });
     if (!res.ok || !res.body) return false;

@@ -16,7 +16,7 @@ const webDir = join(rootDir, 'web', 'dist');
 const port = Number(process.env.PORT ?? 8642);
 
 const db = openDb(join(dataDir, 'media.db'));
-const svc = new Service(db, dataDir);
+const svc = new Service(db, dataDir, port);
 
 const app = new Hono();
 app.route('/api', createApi(svc));

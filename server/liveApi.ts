@@ -1,8 +1,8 @@
 import type { Context, Hono } from 'hono';
 import type { Service } from './service.ts';
 import type { KodiConfig } from './kodi.ts';
-import { LiveError, liveGuide, liveCatalog, guideChannels, hasGuideChannel, pickedChannels, setGuidePick } from './livetv.ts';
-import { channelPlaylist } from './iptv.ts';
+import { LiveError, liveGuide, liveCatalog, guideChannels, hasGuideChannel, pickedChannels, setGuidePick, channelHeaders } from './livetv.ts';
+import { channelPlaylist, withoutBackups } from './iptv.ts';
 import { startChannel, isPlaying } from './liveKodi.ts';
 
 const HOUR = 3600_000;
@@ -109,5 +109,14 @@ export function liveTvRoutes(api: Hono, svc: Service, tvOf: (c: Context) => { cf
     const ch = picked(c.req.param('key'));
     if (!ch) return c.json({ error: 'Not one of your channels' }, 404);
     return c.body(channelPlaylist(ch.name, ch.entry), 200, { 'content-type': 'audio/x-mpegurl', 'cache-control': 'no-store' });
+  });
+
+  /** For the TVs: the channel's qualities without its backup server's (see withoutBackups). No video goes through here. */
+  api.get('/livetv/:key/tv.m3u8', async (c) => {
+    const ch = picked(c.req.param('key'));
+    if (!ch) return c.json({ error: 'Not one of your channels' }, 404);
+    const r = await fetch(ch.entry.url, { headers: channelHeaders(ch.entry), signal: AbortSignal.timeout(15_000) }).catch(() => null);
+    if (!r?.ok) return c.json({ error: "The channel's address didn't answer" }, 502);
+    return c.body(withoutBackups(await r.text(), r.url || ch.entry.url), 200, { 'content-type': 'application/vnd.apple.mpegurl', 'cache-control': 'no-store' });
   });
 }

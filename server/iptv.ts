@@ -92,6 +92,28 @@ export function buildM3u(channels: Array<{ entry: M3uEntry; name: string }>): st
   return `${lines.join('\n')}\n`;
 }
 
+/**
+ * A channel's qualities without its backup server's. Dailymotion lists each quality twice, on its main and its
+ * backup server, each with its own audio ("…-backup" groups): Kodi's adaptive player can take the backup's audio,
+ * which then never plays. Addresses are made full, as the list is served from elsewhere.
+ */
+export function withoutBackups(text: string, base: string): string {
+  const full = (u: string) => new URL(u, base).href;
+  const backup = (l: string) => /(?:GROUP-ID|AUDIO|VIDEO|SUBTITLES)="[^"]*-backup"/.test(l);
+  const out: string[] = [];
+  let dropping = false; // the address after a backup quality
+  for (const l of text.split(/\r?\n/)) {
+    if (l.startsWith('#')) {
+      if (backup(l)) dropping = l.startsWith('#EXT-X-STREAM-INF');
+      else out.push(l.replace(/URI="([^"]*)"/, (_, u: string) => `URI="${full(u)}"`));
+    } else if (l.trim()) {
+      if (!dropping) out.push(full(l.trim()));
+      dropping = false;
+    } else out.push(l);
+  }
+  return out.join('\n');
+}
+
 /** One channel for VLC on the phone, with the option lines a bare link can't carry. */
 export function channelPlaylist(name: string, entry: M3uEntry): string {
   return `${['#EXTM3U', `#EXTINF:-1,${value(name)}`, ...entry.opts.map(line), line(entry.url)].join('\n')}\n`;

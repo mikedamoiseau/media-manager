@@ -140,3 +140,38 @@ test("a channel's own stream address: http(s) only, one of the owner's channels,
   assert.equal((await app.request(url('M6.fr@HD'), json('PUT', { url: null }))).status, 200);
   assert.match(await (await app.request(path('M6.fr@HD', '/vlc.m3u'))).text(), /EXTVLCOPT/, "back to iptv-org's");
 });
+
+test("a channel's qualities for the TVs: fetched at its address, without the backup server's", async (t) => {
+  const { svc, app } = setup();
+  svc.saveLivePicks(['M6.fr@HD']);
+  const master = ['#EXTM3U', '#EXT-X-STREAM-INF:BANDWIDTH=1,AUDIO="a"', 'v/live.m3u8', '#EXT-X-STREAM-INF:BANDWIDTH=1,AUDIO="a-backup"', 'https://b/v.m3u8', ''].join('\n');
+  const asked: string[] = [];
+  t.mock.method(globalThis, 'fetch', async (url: string, init?: RequestInit) => {
+    asked.push(`${String(url)} ${(init?.headers as Record<string, string> | undefined)?.['user-agent'] ?? ''}`);
+    return String(url).includes('fails') ? new Response('', { status: 503 }) : new Response(master, { status: 200 });
+  });
+  const r = await app.request(path('M6.fr@HD', '/tv.m3u8'));
+  assert.equal(r.status, 200);
+  assert.match(r.headers.get('content-type') ?? '', /mpegurl/);
+  assert.equal(await r.text(), ['#EXTM3U', '#EXT-X-STREAM-INF:BANDWIDTH=1,AUDIO="a"', 'http://s/v/live.m3u8', ''].join('\n'));
+  assert.deepEqual(asked, ['http://s/M6.fr@HD.m3u8 UA'], "asked with the channel's own headers");
+  assert.equal((await app.request(path('TF1.fr@SD', '/tv.m3u8'))).status, 404, 'only a channel of the owner');
+  svc.db.prepare("UPDATE live_channels SET url = 'http://fails/m6.m3u8' WHERE key = 'M6.fr@HD'").run();
+  assert.equal((await app.request(path('M6.fr@HD', '/tv.m3u8'))).status, 502);
+});
+
+test("the TVs' list is written again when the TVs change, as the app's address in it may", (t) => {
+  const { svc } = setup();
+  t.mock.method(svc as unknown as { connectTvs(): void }, 'connectTvs', () => {});
+  t.mock.method(svc, 'syncKodi', async () => {});
+  const written = t.mock.method(svc, 'writeLiveFile');
+  const tv = (host: string) => ({ id: 'tv1', name: 'TV', host, port: 8080, user: '', pass: '', pathPrefix: '' });
+  svc.saveTvs([tv('192.168.1.20')]);
+  assert.equal(written.mock.callCount(), 0, 'no channel picked yet: no file');
+  svc.saveLivePicks(['M6.fr@HD']);
+  const before = written.mock.callCount();
+  svc.saveTvs([tv('192.168.1.21')]);
+  assert.equal(written.mock.callCount(), before + 1);
+  written.mock.mockImplementation(() => { throw new Error('EACCES'); });
+  assert.doesNotThrow(() => svc.saveTvs([tv('192.168.1.22')]), 'a file that cannot be written stops nothing');
+});

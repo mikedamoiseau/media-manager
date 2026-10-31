@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseM3u, cleanName, uniqueNames, buildM3u, channelPlaylist } from '../server/iptv.ts';
+import { parseM3u, cleanName, uniqueNames, buildM3u, channelPlaylist, withoutBackups } from '../server/iptv.ts';
 
 const LIST = [
   '#EXTM3U',
@@ -41,4 +41,29 @@ test('the file both TVs read: numbers in order, the written name, option lines k
     ].join('\n'),
   );
   assert.equal(channelPlaylist('M6 HD', m6), '#EXTM3U\n#EXTINF:-1,M6 HD\n#EXTVLCOPT:http-user-agent=UA\nhttp://b/m6.m3u8\n');
+});
+
+test("a channel's qualities without the backup server's: its audio and its qualities go, the rest is kept at full addresses", () => {
+  const master = [
+    '#EXTM3U',
+    '#EXT-X-VERSION:7',
+    '#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="group_A1",NAME="und",DEFAULT=YES,CHANNELS="2",URI="a1/live.m3u8"',
+    '#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="group_A1-backup",NAME="fre",DEFAULT=YES,CHANNELS="2",URI="https://backup.example/a1.m3u8"',
+    '#EXT-X-STREAM-INF:BANDWIDTH=475136,RESOLUTION=320x180,CODECS="avc1.42000c,mp4a.40.5",AUDIO="group_A1"',
+    'v240/live.m3u8',
+    '#EXT-X-STREAM-INF:BANDWIDTH=475136,RESOLUTION=320x180,CODECS="avc1.42000c,mp4a.40.5",AUDIO="group_A1-backup"',
+    'https://backup.example/v240.m3u8',
+    '',
+  ].join('\n');
+  assert.equal(
+    withoutBackups(master, 'https://main.example/cnews/master.m3u8'),
+    [
+      '#EXTM3U',
+      '#EXT-X-VERSION:7',
+      '#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="group_A1",NAME="und",DEFAULT=YES,CHANNELS="2",URI="https://main.example/cnews/a1/live.m3u8"',
+      '#EXT-X-STREAM-INF:BANDWIDTH=475136,RESOLUTION=320x180,CODECS="avc1.42000c,mp4a.40.5",AUDIO="group_A1"',
+      'https://main.example/cnews/v240/live.m3u8',
+      '',
+    ].join('\n'),
+  );
 });

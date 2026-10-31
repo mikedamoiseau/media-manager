@@ -21,7 +21,7 @@ import { pickTv, addTv, editTv, tvNumber, firstTvChanged, firstRun } from './tvs
 import { upNext, upNextEntries, takeFromUpNext, removeFromUpNext, dropStale, sleepOf, clearSleep, dueSleeps, forgetTv, type UpNextEntry, type Sleep } from './upnext.ts';
 import { PlayError, playItem } from './playItem.ts';
 import { libraryTitle, openPlay, closePlay, closeLeftOpen, missedEnd, fillPlays, logKodiChanges } from './plays.ts';
-import { refreshCatalog, refreshGuides, checkStreams, writeChannelFile, channelFileText, pickedChannels, setPicks, setStream } from './livetv.ts';
+import { refreshCatalog, refreshGuides, checkStreams, writeChannelFile, channelFileText, pickedChannels, setPicks, setStream, appAddress } from './livetv.ts';
 
 /** How long after a play ends the next of Up next starts: Kodi has closed the last one. */
 export const NEXT_PAUSE = 1000;
@@ -118,8 +118,12 @@ export class Service extends EventEmitter {
   /** What each TV plays now, in the play log: when it started and how long it was paused. */
   private open = new Map<string, { id: number; at: number; pausedAt: number | null; paused: number }>();
 
-  constructor(db: DB, dataDir: string) {
+  /** The port the app answers on, for the TVs to reach it. */
+  readonly port: number;
+
+  constructor(db: DB, dataDir: string, port = 8642) {
     super();
+    this.port = port;
     this.setMaxListeners(100);
     this.db = db;
     this.dataDir = dataDir;
@@ -200,6 +204,7 @@ export class Service extends EventEmitter {
     const last = Math.max(this.settings().kodiTvLast, ...tvs.map((t) => tvNumber(t.id)));
     saveSettings(this.db, { kodiTvs: tvs, kodiTvLast: last });
     this.connectTvs();
+    this.rewriteLiveFile();
   }
 
   /** One event connection per TV, for its keyboard and what it plays: opened, moved or closed as the TVs change. */
@@ -720,10 +725,20 @@ export class Service extends EventEmitter {
 
   /** The owner's channels into the file both TVs read; the outcome shows in Settings. */
   writeLiveFile(): 'written' | 'same' | 'not_mounted' {
-    const file = writeChannelFile(this.settings().liveFile, channelFileText(this.db));
+    const app = appAddress(this.tvs().map((t) => t.host), this.port);
+    const file = writeChannelFile(this.settings().liveFile, channelFileText(this.db, app));
     this.status.live.file = file;
     this.emitStatus();
     return file;
+  }
+
+  /** The file again when the owner has channels: the app's address in it may have changed (a TV, or this Mac, moved). */
+  private rewriteLiveFile(): void {
+    try {
+      if (pickedChannels(this.db).length) this.writeLiveFile();
+    } catch (e) {
+      console.warn(`Live TV channel list: ${(e as Error).message}`);
+    }
   }
 
   /** The owner's channels, in their order, then the file on the NAS. */
@@ -806,6 +821,7 @@ export class Service extends EventEmitter {
   start(): void {
     this.schedule();
     this.connectTvs();
+    this.rewriteLiveFile();
     void this.scan();
     // Live TV once a day: looked at every hour, so a Mac that slept through it catches up.
     const liveDue = () => {

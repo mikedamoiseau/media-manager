@@ -4,7 +4,7 @@ import { openDb, getSettings } from '../server/db.ts';
 import type { M3uEntry } from '../server/iptv.ts';
 import type { Programme } from '../server/epg.ts';
 import {
-  LiveError, saveCatalog, setPicks, setGuidePick, setStream, pickedChannels, channelFileText, storeGuide, liveGuide, liveCatalog, guideOf,
+  LiveError, saveCatalog, setPicks, setGuidePick, setStream, pickedChannels, channelFileText, storeGuide, liveGuide, liveCatalog, guideOf, addressToward, appAddress,
 } from '../server/livetv.ts';
 
 const X = 'https://xmltvfr.fr/xmltv/xmltv.xml.gz';
@@ -402,4 +402,34 @@ test('a check of an old address says nothing about the new one', async () => {
   answer();
   await checking;
   assert.equal(liveCatalog(db, [X]).find((r) => r.key === 'M6.fr@HD')!.ok, null, 'the new address is still unchecked');
+});
+
+test("ParaTV's Dailymotion copies reach the TVs through the app, every other channel directly", () => {
+  const db = catalog();
+  setPicks(db, ['TF1.fr@SD', 'M6.fr@HD']);
+  setStream(db, 'M6.fr@HD', 'https://raw.githubusercontent.com/Paradise-91/ParaTV/main/streams/canalplus/m6-dm.m3u8');
+  const text = channelFileText(db, 'http://192.168.1.10:8642');
+  assert.match(text, /\nhttp:\/\/192\.168\.1\.10:8642\/api\/livetv\/M6\.fr%40HD\/tv\.m3u8\n/);
+  assert.match(text, /\nhttp:\/\/s\/TF1\.fr@SD\.m3u8\n/);
+  assert.match(channelFileText(db), /m6-dm\.m3u8/, "without the app's address: directly");
+});
+
+const NETS = {
+  lo0: [{ address: '127.0.0.1', netmask: '255.0.0.0', family: 'IPv4', internal: true }],
+  utun4: [{ address: '100.64.0.7', netmask: '255.255.255.255', family: 'IPv4', internal: false }],
+  en0: [{ address: 'fe80::1', netmask: 'ffff:ffff:ffff:ffff::', family: 'IPv6', internal: false }, { address: '192.168.1.10', netmask: '255.255.255.0', family: 'IPv4', internal: false }],
+  en1: [{ address: '10.20.0.3', netmask: '255.255.0.0', family: 'IPv4', internal: false }],
+};
+
+test("the app's address as a TV reaches it: the one on the TV's network", () => {
+  assert.equal(addressToward('192.168.1.20', NETS), '192.168.1.10');
+  assert.equal(addressToward('10.20.7.9', NETS), '10.20.0.3', 'by its netmask, not only the first three numbers');
+  assert.equal(addressToward('192.168.2.5', NETS), null, 'none on its network');
+  assert.equal(addressToward('tv.local', NETS), null, 'a name, not an address');
+});
+
+test("the app's address in the TVs' list: only one that every TV reaches", () => {
+  assert.equal(appAddress(['192.168.1.20', '192.168.1.21'], 8642, NETS), 'http://192.168.1.10:8642');
+  assert.equal(appAddress(['192.168.1.20', '10.20.7.9'], 8642, NETS), null, 'two TVs on two networks');
+  assert.equal(appAddress([], 8642, NETS), null, 'no TV');
 });
