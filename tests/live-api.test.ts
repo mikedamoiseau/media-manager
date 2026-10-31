@@ -11,6 +11,7 @@ import { addProfile, PROFILE_COLORS } from '../server/profiles.ts';
 import { setParentsCode } from '../server/kids.ts';
 import { saveCatalog, storeGuide, guideChannels } from '../server/livetv.ts';
 import { channelPlaylist, type M3uEntry } from '../server/iptv.ts';
+import { standInKodi } from './standInKodi.ts';
 
 const X = 'https://xmltvfr.fr/xmltv/xmltv.xml.gz';
 const entry = (key: string, name: string, opts: string[] = []): M3uEntry => ({ key, name, logo: '', group: 'General', opts, url: `http://s/${key}.m3u8` });
@@ -196,4 +197,39 @@ test("the TVs' list tells Kodi where its guide is, as the TVs reach the NAS", ()
   saveSettings(db, { liveFile: join(share, 'IPTV', 'channels.m3u'), mediaRoot: join(share, 'MEDIA'), kodiTvs: [tv('tv1'), tv('tv2')] });
   svc.saveLivePicks(['TF1.fr@SD']);
   assert.equal(readFileSync(join(share, 'IPTV', 'channels.m3u'), 'utf8').split('\n')[0], '#EXTM3U x-tvg-url="smb://nas/video/IPTV/guide.xml"');
+});
+
+test("what plays: one of the owner's channels, with what's on and what's next; not for a kid", async () => {
+  const { db, svc, app } = setup();
+  const kodi = await standInKodi();
+  try {
+    saveSettings(db, { kodiTvs: [{ id: 'tv1', name: 'TV', host: '127.0.0.1', port: kodi.port, user: '', pass: '', pathPrefix: '' }] });
+    const now = Date.now();
+    storeGuide(db, X, [{ id: 'TF1.fr', name: 'TF1' }], [
+      { channel: 'TF1.fr', start: now - 600_000, stop: now + 600_000, title: 'Le 13h' },
+      { channel: 'TF1.fr', start: now + 600_000, stop: now + 3_600_000, title: 'Météo' },
+      { channel: 'TF1.fr', start: now + 3_600_000, stop: now + 7_200_000, title: 'Later' },
+    ], now);
+    svc.saveLivePicks(['M6.fr@HD', 'TF1.fr@SD']);
+    kodi.players.push({ playerid: 1, type: 'video' });
+    kodi.answers['Application.GetProperties'] = { volume: 50, muted: false };
+    kodi.answers['Player.GetProperties'] = { time: { hours: 0, minutes: 0, seconds: 0 }, totaltime: { hours: 0, minutes: 0, seconds: 0 }, speed: 1, subtitleenabled: false };
+    kodi.answers['Player.GetItem'] = { item: { type: 'channel', id: 7, label: 'TF1', channel: 'TF1', title: 'Le 13h' } };
+    const h = { headers: { 'x-kodi-tv': 'tv1' } };
+    const np = (await (await app.request('/api/kodi/now', h)).json()) as { live?: { key: string; number: number; name: string; programmes: Array<{ title: string }> } };
+    assert.deepEqual([np.live?.key, np.live?.number, np.live?.name], ['TF1.fr@SD', 2, 'TF1']);
+    assert.deepEqual(np.live?.programmes.map((p) => p.title), ['Le 13h', 'Météo'], "what's on, then next");
+    assert.ok(kodi.calls.some((c) => c.method === 'Player.GetItem' && (c.params.properties as string[]).includes('channel')));
+    // A kid sees nothing of it.
+    setParentsCode(db, '4821');
+    const kid = addProfile(db, { name: 'Kid', color: PROFILE_COLORS[2], kids: true });
+    assert.deepEqual(await (await app.request('/api/kodi/now', { headers: { ...h.headers, 'x-profile': String(kid.id) } })).json(), { active: true, hidden: true });
+    // A channel not of the owner's, then a film: no live channel.
+    kodi.answers['Player.GetItem'] = { item: { type: 'channel', id: 9, label: 'Other', channel: 'Other' } };
+    assert.equal(((await (await app.request('/api/kodi/now', h)).json()) as { live?: unknown }).live, undefined);
+    kodi.answers['Player.GetItem'] = { item: { type: 'movie', id: 3, label: 'TF1', title: 'TF1' } };
+    assert.equal(((await (await app.request('/api/kodi/now', h)).json()) as { live?: unknown }).live, undefined);
+  } finally {
+    kodi.server.close();
+  }
 });

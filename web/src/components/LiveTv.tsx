@@ -1,24 +1,20 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import { useLocation } from 'wouter';
 import { api } from '../api.ts';
-import { useStore, status, toast, useTv, tvChoice } from '../store.ts';
+import { useStore, status, useTv } from '../store.ts';
 import { ProfileBadge } from './WhosWatching.tsx';
 import { TvPicker } from './TvBar.tsx';
 import { Sheet } from './Sheet.tsx';
 import { IconDevice, IconDown, IconInfo, IconPlay } from './icons.tsx';
 import { isIOS, vlcBack, VLC_APP_STORE } from '../vlc.ts';
-import { liveView, nowAndNext, gridSpan, gridStart, gridFrom, liveVlcHref, listName, listsIn, type LiveView } from '../liveTv.ts';
+import { liveView, nowAndNext, gridSpan, gridStart, gridFrom, liveVlcHref, listName, listsIn, hm, type LiveView } from '../liveTv.ts';
+import { playChannel } from '../livePlay.ts';
 import type { LiveChannel, LiveProgramme } from '../types.ts';
 
 const PX_PER_MIN = 4;
 const HALF_HOUR = 30 * 60_000;
 /** The grid's window: from half an hour or so before now, a day ahead (what the guide keeps). */
 const GRID_SPAN = 25 * 3600_000;
-/** Kodi took up to 11 s to start a channel on the Pi (measured): asking sooner says "not playing" for one that's opening. */
-const PLAY_CHECK_MS = 13_000;
-/** A channel Kodi still opens is asked about again, this long after, this many times. */
-const PLAY_RECHECK_MS = 10_000;
-const PLAY_RECHECKS = 2;
 const VIEW_KEY = 'mm.liveView';
 const LIST_KEY = 'mm.liveList';
 
@@ -63,8 +59,6 @@ function writeList(list: string): void {
   }
 }
 
-const hm = (t: number) => new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-
 /** The rows' height under the grid's sticky time ruler, so a row "at the top" isn't hidden under it. */
 const stickyTop = (box: HTMLElement) => box.querySelector<HTMLElement>('.lg-ruler')?.offsetHeight ?? 0;
 
@@ -86,7 +80,6 @@ export function LiveTv() {
   const scroller = useRef<HTMLDivElement>(null);
   const anchor = useRef<string | null>(null);
   const frame = useRef(0);
-  const plays = useRef(0);
   const shownFrom = useRef(from);
   const view = liveView(size, override);
 
@@ -182,32 +175,7 @@ export function LiveTv() {
     writeOverride(o);
   };
 
-  const play = async (ch: LiveChannel) => {
-    const n = ++plays.current;
-    const onTv = tvChoice.get();
-    try {
-      await api.post(`/api/livetv/${encodeURIComponent(ch.key)}/play`);
-    } catch (e) {
-      toast((e as Error).message, 'error');
-      return;
-    }
-    toast(`Starting ${ch.name} on ${tv?.name ?? 'the TV'}`);
-    // Kodi keeps a player while a stream fails: ask the TV whether it really plays (again while it still opens
-    // it), unless another play came since.
-    const check = (delay: number, left: number) =>
-      setTimeout(() => {
-        if (n !== plays.current || onTv !== tvChoice.get()) return;
-        api.get<{ state: 'playing' | 'opening' | 'stopped' }>(`/api/livetv/${encodeURIComponent(ch.key)}/playing`).then(
-          (r) => {
-            if (n !== plays.current || onTv !== tvChoice.get() || r.state === 'playing') return;
-            if (r.state === 'opening' && left > 0) check(PLAY_RECHECK_MS, left - 1);
-            else toast(`${ch.name} didn't start: its stream may be down`, 'error');
-          },
-          () => {},
-        );
-      }, delay);
-    check(PLAY_CHECK_MS, PLAY_RECHECKS);
-  };
+  const play = (ch: LiveChannel) => void playChannel(ch, tv?.name);
 
   // The categories there are, and the one shown: all of them when this device's is gone.
   const lists = listsIn((channels ?? []).map((c) => c.list));
@@ -279,7 +247,7 @@ export function LiveTv() {
   );
 }
 
-function ChannelLogo({ ch }: { ch: LiveChannel }) {
+export function ChannelLogo({ ch }: { ch: Pick<LiveChannel, 'name' | 'logo'> }) {
   const [failed, setFailed] = useState(false);
   return (
     <span className="live-logo" aria-hidden="true">

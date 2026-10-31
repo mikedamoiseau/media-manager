@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { liveView, nowAndNext, gridSpan, gridStart, gridFrom, liveVlcHref, moveKey, dragMove, guideLabel, GRID_MIN_WIDTH, listName, listsIn, inSlots } from '../web/src/liveTv.ts';
+import { liveView, nowAndNext, gridSpan, gridStart, gridFrom, liveVlcHref, moveKey, dragMove, guideLabel, GRID_MIN_WIDTH, listName, listsIn, inSlots, zapTarget } from '../web/src/liveTv.ts';
 import type { LiveChannel } from '../web/src/types.ts';
 
 test('grid on wide screens, list on narrow ones, the switch until the screen changes', () => {
@@ -82,4 +82,16 @@ test("a category's channels reordered in their own places: the others keep their
   assert.deepEqual(inSlots(['a', 'b'], ['b', 'a']), ['b', 'a']);
   const order = ['a', 'B1', 'c', 'B2'];
   assert.equal(inSlots(order, ['B1', 'B2']), order, 'unchanged: the same list');
+});
+
+test('zapping: along the numbering, round past either end, several taps at once', () => {
+  const chs = ['a', 'b', 'c', 'd'].map((key) => ({ key }));
+  assert.equal(zapTarget(chs, 'b', 1)?.key, 'c');
+  assert.equal(zapTarget(chs, 'b', -1)?.key, 'a');
+  assert.equal(zapTarget(chs, 'd', 1)?.key, 'a', 'after the last, the first');
+  assert.equal(zapTarget(chs, 'a', -1)?.key, 'd', 'before the first, the last');
+  assert.equal(zapTarget(chs, 'b', 3)?.key, 'a');
+  assert.equal(zapTarget(chs, 'b', -6)?.key, 'd');
+  assert.equal(zapTarget(chs, 'b', 4)?.key, 'b', 'all the way round');
+  assert.equal(zapTarget(chs, 'gone', 1), null, 'a channel no longer in the list');
 });

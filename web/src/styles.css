@@ -1807,6 +1807,101 @@ select option {
   overflow-wrap: anywhere;
 }
 
+/* A live channel on the Remote: its logo by its number and name, the programme's times by a thin bar. */
+.np-channel {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.np-channel .live-logo {
+  width: 40px;
+  height: 30px;
+}
+
+.np-sub {
+  font-size: 15px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.np-prog {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--brume);
+  font-variant-numeric: tabular-nums;
+}
+
+.np-prog .ll-bar {
+  max-width: none;
+}
+
+.np-descr {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 14px;
+  color: var(--brume);
+}
+
+/* CH − and +, as on a TV remote; between them the channel number, and where the taps lead. */
+.zap {
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr) 58px;
+  align-items: center;
+  gap: 12px;
+}
+
+.zap-to {
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: 2px;
+  min-height: 58px;
+  text-align: center;
+}
+
+.zap-num {
+  font-family: var(--font-display);
+  font-size: 28px;
+  font-weight: 800;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.zap-label {
+  font-family: var(--font-ui);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--brume);
+  vertical-align: middle;
+}
+
+.zap-to.is-pending .zap-num {
+  color: var(--lampe);
+}
+
+.zap-name {
+  max-width: 100%;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.zap-on {
+  max-width: 100%;
+  font-size: 13px;
+  color: var(--brume);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .np-sleep {
   justify-self: start;
   display: inline-flex;

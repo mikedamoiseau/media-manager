@@ -229,6 +229,8 @@ export interface NowPlaying {
   subtitlesOn?: boolean;
   subtitle?: SubtitleStream;
   audio?: AudioStream;
+  /** A live TV channel plays: its name, as the TVs' list gives it */
+  channel?: string;
 }
 
 export interface AudioStream {
@@ -288,9 +290,9 @@ export async function nowPlaying(cfg: KodiConfig): Promise<NowPlaying> {
   const p = players.find((x) => x.type === 'video') ?? players[0];
   if (!p) return { active: false, volume: app.volume, muted: app.muted };
   const [item, props] = await Promise.all([
-    kodiCall<{ item: { label: string; title?: string; showtitle?: string; season?: number; episode?: number; year?: number; file?: string; art?: Record<string, string> } }>(
-      cfg, 'Player.GetItem', { playerid: p.playerid, properties: ['title', 'showtitle', 'season', 'episode', 'year', 'file', 'art'] },
-    ),
+    kodiCall<{
+      item: { type?: string; label: string; channel?: string; title?: string; showtitle?: string; season?: number; episode?: number; year?: number; file?: string; art?: Record<string, string> };
+    }>(cfg, 'Player.GetItem', { playerid: p.playerid, properties: ['title', 'showtitle', 'season', 'episode', 'year', 'file', 'art', 'channel'] }),
     kodiCall<{
       time: { hours: number; minutes: number; seconds: number };
       totaltime: { hours: number; minutes: number; seconds: number };
@@ -324,6 +326,8 @@ export async function nowPlaying(cfg: KodiConfig): Promise<NowPlaying> {
     subtitlesOn: props.subtitleenabled,
     subtitle: hasIndex(props.currentsubtitle) ? toSubtitle(props.currentsubtitle) : undefined,
     audio: hasIndex(props.currentaudiostream) ? toAudio(props.currentaudiostream) : undefined,
+    // A live channel's item is named after the channel (its title is the programme on now, from Kodi's guide).
+    channel: it.type === 'channel' ? it.channel || it.label : undefined,
   };
 }
 

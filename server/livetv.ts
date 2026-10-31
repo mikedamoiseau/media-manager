@@ -257,6 +257,13 @@ export function liveGuide(db: DB, sources: string[], from: number, to: number): 
   });
 }
 
+/** The owner's channel a TV plays, by the name it gives (as the list wrote it, else without case), with what's on and next. */
+export function channelOnAir(db: DB, sources: string[], name: string, now: number): LiveChannel | null {
+  const all = liveGuide(db, sources, now, now + 12 * 3600_000);
+  const c = all.find((x) => x.name === name) ?? all.find((x) => x.name.toLowerCase() === name.toLowerCase());
+  return c ? { ...c, programmes: c.programmes.slice(0, 2) } : null;
+}
+
 /** Every channel the owner can pick, lists in their order, with where the owner put it and its guide. */
 export function liveCatalog(db: DB, sources: string[]): CatalogRow[] {
   const guide = resolver(db, sources);

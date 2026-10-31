@@ -10,6 +10,8 @@ import { sliderKey } from '../sliderKeys.ts';
 import { PowerMenu } from './PowerMenu.tsx';
 import { UpNextList, SleepSheet, useEntryTitles } from './UpNext.tsx';
 import { entryLabel, sleepLabel } from '../upNext.ts';
+import { nowAndNext } from '../liveTv.ts';
+import { LiveCard, ChannelZap } from './LiveOnRemote.tsx';
 import {
   IconUp, IconDown, IconLeft, IconRight, IconBack, IconHome, IconInfo, IconMenu, IconPlay, IconPause, IconStop,
   IconSkipBack, IconSkipFwd, IconVolume, IconMute, IconSubtitles, IconAudio, IconTv, IconPower, IconKeyboard, IconDevice, IconMoon,
@@ -87,9 +89,11 @@ export function Remote() {
   // The link is ready before the tap: Safari opens VLC only straight from a tap.
   const handoff = isIOS && active ? handoffLink(location.origin, np, vlcBack(), Date.now().toString(36), tv.id, profileChoice.get() ?? undefined) : null;
   // Up next and the sleep timer are for grown-ups.
-  const first = !kid && active ? tv.upNext[0] : undefined;
+  const first = !kid && active && !np.live ? tv.upNext[0] : undefined;
   const next = first && [[titleOf(first).title, entryLabel(first)].filter(Boolean).join(', '), first.episodeTitle].filter(Boolean).join(' · ');
   const sleep = kid ? null : sleepLabel(tv.sleep, Date.now(), !!np?.showTitle);
+  // A live channel's backdrop: the programme's picture, from the guide.
+  const backdrop = active && np.live ? nowAndNext(np.live.programmes, Date.now()).now?.icon : undefined;
 
   return (
     <>
@@ -98,9 +102,12 @@ export function Remote() {
           <ProfileBadge />
         </div>
         <section className={`np-card${active ? '' : ' is-idle'}`}>
-          {active && np.fanart && <img className="np-fanart" src={`/api/img?w=780&u=${encodeURIComponent(np.fanart)}`} alt="" aria-hidden="true" />}
+          {active && !np.live && np.fanart && <img className="np-fanart" src={`/api/img?w=780&u=${encodeURIComponent(np.fanart)}`} alt="" aria-hidden="true" />}
+          {backdrop && <img key={backdrop} className="np-fanart" src={backdrop} alt="" aria-hidden="true" onError={(e) => (e.currentTarget.hidden = true)} />}
           <div className="np-inner">
-            {active ? (
+            {active && np.live ? (
+              <LiveCard live={np.live} />
+            ) : active ? (
               <>
                 <p className="np-label">{np.showTitle ? `${np.showTitle}${np.season ? `, season ${np.season}` : ''}${np.episode ? ` episode ${np.episode}` : ''}` : 'Now playing'}</p>
                 <h1 className="np-title">{np.title}</h1>
@@ -155,6 +162,8 @@ export function Remote() {
             </div>
           )}
         </section>
+
+        {!kid && active && np.live && <ChannelZap live={np.live} tvName={tv.name} />}
 
         <div className="transport" aria-label="Playback">
           <button className="round" onClick={() => void send('rewind')} aria-label="Back 10 seconds" disabled={!active}>

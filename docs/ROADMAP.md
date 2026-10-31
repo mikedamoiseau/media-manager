@@ -111,7 +111,10 @@ French and Belgian channels from iptv-org, with a TV guide, started on a
 Kodi TV or watched on the phone in VLC.
 
 Done: a Live TV tab (grid or list), the owner's channels picked and ordered
-in Settings › Live TV, written to the channel list both TVs read.
+in Settings › Live TV, written to the channel list both TVs read. Then the
+guide on the TVs (a guide file next to that list) and zapping from the
+Remote, CH − and + along the owner's numbering
+([design](superpowers/specs/2026-10-31-live-tv-kodi-design.md)).
 
 ## 9. Move the app off the M1
 

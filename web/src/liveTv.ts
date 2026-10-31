@@ -65,6 +65,17 @@ export function inSlots(keys: string[], subset: string[]): string[] {
   return next.every((k, j) => k === keys[j]) ? keys : next;
 }
 
+/** A time of day as the guide shows it: 20:45. */
+export const hm = (t: number): string => new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+/** The channel `by` places from `key` in the owner's numbering, round past either end, as a TV remote's CH buttons. */
+export function zapTarget<T extends { key: string }>(channels: T[], key: string, by: number): T | null {
+  const i = channels.findIndex((c) => c.key === key);
+  if (i < 0) return null;
+  const n = channels.length;
+  return channels[(((i + by) % n) + n) % n]!;
+}
+
 /** The list with `key` moved one place (`by`: -1 up, 1 down); unchanged at the ends. */
 export function moveKey(keys: string[], key: string, by: -1 | 1): string[] {
   const i = keys.indexOf(key);

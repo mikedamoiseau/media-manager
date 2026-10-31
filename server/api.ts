@@ -33,6 +33,7 @@ import { PlayError, playItem } from './playItem.ts';
 import { upNextRoutes } from './upnextApi.ts';
 import { yearRoutes } from './yearApi.ts';
 import { liveTvRoutes } from './liveApi.ts';
+import { channelOnAir } from './livetv.ts';
 
 function sendFile(file: string, maxAge = 31536000): Response {
   const st = statSync(file);
@@ -617,7 +618,9 @@ export function createApi(svc: Service): Hono {
       const id = itemOfMedia(media);
       if (id === undefined || !sees.has(id)) return c.json({ active: true, hidden: true });
     }
-    return c.json(media ? { ...np, media } : np);
+    // One of the owner's live channels (a kid never gets here with one: it isn't a title of theirs).
+    const live = np.channel ? channelOnAir(db, svc.settings().liveGuides, np.channel, Date.now()) : null;
+    return c.json({ ...np, ...(media ? { media } : {}), ...(live ? { live } : {}) });
   });
 
   api.get('/kodi/streams', async (c) => {

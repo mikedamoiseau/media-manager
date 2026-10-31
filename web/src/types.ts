@@ -349,6 +349,8 @@ export interface NowPlaying {
   subtitlesOn?: boolean;
   subtitle?: SubtitleStream;
   audio?: AudioStream;
+  /** One of the owner's live channels plays: it, with what's on and what's next */
+  live?: LiveChannel;
 }
 
 export interface AudioStream {
