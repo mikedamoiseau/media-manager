@@ -4,9 +4,13 @@ import type { LiveChannel } from './types.ts';
 
 /** Kodi took up to 11 s to start a channel on the Pi (measured): asking sooner says "not playing" for one that's opening. */
 const PLAY_CHECK_MS = 13_000;
-/** A channel Kodi still opens is asked about again, this long after, this many times. */
+/**
+ * A channel Kodi still opens is asked about again, this long after, this many times: up to a minute in all.
+ * Caillou sat behind Kodi's busy dialog for 21 s, then over 30 s, on the Pi (2026-10-31); a stream that fails
+ * goes back to Home and says "stopped" at the next ask, so waiting longer only spares a slow one.
+ */
 const PLAY_RECHECK_MS = 10_000;
-const PLAY_RECHECKS = 2;
+const PLAY_RECHECKS = 5;
 
 let plays = 0;
 
