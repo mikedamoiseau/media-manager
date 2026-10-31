@@ -26,12 +26,32 @@ watch them, on the TV and from their own profile in the app, like their titles o
   - At bedtime no channel starts, as no title does ("It's bedtime").
   - A channel that isn't for kids stays hidden: "something else is playing", and its controls stay closed.
 
-## Not in this (next, with the Kodi session)
+## Starting a channel by its path (second part, after the Kodi session's test on the Pi)
 
-- **A TV in its kids view** still refuses every channel. It will take the kids channels once the app starts
-  channels the way Lumen needs: by their path in Kodi's Kids group (in the kids view) or its All channels
-  group (otherwise), so a channel keeps the group it was started in. That waits for the Kodi session's test
-  on the Pi.
+Kodi plays a channel inside a group, and the TV's own CH − / + and ↑ / ↓ then stay in that group. Started by
+its channel id, a channel plays in whichever group the TV last opened. The app now starts every channel by its
+path, so it plays in the group it should:
+
+- **The Kids group** when a kids profile starts it, or when the TV shows its kids view: the TV's own keys then
+  go through the kids channels only. A TV in its kids view takes the kids channels, and still refuses the
+  others ("This TV is showing its kids view").
+- **The box's all-channels group** otherwise, so the owner's keys go along the owner's numbering.
+
+The path, as the Kodi session measured it on the Pi (2026-10-31) and read in Kodi's code:
+`pvr://channels/tv/<group label, %-encoded>@<group client id>/<instance id>@<add-on id>_<channel unique id>.pvr`.
+
+- The all-channels group's client id is always -1. Its label is the box's own, in its language ("All
+  channels" on the Pi), read each time from `PVR.GetChannelGroupDetails` on `alltv`.
+- The Kids group's client id is the IPTV Simple client's. The group is found by its label in
+  `PVR.GetChannelGroups`.
+- The instance id and add-on id come from `PVR.GetClients`, for the channel's client. The unique id comes from
+  the group's channels. All of these are read at each start: they are each box's own, and the client id can
+  change after a reinstall.
+- A TV whose Kids group doesn't have the channel yet (it hasn't read the new list) says so, as for a channel
+  it doesn't have.
+
+## Not in this
+
 - A kids channel that plays on at bedtime: as a title that plays, it isn't stopped.
 
 ## Checks
@@ -41,3 +61,6 @@ watch them, on the TV and from their own profile in the app, like their titles o
   bedtime, every start is refused; what plays is shown when it is a kids channel, hidden otherwise; its
   remote keys work on a kids channel.
 - The kids profile's TV tab and Playing card at phone width (a stand-in Kodi in the sandbox).
+- A start by path: the all-channels group's own label and -1; the Kids group's id and the client's id; the
+  client's instance id, never its client id, in the second part; a kids channel in the kids view, another
+  refused; a Kids group without the channel.

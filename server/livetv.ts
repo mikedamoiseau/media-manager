@@ -139,6 +139,9 @@ export function pickedChannels(db: DB): Array<{ number: number; name: string; li
   return rows.map((r, i) => ({ number: i + 1, name: names[i]!, list: r.list, entry: playedOf(r), guide: r.guide, listedUrl: r.url, kids: r.kids === 1 }));
 }
 
+/** The group of the TVs' list the kids channels are also in: Lumen's kids view plays from it. */
+export const KIDS_GROUP = 'Kids';
+
 // ParaTV's Dailymotion copies list a backup server's qualities the TVs' adaptive player mustn't take (see withoutBackups).
 const viaApp = (url: string) => /-dm\.m3u8$/.test(url);
 
@@ -152,7 +155,7 @@ export function channelFileText(db: DB, app: string | null = null, guide: string
     entry: {
       ...c.entry,
       // A kids channel is also in the Kids group (IPTV Simple reads groups apart at ';').
-      group: `${LIST_NAMES[c.list] ?? c.entry.group}${c.kids ? ';Kids' : ''}`,
+      group: `${LIST_NAMES[c.list] ?? c.entry.group}${c.kids ? `;${KIDS_GROUP}` : ''}`,
       ...(app && viaApp(c.entry.url) ? { url: `${app}/api/livetv/${encodeURIComponent(c.entry.key)}/tv.m3u8` } : {}),
     },
     name: c.name,

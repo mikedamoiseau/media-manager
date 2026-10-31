@@ -10,7 +10,7 @@ const HOUR = 3600_000;
 
 /** Why a channel didn't start on a TV, as the owner reads it. */
 const REFUSED = {
-  kids_view: { status: 409, error: 'This TV is showing its kids view' },
+  kids_view: { status: 409, error: 'This TV is showing its kids view: only the channels for kids play there' },
   kids_unknown: { status: 503, error: "Couldn't check whether this TV is in its kids view" },
   not_loaded: { status: 409, error: "This TV hasn't loaded the new channel list yet" },
   no_live_tv: { status: 409, error: "This TV couldn't give its channels: is live TV set up on it?" },
@@ -112,7 +112,7 @@ export function liveTvRoutes(
     if (kid && !ch.kids) return c.json(NOT_FOR_KIDS, 403);
     // A kid's bedtime: nothing new starts until the morning, as for their titles.
     if (kid && isBedtime(kid.bedtime, new Date())) return c.json({ error: "It's bedtime", code: 'bedtime' }, 403);
-    const r = await startChannel(tvOf(c).cfg, { name: ch.name, number: ch.number });
+    const r = await startChannel(tvOf(c).cfg, { name: ch.name, number: ch.number, kids: ch.kids }, !!kid);
     if (r === 'started') return c.json({ ok: true });
     const why = REFUSED[r];
     return c.json({ error: why.error, code: r }, why.status);

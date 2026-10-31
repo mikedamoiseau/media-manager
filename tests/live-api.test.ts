@@ -45,7 +45,10 @@ async function withKid() {
   const kid = addProfile(s.db, { name: 'Kid', color: PROFILE_COLORS[2], kids: true });
   const as = (profile: number) => ({ headers: { 'x-profile': String(profile), 'x-kodi-tv': 'tv1' } });
   kodi.answers['XBMC.GetInfoBooleans'] = { 'Skin.HasSetting(KidsView)': false };
-  kodi.answers['PVR.GetChannels'] = { channels: [{ channelid: 7, channel: 'TF1', channelnumber: 2 }, { channelid: 8, channel: 'M6 HD', channelnumber: 1 }] };
+  kodi.answers['PVR.GetClients'] = { clients: [{ addonid: 'pvr.iptvsimple', clientid: 1, instanceid: 4 }] };
+  kodi.answers['PVR.GetChannelGroups'] = { channelgroups: [{ channelgroupid: 8, label: 'All channels' }, { channelgroupid: 5, label: 'Kids' }] };
+  // The stand-in answers one group whichever is asked: the Kids group, with TF1, until a test says otherwise.
+  kodi.answers['PVR.GetChannelGroupDetails'] = { channelgroupdetails: { label: 'Kids', channels: [{ channelid: 7, channel: 'TF1', channelnumber: 2, uniqueid: 70, clientid: 1 }] } };
   return { ...s, kodi, kid: kid.id, as, [Symbol.dispose]: () => kodi.server.close() };
 }
 
@@ -56,11 +59,22 @@ test("a kids profile sees and starts the kids channels only; the rest of live TV
   assert.deepEqual(guide.channels.map((c) => c.key), ['TF1.fr@SD']);
   assert.equal((await app.request(path('M6.fr@HD', '/play'), { method: 'POST', ...as(kid) })).status, 403);
   assert.equal((await app.request(path('TF1.fr@SD', '/play'), { method: 'POST', ...as(kid) })).status, 200);
-  assert.deepEqual(kodi.opened(), [{ channelid: 7 }]);
+  assert.deepEqual(kodi.opened(), [{ file: 'pvr://channels/tv/Kids@1/4@pvr.iptvsimple_70.pvr' }], "in the Kids group: the TV's keys stay among the kids channels");
   assert.equal((await app.request(path('M6.fr@HD', '/playing'), as(kid))).status, 403);
   for (const [method, url] of [['GET', '/api/livetv/catalog'], ['GET', path('TF1.fr@SD', '/vlc.m3u')], ['PUT', '/api/livetv/channels'], ['PUT', '/api/livetv/channels/TF1.fr%40SD/kids'], ['POST', '/api/livetv/refresh']] as const) {
     assert.equal((await app.request(url, { method, ...as(kid) })).status, 403, `${method} ${url}`);
   }
+});
+
+test("the owner starts a channel in the TV's all-channels group, where its keys go along the owner's numbering", async () => {
+  using t = await withKid();
+  const { app, kodi, as } = t;
+  const owner = addProfile(t.db, { name: 'Owner', color: PROFILE_COLORS[0] }).id;
+  kodi.answers['PVR.GetChannelGroupDetails'] = {
+    channelgroupdetails: { label: 'All channels', channels: [{ channelid: 7, channel: 'TF1', channelnumber: 2, uniqueid: 70, clientid: 1 }, { channelid: 8, channel: 'M6 HD', channelnumber: 1, uniqueid: 80, clientid: 1 }] },
+  };
+  assert.equal((await app.request(path('TF1.fr@SD', '/play'), { method: 'POST', ...as(owner) })).status, 200);
+  assert.deepEqual(kodi.opened(), [{ file: 'pvr://channels/tv/All%20channels@-1/4@pvr.iptvsimple_70.pvr' }], 'a kids channel too, for the owner');
 });
 
 test('at bedtime a kids profile starts no channel', async () => {
