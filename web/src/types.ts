@@ -262,6 +262,8 @@ export interface CatalogRow {
   guide: { mode: 'auto' | 'manual' | 'none'; source?: string; id?: string; name?: string };
   /** The owner's own stream address for it; null: iptv-org's */
   stream: string | null;
+  /** the owner's own logo for it (then `logo` too); null: iptv-org's */
+  ownLogo: string | null;
   /** one of the owner's, made for kids (in the TVs' Kids group, the kids profiles' to watch) */
   kids: boolean;
 }

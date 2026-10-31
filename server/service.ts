@@ -21,7 +21,7 @@ import { pickTv, addTv, editTv, tvNumber, firstTvChanged, firstRun } from './tvs
 import { upNext, upNextEntries, takeFromUpNext, removeFromUpNext, dropStale, sleepOf, clearSleep, dueSleeps, forgetTv, type UpNextEntry, type Sleep } from './upnext.ts';
 import { PlayError, playItem } from './playItem.ts';
 import { libraryTitle, openPlay, closePlay, closeLeftOpen, missedEnd, fillPlays, logKodiChanges } from './plays.ts';
-import { refreshCatalog, refreshGuides, checkStreams, writeChannelFile, channelFileText, guideFileText, pickedChannels, setPicks, setStream, setGuidePick, setKids, appAddress, guideAddress, guideFile } from './livetv.ts';
+import { refreshCatalog, refreshGuides, checkStreams, writeChannelFile, channelFileText, guideFileText, pickedChannels, setPicks, setStream, setGuidePick, setKids, setLogo, appAddress, guideAddress, guideFile } from './livetv.ts';
 
 /** How long after a play ends the next of Up next starts: Kodi has closed the last one. */
 export const NEXT_PAUSE = 1000;
@@ -768,6 +768,12 @@ export class Service extends EventEmitter {
   /** One of the owner's channels made for kids, or not: then the file on the NAS (its Kids group). */
   setLiveKids(key: string, kids: boolean): 'written' | 'same' | 'not_mounted' {
     setKids(this.db, key, kids);
+    return this.writeLiveFile();
+  }
+
+  /** The owner's own logo for a channel, or back to iptv-org's (null): then the file on the NAS. */
+  setLiveLogo(key: string, url: string | null): 'written' | 'same' | 'not_mounted' {
+    setLogo(this.db, key, url);
     return this.writeLiveFile();
   }
 

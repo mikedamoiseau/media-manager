@@ -399,6 +399,10 @@ export const MIGRATIONS: string[] = [
   -- A channel of the owner's made for kids: in the TVs' Kids group, and the kids profiles' to watch.
   ALTER TABLE live_channels ADD COLUMN kids INTEGER NOT NULL DEFAULT 0;
   `,
+  `
+  -- The owner's own logo for a channel of theirs (null: iptv-org's), for one whose listed logo doesn't load.
+  ALTER TABLE live_channels ADD COLUMN logo TEXT;
+  `,
 ];
 
 export function openDb(file: string): DB {

@@ -142,14 +142,15 @@ export function LiveTvSettings({ activity, sources, onSources }: { activity: Rea
                   >
                     <IconMenu />
                   </button>
-                  <RowLogo row={r} />
-                  <button className="live-pick-text" onClick={() => setSheetFor(key)} aria-label={`${r.name}: ${guideLabel(r)}. Change its guide or stream`}>
+                  <RowLogo key={r.logo} row={r} />
+                  <button className="live-pick-text" onClick={() => setSheetFor(key)} aria-label={`${r.name}: ${guideLabel(r)}. Change its guide, stream or logo`}>
                     <strong>
                       {i + 1} · {r.name}
                     </strong>
                     <span className={`small${r.listed ? ' muted' : ' error-text'}`}>{guideLabel(r)}</span>
                     <StreamState ok={r.ok} />
                     {r.stream && <span className="muted small">Own stream address</span>}
+                    {r.ownLogo && <span className="muted small">Own logo</span>}
                     {r.kids && <span className="muted small">For kids</span>}
                   </button>
                   <button className="icon-btn" aria-label={`Remove ${r.name}`} onClick={() => save(orderRef.current.filter((k) => k !== key))}>
@@ -192,7 +193,7 @@ function RowLogo({ row }: { row: CatalogRow }) {
   const [failed, setFailed] = useState(false);
   return (
     <span className="live-logo" aria-hidden="true">
-      {row.logo && !failed ? <img src={row.logo} alt="" loading="lazy" onError={() => setFailed(true)} /> : <b>{row.name.slice(0, 4)}</b>}
+      {row.logo && !failed ? <img src={row.logo} alt="" loading="lazy" referrerPolicy="no-referrer" onError={() => setFailed(true)} /> : <b>{row.name.slice(0, 4)}</b>}
     </span>
   );
 }
@@ -242,7 +243,7 @@ function AddChannels({ rows, picked, onToggle, onClose }: { rows: CatalogRow[]; 
   );
 }
 
-/** One of the owner's channels: where its stream comes from, and its guide (found automatically, none, or one picked from the guides' channels). */
+/** One of the owner's channels: where its stream comes from, its logo, and its guide (found automatically, none, or one picked from the guides' channels). */
 function ChannelSheet({ row, onSaved, onClose }: { row: CatalogRow; onSaved: () => void; onClose: () => void }) {
   const [all, setAll] = useState<GuideChannel[] | null>(null);
   const [q, setQ] = useState('');
@@ -269,6 +270,7 @@ function ChannelSheet({ row, onSaved, onClose }: { row: CatalogRow; onSaved: () 
   return (
     <Sheet title={row.name} onClose={onClose} wide>
       <OwnStream key={row.stream ?? ''} row={row} onSaved={onSaved} />
+      <OwnLogo key={row.ownLogo ?? ''} row={row} onSaved={onSaved} />
       <ForKids row={row} onSaved={onSaved} />
       <h3 className="field-label">Guide</h3>
       <p className="muted">Now: {guideLabel(row)}</p>
@@ -367,6 +369,53 @@ function OwnStream({ row, onSaved }: { row: CatalogRow; onSaved: () => void }) {
           Use this address
         </button>
         {row.stream && (
+          <button type="button" className="btn small" disabled={busy} onClick={() => void save(null)}>
+            Back to iptv-org's
+          </button>
+        )}
+      </div>
+    </form>
+  );
+}
+
+/** A channel's logo: iptv-org's, or one the owner found that shows (on the TVs and here). */
+function OwnLogo({ row, onSaved }: { row: CatalogRow; onSaved: () => void }) {
+  const [url, setUrl] = useState(row.ownLogo ?? '');
+  const [busy, setBusy] = useState(false);
+  const save = async (next: string | null) => {
+    setBusy(true);
+    try {
+      const r = await api.put<{ file: 'written' | 'same' | 'not_mounted' }>(`/api/livetv/channels/${encodeURIComponent(row.key)}/logo`, { url: next });
+      if (r.file === 'not_mounted') toast("Saved, but the NAS isn't mounted: the TVs keep the old list", 'error');
+      else toast(next ? 'Logo saved on the NAS' : "Back to iptv-org's logo");
+      onSaved();
+    } catch (e) {
+      toast((e as Error).message, 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+  // What it would look like: the address being typed, else the logo it has.
+  const shown = url.trim() || row.logo;
+  return (
+    <form
+      className="live-sources"
+      onSubmit={(e) => {
+        e.preventDefault();
+        void save(url.trim());
+      }}
+    >
+      <label className="field-label" htmlFor="live-logo">
+        Logo
+      </label>
+      <p className="muted small">{row.ownLogo ? 'Your own logo.' : "iptv-org's logo. Paste another image address if it doesn't show."} A PNG or JPEG: the TVs don't show SVG.</p>
+      <input id="live-logo" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://…/logo.png" inputMode="url" autoComplete="off" spellCheck={false} />
+      <div className="tool-row">
+        <RowLogo key={shown} row={{ ...row, logo: shown }} />
+        <button className="btn small primary" disabled={busy || !url.trim() || url.trim() === row.ownLogo}>
+          Use this logo
+        </button>
+        {row.ownLogo && (
           <button type="button" className="btn small" disabled={busy} onClick={() => void save(null)}>
             Back to iptv-org's
           </button>

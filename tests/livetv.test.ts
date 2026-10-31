@@ -5,7 +5,7 @@ import type { M3uEntry } from '../server/iptv.ts';
 import type { Programme } from '../server/epg.ts';
 import {
   LiveError, saveCatalog, setPicks, setGuidePick, setStream, pickedChannels, channelFileText, storeGuide, liveGuide, liveCatalog, guideOf, addressToward, appAddress,
-  kodiPath, guideAddress, guideFileText, setKids,
+  kodiPath, guideAddress, guideFileText, setKids, setLogo,
 } from '../server/livetv.ts';
 import { EXTRA_CHANNELS } from '../server/extraChannels.ts';
 import { guideCandidates } from '../server/epg.ts';
@@ -558,4 +558,21 @@ test("a channel for kids: in its category's group and the TVs' Kids group, kept 
   setKids(db, 'M6.fr@HD', false);
   assert.doesNotMatch(channelFileText(db), /Kids/);
   assert.throws(() => setKids(db, 'BX1.be@SD', true), LiveError, "only one of the owner's channels");
+});
+
+test("a channel's own logo: on the TVs' list, the guide and the settings, kept when reordered or the lists refresh", () => {
+  const db = catalog();
+  setPicks(db, ['TF1.fr@SD', 'M6.fr@HD']);
+  setLogo(db, 'M6.fr@HD', 'https://own/m6.png');
+  setPicks(db, ['M6.fr@HD', 'TF1.fr@SD']);
+  saveCatalog(db, [{ list: 'fr', entries: [TF1, { ...M6, logo: 'https://listed/m6-new.png' }, LCI, LCI_HD] }], at(2));
+  assert.match(channelFileText(db), /tvg-name="M6 HD" tvg-logo="https:\/\/own\/m6\.png"/);
+  assert.match(channelFileText(db), /tvg-name="TF1" tvg-logo="https:\/\/logo\/TF1\.png"/);
+  assert.equal(liveGuide(db, [X], 0, at(23)).find((c) => c.key === 'M6.fr@HD')!.logo, 'https://own/m6.png');
+  const row = liveCatalog(db, [X]).find((r) => r.key === 'M6.fr@HD')!;
+  assert.deepEqual([row.logo, row.ownLogo], ['https://own/m6.png', 'https://own/m6.png']);
+  setLogo(db, 'M6.fr@HD', null);
+  const back = liveCatalog(db, [X]).find((r) => r.key === 'M6.fr@HD')!;
+  assert.deepEqual([back.logo, back.ownLogo], ['https://listed/m6-new.png', null], "back to iptv-org's, as listed now");
+  assert.throws(() => setLogo(db, 'BX1.be@SD', 'https://own/bx1.png'), LiveError, "only one of the owner's channels");
 });

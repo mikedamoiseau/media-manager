@@ -260,7 +260,7 @@ export function ChannelLogo({ ch }: { ch: Pick<LiveChannel, 'name' | 'logo'> }) 
   const [failed, setFailed] = useState(false);
   return (
     <span className="live-logo" aria-hidden="true">
-      {ch.logo && !failed ? <img src={ch.logo} alt="" loading="lazy" onError={() => setFailed(true)} /> : <b>{ch.name.slice(0, 4)}</b>}
+      {ch.logo && !failed ? <img src={ch.logo} alt="" loading="lazy" referrerPolicy="no-referrer" onError={() => setFailed(true)} /> : <b>{ch.name.slice(0, 4)}</b>}
     </span>
   );
 }

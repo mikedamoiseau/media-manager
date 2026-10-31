@@ -71,7 +71,6 @@ export function liveTvRoutes(
     return c.json({ ok: true });
   });
 
-  /** The owner's own stream address for a channel of theirs (null: back to iptv-org's). */
   /** One of the owner's channels made for kids, or not. */
   api.put('/livetv/channels/:key/kids', async (c) => {
     const { kids } = (await c.req.json().catch(() => ({}))) as { kids?: unknown };
@@ -84,6 +83,19 @@ export function liveTvRoutes(
     }
   });
 
+  /** The owner's own logo for a channel of theirs (null: back to iptv-org's), for one whose listed logo doesn't load. */
+  api.put('/livetv/channels/:key/logo', async (c) => {
+    const { url } = (await c.req.json().catch(() => ({}))) as { url?: unknown };
+    if (url !== null && !(typeof url === 'string' && /^https?:\/\/[^\s]+$/i.test(url.trim()))) return c.json({ error: 'A logo address starts with http:// or https://' }, 400);
+    try {
+      return c.json({ file: svc.setLiveLogo(c.req.param('key'), url === null ? null : url.trim()) });
+    } catch (e) {
+      if (e instanceof LiveError) return c.json({ error: e.message }, 400);
+      throw e;
+    }
+  });
+
+  /** The owner's own stream address for a channel of theirs (null: back to iptv-org's). */
   api.put('/livetv/channels/:key/stream', async (c) => {
     const { url } = (await c.req.json().catch(() => ({}))) as { url?: unknown };
     if (url !== null && !(typeof url === 'string' && /^https?:\/\/[^\s]+$/i.test(url.trim()))) return c.json({ error: 'A stream address starts with http:// or https://' }, 400);
