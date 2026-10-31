@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import { useLocation } from 'wouter';
 import { api } from '../api.ts';
-import { useStore, status, useTv } from '../store.ts';
+import { useStore, status, useTv, useKids } from '../store.ts';
 import { ProfileBadge } from './WhosWatching.tsx';
 import { TvPicker } from './TvBar.tsx';
 import { Sheet } from './Sheet.tsx';
@@ -69,6 +69,8 @@ export function LiveTv() {
   const lastAt = st?.live.lastAt;
   const tv = useTv();
   const [picking, setPicking] = useState(false);
+  // A kids profile: the channels for kids (the server sends no others), on the TV only.
+  const kid = useKids();
   const [channels, setChannels] = useState<LiveChannel[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [from, setFrom] = useState(() => gridStart(Date.now()));
@@ -184,6 +186,13 @@ export function LiveTv() {
 
   let body;
   if (!channels) body = error ? <p className="error-text pad">{error}</p> : <p className="hint pad">Loading the guide…</p>;
+  else if (!channels.length && kid)
+    body = (
+      <div className="empty">
+        <h2>No channels for kids yet</h2>
+        <p>Ask a grown-up to pick some.</p>
+      </div>
+    );
   else if (!channels.length)
     body = (
       <div className="empty">
@@ -353,6 +362,7 @@ function List({ channels, now, onPlay, onOpen }: ViewProps) {
 /** A programme (or a channel without one): what it is, and watching it when it's on now. */
 function Details({ ch, p, now, onPlay, onClose }: Open & { now: number; onPlay: (ch: LiveChannel) => void; onClose: () => void }) {
   const onNow = !p || (p.start <= now && now < p.stop);
+  const kid = useKids();
   return (
     <Sheet title={p?.title ?? ch.name} onClose={onClose}>
       {p?.icon && <img className="live-pic" src={p.icon} alt="" onError={(e) => (e.currentTarget.hidden = true)} />}
@@ -376,7 +386,7 @@ function Details({ ch, p, now, onPlay, onClose }: Open & { now: number; onPlay: 
             <IconPlay size={20} />
             Watch on TV
           </button>
-          {isIOS && (
+          {isIOS && !kid && (
             <a className="btn big" href={liveVlcHref(location.origin, ch, vlcBack())}>
               <IconDevice size={20} />
               Watch on device
@@ -384,7 +394,7 @@ function Details({ ch, p, now, onPlay, onClose }: Open & { now: number; onPlay: 
           )}
         </div>
       )}
-      {onNow && isIOS && (
+      {onNow && isIOS && !kid && (
         <p className="hint">
           Watch on device plays the channel in the free{' '}
           <a href={VLC_APP_STORE} target="_blank" rel="noreferrer">

@@ -32,15 +32,77 @@ function setup() {
   return { db, svc, app, json };
 }
 
-test('kids mode reaches no live TV route', async () => {
-  const { db, app } = setup();
-  setParentsCode(db, '4821');
-  const kid = addProfile(db, { name: 'Kid', color: PROFILE_COLORS[2], kids: true });
-  const h = { headers: { 'x-profile': String(kid.id) } };
-  for (const [method, url] of [['GET', '/api/livetv/guide'], ['GET', '/api/livetv/catalog'], ['POST', path('TF1.fr@SD', '/play')], ['GET', path('M6.fr@HD', '/vlc.m3u')], ['PUT', '/api/livetv/channels']] as const) {
-    const r = await app.request(url, { method, ...h });
-    assert.equal(r.status, 403, `${method} ${url}`);
+/** The app over the stand-in Kodi as its one TV, TF1 and M6 picked, TF1 for kids, and a kids profile. */
+async function withKid() {
+  const s = setup();
+  const kodi = await standInKodi();
+  // The server goes even when the setup below fails: a test left with it open never ends.
+  kodi.server.unref();
+  saveSettings(s.db, { kodiTvs: [{ id: 'tv1', name: 'TV', host: '127.0.0.1', port: kodi.port, user: '', pass: '', pathPrefix: '' }] });
+  s.svc.saveLivePicks(['M6.fr@HD', 'TF1.fr@SD']);
+  s.svc.setLiveKids('TF1.fr@SD', true);
+  setParentsCode(s.db, '4821');
+  const kid = addProfile(s.db, { name: 'Kid', color: PROFILE_COLORS[2], kids: true });
+  const as = (profile: number) => ({ headers: { 'x-profile': String(profile), 'x-kodi-tv': 'tv1' } });
+  kodi.answers['XBMC.GetInfoBooleans'] = { 'Skin.HasSetting(KidsView)': false };
+  kodi.answers['PVR.GetChannels'] = { channels: [{ channelid: 7, channel: 'TF1', channelnumber: 2 }, { channelid: 8, channel: 'M6 HD', channelnumber: 1 }] };
+  return { ...s, kodi, kid: kid.id, as, [Symbol.dispose]: () => kodi.server.close() };
+}
+
+test("a kids profile sees and starts the kids channels only; the rest of live TV stays closed", async () => {
+  using t = await withKid();
+  const { app, kodi, kid, as } = t;
+  const guide = (await (await app.request('/api/livetv/guide', as(kid))).json()) as { channels: Array<{ key: string }> };
+  assert.deepEqual(guide.channels.map((c) => c.key), ['TF1.fr@SD']);
+  assert.equal((await app.request(path('M6.fr@HD', '/play'), { method: 'POST', ...as(kid) })).status, 403);
+  assert.equal((await app.request(path('TF1.fr@SD', '/play'), { method: 'POST', ...as(kid) })).status, 200);
+  assert.deepEqual(kodi.opened(), [{ channelid: 7 }]);
+  assert.equal((await app.request(path('M6.fr@HD', '/playing'), as(kid))).status, 403);
+  for (const [method, url] of [['GET', '/api/livetv/catalog'], ['GET', path('TF1.fr@SD', '/vlc.m3u')], ['PUT', '/api/livetv/channels'], ['PUT', '/api/livetv/channels/TF1.fr%40SD/kids'], ['POST', '/api/livetv/refresh']] as const) {
+    assert.equal((await app.request(url, { method, ...as(kid) })).status, 403, `${method} ${url}`);
   }
+});
+
+test('at bedtime a kids profile starts no channel', async () => {
+  using t = await withKid();
+  const { db, app, kodi, kid, as } = t;
+  // Bedtime a minute ago, whatever the time now.
+  const d = new Date(Date.now() - 60_000);
+  db.prepare('UPDATE profiles SET bedtime = ? WHERE id = ?').run(`${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`, kid);
+  const r = await app.request(path('TF1.fr@SD', '/play'), { method: 'POST', ...as(kid) });
+  assert.equal(r.status, 403);
+  assert.equal(((await r.json()) as { code: string }).code, 'bedtime');
+  assert.deepEqual(kodi.opened(), []);
+});
+
+test("what plays, for a kids profile: a kids channel with what's on, and its keys; another channel hidden", async () => {
+  using t = await withKid();
+  const { app, kodi, kid, as } = t;
+  kodi.players.push({ playerid: 1, type: 'video' });
+  kodi.answers['Application.GetProperties'] = { volume: 50, muted: false };
+  kodi.answers['Player.GetProperties'] = { time: { hours: 0, minutes: 0, seconds: 0 }, totaltime: { hours: 0, minutes: 0, seconds: 0 }, speed: 1, subtitleenabled: false };
+  kodi.answers['Player.GetItem'] = { item: { type: 'channel', id: 7, label: 'TF1', channel: 'TF1', title: 'Le 13h' } };
+  const now = (await (await app.request('/api/kodi/now', as(kid))).json()) as { hidden?: boolean; live?: { key: string; programmes: Array<{ title: string }> } };
+  assert.equal(now.hidden, undefined);
+  assert.equal(now.live?.key, 'TF1.fr@SD');
+  assert.deepEqual(now.live?.programmes.map((p) => p.title), ['Le 13h']);
+  const stop = () => app.request('/api/kodi/remote', { method: 'POST', body: JSON.stringify({ action: 'stop' }), headers: { ...as(kid).headers, 'content-type': 'application/json' } });
+  assert.equal((await stop()).status, 200);
+  kodi.answers['Player.GetItem'] = { item: { type: 'channel', id: 8, label: 'M6 HD', channel: 'M6 HD' } };
+  assert.deepEqual(await (await app.request('/api/kodi/now', as(kid))).json(), { active: true, hidden: true });
+  assert.equal((await stop()).status, 403);
+});
+
+test("the owner's kids switch: on the TVs' list at once", async () => {
+  const { svc, app, json } = setup();
+  svc.saveLivePicks(['TF1.fr@SD']);
+  const r = await app.request('/api/livetv/channels/TF1.fr%40SD/kids', json('PUT', { kids: true }));
+  assert.equal(r.status, 200);
+  assert.deepEqual(await r.json(), { file: 'not_mounted' });
+  const cat = (await (await app.request('/api/livetv/catalog')).json()) as { rows: Array<{ key: string; kids: boolean }> };
+  assert.equal(cat.rows.find((x) => x.key === 'TF1.fr@SD')!.kids, true);
+  assert.equal((await app.request('/api/livetv/channels/TF1.fr%40SD/kids', json('PUT', { kids: 'yes' }))).status, 400);
+  assert.equal((await app.request('/api/livetv/channels/M6.fr%40HD/kids', json('PUT', { kids: true }))).status, 400, 'not one of the owner\'s');
 });
 
 test('picking channels saves them even when the NAS is not mounted, and says so', async () => {

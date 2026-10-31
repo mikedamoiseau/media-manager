@@ -241,6 +241,8 @@ export interface LiveChannel {
   url: string;
   /** Its list: its category */
   list: string;
+  /** made for kids: the kids profiles see it */
+  kids: boolean;
   /** How VLC on the phone gets it: the stream itself, or the app's one-channel playlist (for request headers) */
   vlc: 'direct' | 'playlist';
   programmes: LiveProgramme[];
@@ -260,6 +262,8 @@ export interface CatalogRow {
   guide: { mode: 'auto' | 'manual' | 'none'; source?: string; id?: string; name?: string };
   /** The owner's own stream address for it; null: iptv-org's */
   stream: string | null;
+  /** one of the owner's, made for kids (in the TVs' Kids group, the kids profiles' to watch) */
+  kids: boolean;
 }
 
 /** A person's likes, suggestions and progress (see server/profiles.ts). */

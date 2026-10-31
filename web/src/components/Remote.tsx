@@ -10,8 +10,7 @@ import { sliderKey } from '../sliderKeys.ts';
 import { PowerMenu } from './PowerMenu.tsx';
 import { UpNextList, SleepSheet, useEntryTitles } from './UpNext.tsx';
 import { entryLabel, sleepLabel } from '../upNext.ts';
-import { nowAndNext } from '../liveTv.ts';
-import { LiveCard, ChannelZap } from './LiveOnRemote.tsx';
+import { LiveCard, LiveBackdrop, ChannelZap } from './LiveOnRemote.tsx';
 import {
   IconUp, IconDown, IconLeft, IconRight, IconBack, IconHome, IconInfo, IconMenu, IconPlay, IconPause, IconStop,
   IconSkipBack, IconSkipFwd, IconVolume, IconMute, IconSubtitles, IconAudio, IconTv, IconPower, IconKeyboard, IconDevice, IconMoon,
@@ -94,8 +93,6 @@ export function Remote() {
   const first = !kid && active && !live ? tv.upNext[0] : undefined;
   const next = first && [[titleOf(first).title, entryLabel(first)].filter(Boolean).join(', '), first.episodeTitle].filter(Boolean).join(' · ');
   const sleep = kid ? null : sleepLabel(tv.sleep, Date.now(), !!np?.showTitle);
-  // A live channel's backdrop: the programme's picture, from the guide.
-  const backdrop = live && nowAndNext(live.programmes, Date.now()).now?.icon;
 
   return (
     <>
@@ -105,7 +102,7 @@ export function Remote() {
         </div>
         <section className={`np-card${active ? '' : ' is-idle'}`}>
           {active && !live && np.fanart && <img className="np-fanart" src={`/api/img?w=780&u=${encodeURIComponent(np.fanart)}`} alt="" aria-hidden="true" />}
-          {backdrop && <img key={backdrop} className="np-fanart" src={backdrop} alt="" aria-hidden="true" onError={(e) => (e.currentTarget.hidden = true)} />}
+          {live && <LiveBackdrop live={live} />}
           <div className="np-inner">
             {live ? (
               <LiveCard live={live} />

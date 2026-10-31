@@ -130,7 +130,14 @@ const KIDS_ROUTES: Array<[string, RegExp]> = [
   ['PUT', /^\/items\/\d+\/rating$/],
   ['POST', /^\/continue\/\d+\/dismiss$/],
   ['POST', /^\/(kodi\/remote|kids\/unlock|refresh|year\/asked)$/],
+  // Live TV: the kids channels' guide, starting one, and whether it plays (the routes keep to the kids channels).
+  ['GET', /^\/livetv\/guide$/],
+  ['POST', /^\/livetv\/[^/]+\/play$/],
+  ['GET', /^\/livetv\/[^/]+\/playing$/],
 ];
+
+/** What a kids profile is told when it asks for more. */
+export const NOT_FOR_KIDS = { error: 'Not available in kids mode', code: 'kids' } as const;
 
 /** Whether a kids profile may make this request (path as under /api). */
 export function kidsRoute(method: string, path: string): boolean {

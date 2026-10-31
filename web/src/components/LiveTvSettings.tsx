@@ -150,6 +150,7 @@ export function LiveTvSettings({ activity, sources, onSources }: { activity: Rea
                     <span className={`small${r.listed ? ' muted' : ' error-text'}`}>{guideLabel(r)}</span>
                     <StreamState ok={r.ok} />
                     {r.stream && <span className="muted small">Own stream address</span>}
+                    {r.kids && <span className="muted small">For kids</span>}
                   </button>
                   <button className="icon-btn" aria-label={`Remove ${r.name}`} onClick={() => save(orderRef.current.filter((k) => k !== key))}>
                     <IconClose />
@@ -268,6 +269,7 @@ function ChannelSheet({ row, onSaved, onClose }: { row: CatalogRow; onSaved: () 
   return (
     <Sheet title={row.name} onClose={onClose} wide>
       <OwnStream key={row.stream ?? ''} row={row} onSaved={onSaved} />
+      <ForKids row={row} onSaved={onSaved} />
       <h3 className="field-label">Guide</h3>
       <p className="muted">Now: {guideLabel(row)}</p>
       <div className="tool-row">
@@ -298,6 +300,34 @@ function ChannelSheet({ row, onSaved, onClose }: { row: CatalogRow; onSaved: () 
         {all && nq && !shown.length && <li className="muted">No guide channel matches.</li>}
       </ul>
     </Sheet>
+  );
+}
+
+/** A channel made for kids: in the TVs' Kids group, and the kids profiles can watch it. */
+function ForKids({ row, onSaved }: { row: CatalogRow; onSaved: () => void }) {
+  const save = async (kids: boolean) => {
+    try {
+      const r = await api.put<{ file: 'written' | 'same' | 'not_mounted' }>(`/api/livetv/channels/${encodeURIComponent(row.key)}/kids`, { kids });
+      if (r.file === 'not_mounted') toast("Saved, but the NAS isn't mounted: the TVs keep the old list", 'error');
+      else toast(kids ? 'For kids: the kids profiles can watch it' : 'Not for kids any more');
+      onSaved();
+    } catch (e) {
+      toast((e as Error).message, 'error');
+    }
+  };
+  return (
+    <>
+      <h3 className="field-label">Kids</h3>
+      <p className="muted small">A channel for kids is in the TVs' Kids group, and the kids profiles can watch it.</p>
+      <div className="tool-row">
+        <button className="btn small" aria-pressed={!row.kids} onClick={() => void save(false)}>
+          Not for kids
+        </button>
+        <button className="btn small" aria-pressed={row.kids} onClick={() => void save(true)}>
+          For kids
+        </button>
+      </div>
+    </>
   );
 }
 

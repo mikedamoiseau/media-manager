@@ -28,12 +28,12 @@ import type { Settings } from './db.ts';
 import { TvError, addTv, editTv, removeTv, publicTvs, handoffTv, type TvInput } from './tvs.ts';
 import type { MediaType } from './scanner.ts';
 import { ProfileError, listProfiles, addProfile, editProfile, removeProfile, profileOf, type ProfileInput } from './profiles.ts';
-import { KidsError, setParentsCode, checkParentsCode, kidsProfile, kidsProfiles, allowedItems, itemKey, itemOverride, setItemOverride, kidsRoute, KIDS_REMOTE, type Override } from './kids.ts';
+import { KidsError, setParentsCode, checkParentsCode, kidsProfile, kidsProfiles, allowedItems, itemKey, itemOverride, setItemOverride, kidsRoute, KIDS_REMOTE, NOT_FOR_KIDS, type Override } from './kids.ts';
 import { PlayError, playItem } from './playItem.ts';
 import { upNextRoutes } from './upnextApi.ts';
 import { yearRoutes } from './yearApi.ts';
 import { liveTvRoutes } from './liveApi.ts';
-import { channelOnAir } from './livetv.ts';
+import { channelOnAir, kidsChannelNamed } from './livetv.ts';
 
 function sendFile(file: string, maxAge = 31536000): Response {
   const st = statSync(file);
@@ -76,7 +76,7 @@ export function createApi(svc: Service): Hono {
     const kid = kidsProfile(db, who(c));
     return kid ? allowedItems(db, kid.maxAge) : null;
   };
-  const notForKids = (c: Context) => c.json({ error: 'Not available in kids mode', code: 'kids' }, 403);
+  const notForKids = (c: Context) => c.json(NOT_FOR_KIDS, 403);
 
   // A kids profile reaches only what kids mode shows, and only its own titles: the app hides the rest, this keeps it so.
   api.use('*', async (c, next) => {
@@ -262,7 +262,7 @@ export function createApi(svc: Service): Hono {
 
   // ---------- live TV ----------
 
-  liveTvRoutes(api, svc, kodi);
+  liveTvRoutes(api, svc, kodi, (c) => kidsProfile(db, who(c)));
 
   // ---------- Up next and the sleep timer ----------
 
@@ -599,10 +599,11 @@ export function createApi(svc: Service): Hono {
   const itemOfMedia = (m: ReturnType<typeof kodiMedia>) =>
     m?.kind === 'episode' ? (db.prepare('SELECT item_id FROM episodes WHERE id = ?').get(m.id) as { item_id: number } | undefined)?.item_id : m?.id;
 
-  /** For a kids profile: whether what plays on the TV is one of its titles (whoever started it). */
+  /** For a kids profile: whether what plays on the TV is one of its titles, or a channel for kids (whoever started it). */
   const kidMayControl = async (c: Context, sees: Set<number>) => {
     const { cfg, prefix } = kodi(c);
     const np = await nowPlaying(cfg);
+    if (np.active && np.channel) return kidsChannelNamed(db, np.channel);
     const id = np.active && np.file ? itemOfMedia(kodiMedia(db, prefix, np.file)) : undefined;
     return id !== undefined && sees.has(id);
   };
@@ -612,14 +613,14 @@ export function createApi(svc: Service): Hono {
     const np = await nowPlaying(cfg);
     // Which file of the library it is, so the phone can take over in VLC.
     const media = np.active && np.file ? kodiMedia(db, prefix, np.file) : undefined;
-    // Kids mode: only one of the kid's titles is shown; anything else only as "something else is playing".
+    // One of the owner's live channels.
+    const live = np.channel ? channelOnAir(db, svc.settings().liveGuides, np.channel, Date.now()) : null;
+    // Kids mode: only one of the kid's titles, or a channel for kids, is shown; anything else only as "something else is playing".
     const sees = kidSees(c);
-    if (sees && np.active) {
+    if (sees && np.active && !live?.kids) {
       const id = itemOfMedia(media);
       if (id === undefined || !sees.has(id)) return c.json({ active: true, hidden: true });
     }
-    // One of the owner's live channels (a kid never gets here with one: it isn't a title of theirs).
-    const live = np.channel ? channelOnAir(db, svc.settings().liveGuides, np.channel, Date.now()) : null;
     return c.json({ ...np, ...(media ? { media } : {}), ...(live ? { live } : {}) });
   });
 

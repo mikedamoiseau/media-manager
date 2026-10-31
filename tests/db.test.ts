@@ -39,3 +39,17 @@ test("channels picked before categories are numbered category by category, each 
   db.close();
   rmSync(dir, { recursive: true });
 });
+
+test('channels picked before the kids switch are not for kids', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mm-'));
+  const file = join(dir, 'media.db');
+  const old = new DatabaseSync(file);
+  for (const m of MIGRATIONS.slice(0, 16)) old.exec(m);
+  old.exec('PRAGMA user_version = 16');
+  old.prepare("INSERT INTO live_channels (key, position) VALUES ('TF1.fr@SD', 1)").run();
+  old.close();
+  const db = openDb(file);
+  assert.deepEqual({ ...db.prepare('SELECT key, kids FROM live_channels').get() }, { key: 'TF1.fr@SD', kids: 0 });
+  db.close();
+  rmSync(dir, { recursive: true });
+});

@@ -12,6 +12,12 @@ const ZAP_WAIT_MS = 700;
 /** A channel just asked for is counted from until the TV reports it, or this long (Kodi takes seconds to switch). */
 const ASKED_MS = 15_000;
 
+/** A live channel's backdrop on the Remote's card: the picture of the programme on now, from the guide. */
+export function LiveBackdrop({ live }: { live: LiveChannel }) {
+  const icon = nowAndNext(live.programmes, Date.now()).now?.icon;
+  return icon ? <img key={icon} className="np-fanart" src={icon} alt="" aria-hidden="true" onError={(e) => (e.currentTarget.hidden = true)} /> : null;
+}
+
 /** The Remote's card while one of the owner's channels plays: the channel, what's on and how far in, what's next. */
 export function LiveCard({ live }: { live: LiveChannel }) {
   const { now: on, next, progress } = nowAndNext(live.programmes, Date.now());

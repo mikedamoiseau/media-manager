@@ -395,6 +395,10 @@ export const MIGRATIONS: string[] = [
   UPDATE live_channels SET position = (SELECT n FROM regroup WHERE regroup.key = live_channels.key);
   DROP TABLE regroup;
   `,
+  `
+  -- A channel of the owner's made for kids: in the TVs' Kids group, and the kids profiles' to watch.
+  ALTER TABLE live_channels ADD COLUMN kids INTEGER NOT NULL DEFAULT 0;
+  `,
 ];
 
 export function openDb(file: string): DB {

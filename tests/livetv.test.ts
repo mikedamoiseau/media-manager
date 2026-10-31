@@ -5,7 +5,7 @@ import type { M3uEntry } from '../server/iptv.ts';
 import type { Programme } from '../server/epg.ts';
 import {
   LiveError, saveCatalog, setPicks, setGuidePick, setStream, pickedChannels, channelFileText, storeGuide, liveGuide, liveCatalog, guideOf, addressToward, appAddress,
-  kodiPath, guideAddress, guideFileText,
+  kodiPath, guideAddress, guideFileText, setKids,
 } from '../server/livetv.ts';
 import { EXTRA_CHANNELS } from '../server/extraChannels.ts';
 import { guideCandidates } from '../server/epg.ts';
@@ -544,4 +544,18 @@ test("Kodi's guide holds what the TVs show: from a day ago to four days ahead", 
   ], now);
   const titles = [...guideFileText(db, [X], now).matchAll(/<title>([^<]+)<\/title>/g)].map((m) => m[1]);
   assert.deepEqual(titles, ['Yesterday', 'In four days']);
+});
+
+test("a channel for kids: in its category's group and the TVs' Kids group, kept when the channels are reordered", () => {
+  const db = catalog();
+  setPicks(db, ['TF1.fr@SD', 'M6.fr@HD']);
+  setKids(db, 'M6.fr@HD', true);
+  setPicks(db, ['M6.fr@HD', 'TF1.fr@SD']);
+  assert.match(channelFileText(db), /tvg-name="M6 HD" tvg-logo="[^"]*" group-title="France;Kids"/);
+  assert.match(channelFileText(db), /tvg-name="TF1" tvg-logo="[^"]*" group-title="France",/);
+  assert.deepEqual(liveGuide(db, [X], 0, at(23)).map((c) => [c.key, c.kids]), [['M6.fr@HD', true], ['TF1.fr@SD', false]]);
+  assert.equal(liveCatalog(db, [X]).find((r) => r.key === 'M6.fr@HD')!.kids, true);
+  setKids(db, 'M6.fr@HD', false);
+  assert.doesNotMatch(channelFileText(db), /Kids/);
+  assert.throws(() => setKids(db, 'BX1.be@SD', true), LiveError, "only one of the owner's channels");
 });

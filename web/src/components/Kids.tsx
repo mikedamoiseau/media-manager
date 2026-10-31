@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { api } from '../api.ts';
 import { useStore, nowPlaying, startFastPoll, useTv, status, toast } from '../store.ts';
 import { send } from './Remote.tsx';
+import { LiveCard, LiveBackdrop, ChannelZap } from './LiveOnRemote.tsx';
 import { TrackPicker } from './TrackPicker.tsx';
 import { ProfileBadge } from './WhosWatching.tsx';
 import { languageName } from '../tracks.ts';
@@ -90,6 +91,8 @@ export function KidsPlaying() {
   useEffect(() => startFastPoll(), []);
 
   const mine = !!tv && !!np?.active && !np.hidden;
+  // A channel for kids plays (the server shows no other).
+  const live = mine ? np.live : undefined;
   const playing = mine && (np.speed ?? 0) !== 0;
   const volume = np?.volume ?? 0;
   const audio = np?.audio ? languageName(np.audio.language) : 'Language';
@@ -102,9 +105,12 @@ export function KidsPlaying() {
           <ProfileBadge />
         </div>
         <section className={`np-card${mine ? '' : ' is-idle'}`}>
-          {mine && np.fanart && <img className="np-fanart" src={`/api/img?w=780&u=${encodeURIComponent(np.fanart)}`} alt="" aria-hidden="true" />}
+          {mine && !live && np.fanart && <img className="np-fanart" src={`/api/img?w=780&u=${encodeURIComponent(np.fanart)}`} alt="" aria-hidden="true" />}
+          {live && <LiveBackdrop live={live} />}
           <div className="np-inner">
-            {mine ? (
+            {live ? (
+              <LiveCard live={live} />
+            ) : mine ? (
               <>
                 <p className="np-label">{np.showTitle ? `${np.showTitle}${np.episode ? `, episode ${np.episode}` : ''}` : 'Now playing'}</p>
                 <h1 className="np-title">{np.title}</h1>
@@ -125,6 +131,8 @@ export function KidsPlaying() {
             )}
           </div>
         </section>
+
+        {live && <ChannelZap live={live} tvName={tv?.name} />}
 
         {mine && (
           <>

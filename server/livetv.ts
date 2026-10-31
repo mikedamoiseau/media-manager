@@ -29,6 +29,8 @@ export interface LiveChannel {
   url: string;
   /** Its list: its category (LIST_NAMES) */
   list: string;
+  /** Made for kids (the owner's call): the kids profiles' to watch */
+  kids: boolean;
   /** How VLC on the phone gets it: the stream itself, or the app's one-channel playlist (for request headers) */
   vlc: 'direct' | 'playlist';
   programmes: Array<Omit<Programme, 'channel'>>;
@@ -47,6 +49,8 @@ export interface CatalogRow {
   guide: { mode: 'auto' | 'manual' | 'none'; source?: string; id?: string; name?: string };
   /** The owner's own stream address for it; null: iptv-org's */
   stream: string | null;
+  /** One of the owner's made for kids */
+  kids: boolean;
 }
 
 type CatalogDbRow = { key: string; list: string; name: string; logo: string; grp: string; url: string; opts: string; seen_at: number; ok: number | null };
@@ -92,12 +96,14 @@ export function setPicks(db: DB, picks: string[]): void {
   const rank = (k: string) => (order.includes(lists.get(k)!) ? order.indexOf(lists.get(k)!) : order.length);
   const keys = [...picks].sort((a, b) => rank(a) - rank(b));
   const kept = new Map(
-    (db.prepare('SELECT key, guide, url FROM live_channels').all() as Array<{ key: string; guide: string | null; url: string | null }>).map((r) => [r.key, r]),
+    (db.prepare('SELECT key, guide, url, kids FROM live_channels').all() as Array<{ key: string; guide: string | null; url: string | null; kids: number }>).map(
+      (r) => [r.key, r],
+    ),
   );
   tx(db, () => {
     db.exec('DELETE FROM live_channels');
-    const ins = db.prepare('INSERT INTO live_channels(key, position, guide, url) VALUES (?, ?, ?, ?)');
-    keys.forEach((k, i) => ins.run(k, i + 1, kept.get(k)?.guide ?? null, kept.get(k)?.url ?? null));
+    const ins = db.prepare('INSERT INTO live_channels(key, position, guide, url, kids) VALUES (?, ?, ?, ?, ?)');
+    keys.forEach((k, i) => ins.run(k, i + 1, kept.get(k)?.guide ?? null, kept.get(k)?.url ?? null, kept.get(k)?.kids ?? 0));
   });
 }
 
@@ -111,6 +117,12 @@ export function setStream(db: DB, key: string, url: string | null): void {
 }
 
 /** The owner's guide for a channel of theirs: another guide channel, none, or back to automatic (null). */
+/** One of the owner's channels made for kids, or not. */
+export function setKids(db: DB, key: string, kids: boolean): void {
+  const r = db.prepare('UPDATE live_channels SET kids = ? WHERE key = ?').run(kids ? 1 : 0, key);
+  if (!r.changes) throw new LiveError('Pick the channel first');
+}
+
 export function setGuidePick(db: DB, key: string, guide: { source: string; id: string } | 'none' | null): void {
   const value = guide === null ? null : guide === 'none' ? '' : `${guide.source}\t${guide.id}`;
   const r = db.prepare('UPDATE live_channels SET guide = ? WHERE key = ?').run(value, key);
@@ -118,13 +130,13 @@ export function setGuidePick(db: DB, key: string, guide: { source: string; id: s
 }
 
 /** The owner's channels as the TVs number and name them. */
-export function pickedChannels(db: DB): Array<{ number: number; name: string; list: string; entry: M3uEntry; guide: string | null; listedUrl: string }> {
-  const rows = db.prepare(`SELECT c.*, p.guide, p.url AS own FROM live_channels p JOIN live_catalog c ON c.key = p.key ORDER BY p.position`).all() as Array<
-    CatalogDbRow & { guide: string | null; own: string | null }
+export function pickedChannels(db: DB): Array<{ number: number; name: string; list: string; entry: M3uEntry; guide: string | null; listedUrl: string; kids: boolean }> {
+  const rows = db.prepare(`SELECT c.*, p.guide, p.url AS own, p.kids FROM live_channels p JOIN live_catalog c ON c.key = p.key ORDER BY p.position`).all() as Array<
+    CatalogDbRow & { guide: string | null; own: string | null; kids: number }
   >;
   const names = uniqueNames(rows.map((r) => r.name));
   // listedUrl: iptv-org's address, which a guide is matched on (a Pluto channel's id is in it).
-  return rows.map((r, i) => ({ number: i + 1, name: names[i]!, list: r.list, entry: playedOf(r), guide: r.guide, listedUrl: r.url }));
+  return rows.map((r, i) => ({ number: i + 1, name: names[i]!, list: r.list, entry: playedOf(r), guide: r.guide, listedUrl: r.url, kids: r.kids === 1 }));
 }
 
 // ParaTV's Dailymotion copies list a backup server's qualities the TVs' adaptive player mustn't take (see withoutBackups).
@@ -139,7 +151,8 @@ export function channelFileText(db: DB, app: string | null = null, guide: string
   return buildM3u(pickedChannels(db).map((c) => ({
     entry: {
       ...c.entry,
-      group: LIST_NAMES[c.list] ?? c.entry.group,
+      // A kids channel is also in the Kids group (IPTV Simple reads groups apart at ';').
+      group: `${LIST_NAMES[c.list] ?? c.entry.group}${c.kids ? ';Kids' : ''}`,
       ...(app && viaApp(c.entry.url) ? { url: `${app}/api/livetv/${encodeURIComponent(c.entry.key)}/tv.m3u8` } : {}),
     },
     name: c.name,
@@ -256,23 +269,31 @@ export function liveGuide(db: DB, sources: string[], from: number, to: number): 
     const g = guide(c.entry.key, c.listedUrl, c.guide);
     const rows = g.source && g.id ? (q.all(g.source, g.id, from, to) as Array<Record<string, string | number | null>>) : [];
     const programmes = rows.map((r) => Object.fromEntries(Object.entries(r).filter(([, v]) => v !== null)) as Omit<Programme, 'channel'>);
-    return { key: c.entry.key, number: c.number, name: c.name, logo: c.entry.logo, url: c.entry.url, list: c.list, vlc: c.entry.opts.length ? 'playlist' : 'direct', programmes };
+    return { key: c.entry.key, number: c.number, name: c.name, logo: c.entry.logo, url: c.entry.url, list: c.list, kids: c.kids, vlc: c.entry.opts.length ? 'playlist' : 'direct', programmes };
   });
 }
 
-/** The owner's channel a TV plays, by the name it gives (as the list wrote it, else without case), with what's on and next. */
+/** The owner's channel a TV names: as the list wrote it, else without case. */
+const named = <T extends { name: string }>(all: T[], name: string): T | undefined =>
+  all.find((x) => x.name === name) ?? all.find((x) => x.name.toLowerCase() === name.toLowerCase());
+
+/** The owner's channel a TV plays, by the name it gives, with what's on and next. */
 export function channelOnAir(db: DB, sources: string[], name: string, now: number): LiveChannel | null {
-  const all = liveGuide(db, sources, now, now + 12 * 3600_000);
-  const c = all.find((x) => x.name === name) ?? all.find((x) => x.name.toLowerCase() === name.toLowerCase());
+  const c = named(liveGuide(db, sources, now, now + 12 * 3600_000), name);
   return c ? { ...c, programmes: c.programmes.slice(0, 2) } : null;
+}
+
+/** Whether the channel a TV plays, by the name it gives, is one of the owner's made for kids. */
+export function kidsChannelNamed(db: DB, name: string): boolean {
+  return named(pickedChannels(db), name)?.kids === true;
 }
 
 /** Every channel the owner can pick, lists in their order, with where the owner put it and its guide. */
 export function liveCatalog(db: DB, sources: string[]): CatalogRow[] {
   const guide = resolver(db, sources);
-  const rows = db.prepare(`SELECT c.*, p.position, p.guide, p.url AS own, c.seen_at >= COALESCE(l.refreshed_at, 0) AS listed
+  const rows = db.prepare(`SELECT c.*, p.position, p.guide, p.url AS own, p.kids, c.seen_at >= COALESCE(l.refreshed_at, 0) AS listed
     FROM live_catalog c LEFT JOIN live_channels p ON p.key = c.key LEFT JOIN live_lists l ON l.list = c.list`).all() as Array<
-    CatalogDbRow & { position: number | null; guide: string | null; own: string | null; listed: number }
+    CatalogDbRow & { position: number | null; guide: string | null; own: string | null; listed: number; kids: number | null }
   >;
   const order = (list: string) => {
     const i = LIVE_LISTS.findIndex((l) => l.list === list);
@@ -290,6 +311,7 @@ export function liveCatalog(db: DB, sources: string[]): CatalogRow[] {
     position: r.position,
     guide: guide(r.key, r.url, r.guide),
     stream: r.own,
+    kids: r.kids === 1,
   }));
 }
 

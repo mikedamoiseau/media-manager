@@ -26,9 +26,10 @@ const TABS: Array<{ key: Tab; path: string; label: string; Icon: typeof IconFilm
   { key: 'remote', path: '/remote', label: 'Remote', Icon: IconRemote },
   { key: 'settings', path: '/settings', label: 'Settings', Icon: IconSettings },
 ];
-// Kids mode: the library and what plays, nothing else.
+// Kids mode: the library, the channels for kids and what plays, nothing else.
 const KIDS_TABS: typeof TABS = [
   { key: 'library', path: '/', label: 'Library', Icon: IconFilm },
+  { key: 'live', path: '/live', label: 'TV', Icon: IconTv },
   { key: 'remote', path: '/remote', label: 'Playing', Icon: IconPlay },
 ];
 
@@ -67,7 +68,7 @@ export function App() {
 
   // Kids mode has no Live TV, To review, Settings, film pages (films not on the NAS), sets' pages or the rows of other films: back to the library.
   const offLimits =
-    kids && (tab === 'live' || tab === 'review' || tab === 'settings' || !!filmParams || location.startsWith('/set/') || (location.startsWith('/row/') && !rowOf(location, true)));
+    kids && (tab === 'review' || tab === 'settings' || !!filmParams || location.startsWith('/set/') || (location.startsWith('/row/') && !rowOf(location, true)));
   useEffect(() => {
     if (offLimits) navigate('/', { replace: true });
   }, [offLimits]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -90,7 +91,8 @@ export function App() {
           <Library active={tab === 'library' && !params} />
         </section>
         <section className="page" hidden={tab !== 'live'}>
-          {tab === 'live' && !kids && <LiveTv />}
+          {/* A kids profile's channels are not the grown-ups': none of their guide stays when kids mode comes or goes. */}
+          {tab === 'live' && <LiveTv key={kids ? 'kids' : 'all'} />}
         </section>
         <section className="page" hidden={tab !== 'review'}>
           {tab === 'review' && !kids && <Review />}

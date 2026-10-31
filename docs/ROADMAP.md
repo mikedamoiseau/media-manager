@@ -114,7 +114,9 @@ Done: a Live TV tab (grid or list), the owner's channels picked and ordered
 in Settings › Live TV, written to the channel list both TVs read. Then the
 guide on the TVs (a guide file next to that list) and zapping from the
 Remote, CH − and + along the owner's numbering
-([design](superpowers/specs/2026-10-31-live-tv-kodi-design.md)).
+([design](superpowers/specs/2026-10-31-live-tv-kodi-design.md)). Then the
+channels for kids: a switch per channel, the TVs' Kids group, and the kids
+profiles' own TV tab ([design](superpowers/specs/2026-10-31-kids-channels-design.md)).
 
 ## 9. Move the app off the M1
 
