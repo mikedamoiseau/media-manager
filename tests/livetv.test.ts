@@ -8,6 +8,7 @@ import {
   kodiPath, guideAddress, guideFileText,
 } from '../server/livetv.ts';
 import { EXTRA_CHANNELS } from '../server/extraChannels.ts';
+import { guideCandidates } from '../server/epg.ts';
 
 const X = 'https://xmltvfr.fr/xmltv/xmltv.xml.gz';
 const entry = (key: string, name: string, more: Partial<M3uEntry> = {}): M3uEntry => ({ key, name, logo: `https://logo/${name}.png`, group: 'General', opts: [], url: `http://s/${key}.m3u8`, ...more });
@@ -485,6 +486,13 @@ test('the Extra channels: one key each, an https address, a name and a logo', ()
     assert.ok(e.name && e.logo.startsWith('https://') && e.group, e.key);
     assert.deepEqual(e.opts, []);
   }
+});
+
+test("the Extra channels from Belgium's side: TV5MONDE and the kids' cartoons, each found in its guide", () => {
+  const ids = (name: string) => guideCandidates(EXTRA_CHANNELS.find((e) => e.name === name)!);
+  assert.ok(ids('TV5MONDE').includes('tv5monde.fr'), "xmltvfr's TV5Monde.fr, by its key");
+  assert.ok(ids("Maya l'abeille").includes('fr2400002yg'), "Samsung TV Plus's id");
+  assert.ok(ids('Les Schtroumpfs').includes('68b16d2282862c1f067dc763'), "Pluto's id");
 });
 
 test("each channel's category: the TVs get it as their group, the guide says it", () => {

@@ -17,9 +17,21 @@ export const EXTRA_CHANNELS: M3uEntry[] = [
   samsung('FR1600002TT', 'Les Télétubbies', 'Kids', '20260721T035906'),
   samsung('FRBD1900012T7', 'Charlotte aux Fraises', 'Kids', '20260901T054432'),
   samsung('FR2100002YW', 'Pingu', 'Kids', '20260901T054517'),
+  samsung('FR2400002YG', "Maya l'abeille", 'Kids', '20261026T042244'),
+  // Pluto TV France, through jmp2.uk; its guide is Pluto's, by the id in the address.
+  {
+    key: '68b16d2282862c1f067dc763.plu', name: 'Les Schtroumpfs', group: 'Kids', opts: [], url: 'https://jmp2.uk/plu-68b16d2282862c1f067dc763.m3u8',
+    logo: 'https://images.pluto.tv/channels/68b16d2282862c1f067dc763/colorLogoPNG_1760383270761.png',
+  },
   samsung('FR2600010LM', "C'est pas sorcier", 'Kids', '20260929T041436'),
   samsung('FRBD37000020Y', 'Plus belle la vie', 'Series', '20261006T034046'),
   samsung('FR3600001R1', 'Un si grand soleil', 'Series', '20260707T051816'),
+  // TV5MONDE's France-Belgium feed through France TV, as ParaTV keeps its address (it changes every few hours).
+  // The feed under its key in xmltvfr's guide: TV5Monde.fr.
+  {
+    key: 'TV5Monde.fr@ParaTV', name: 'TV5MONDE', group: 'General', opts: [], url: 'https://raw.githubusercontent.com/Paradise-91/ParaTV/main/streams/francetv/tv5-monde.m3u8',
+    logo: 'https://i.imgur.com/WmRbudc.png',
+  },
   {
     key: 'I24news.fr@SD', name: 'i24NEWS', group: 'News', opts: [], url: 'https://i24newsfrench-cdn.encoders.immergo.tv/master.m3u8',
     logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/7/79/LOGO_i24NEWS.png/960px-LOGO_i24NEWS.png',
