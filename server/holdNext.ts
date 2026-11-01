@@ -19,14 +19,26 @@ export function nextLabel(n: Named): string {
 }
 
 /**
- * Whether the app decides what plays after this on the TV: Up next has entries, "stop after this" is set, or
- * a kid's bedtime passed while the TV is in the kids view (`kidsBedtime`). A timer in minutes doesn't: it
- * stops the TV when due, whatever plays. `first`: the entry that plays next.
+ * A kid on the TV: the one in its kids view (`allowed`: what they may watch, and only that follows), or the
+ * one whose play it is. `bedtime`: theirs has passed.
  */
-export function holdsNext(db: DB, tvId: string, now: number, kidsBedtime: boolean): { hold: boolean; first?: UpNextEntry } {
-  const first = upNextEntries(db, tvId)[0];
+export interface KidOnTv {
+  bedtime: boolean;
+  allowed?: Set<number>;
+}
+
+/**
+ * Whether the app decides what plays after this on the TV: an entry of Up next that follows, "stop after
+ * this", or a kid's bedtime. In the kids view, only an entry the kid may watch follows (none at bedtime): with
+ * none, Lumen's card goes on with the kids' episodes. A timer in minutes doesn't hold: it stops the TV when
+ * due, whatever plays. `first`: the entry that plays next.
+ */
+export function holdsNext(db: DB, tvId: string, now: number, kid?: KidOnTv): { hold: boolean; first?: UpNextEntry } {
+  const entries = upNextEntries(db, tvId);
+  const allowed = kid?.allowed;
+  const first = allowed ? (kid.bedtime ? undefined : entries.find((e) => allowed.has(e.itemId))) : entries[0];
   const sleep = sleepOf(db, tvId, now);
-  return { hold: !!first || (!!sleep && 'afterThis' in sleep) || kidsBedtime, first };
+  return { hold: !!first || (!!sleep && 'afterThis' in sleep) || !!kid?.bedtime, first };
 }
 
 /** The entry's name as the TV's library has it; the app's own when Kodi doesn't know it. */

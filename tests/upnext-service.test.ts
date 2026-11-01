@@ -8,6 +8,7 @@ import { Service, NEXT_PAUSE } from '../server/service.ts';
 import { PlayError, playItem } from '../server/playItem.ts';
 import { MAIN_PROFILE, PROFILE_COLORS, addProfile } from '../server/profiles.ts';
 import { STALE, addToUpNext, upNext, setSleep, sleepOf } from '../server/upnext.ts';
+import { setParentsCode } from '../server/kids.ts';
 import { standInKodi } from './standInKodi.ts';
 
 /** A library with two films in Kodi, on one TV played by the stand-in. */
@@ -189,4 +190,49 @@ test('a removed TV takes its list', async () => {
   addToUpNext(s.db, 'tv1', s.anna, s.b, null, Date.now());
   s.svc.saveTvs([]);
   assert.deepEqual(upNext(s.db, 'tv1'), []);
+});
+
+/** The TV in Lumen's kids view, a kid going to bed at 20:00, and a film made for kids (Kodi's 14) besides the setup's. */
+function kidsView(s: Awaited<ReturnType<typeof setup>>) {
+  setParentsCode(s.db, '1234');
+  const kid = addProfile(s.db, { name: 'Kid', color: PROFILE_COLORS[2], kids: true, bedtime: '20:00' }).id;
+  const cartoon = Number(s.db.prepare(`INSERT INTO items (path, folder, category, is_dir, match_state, present, kodi_id, kodi_type, added_at, updated_at)
+    VALUES ('KIDS/Cartoon.mkv', 'KIDS', 'kids', 0, 'unmatched', 1, 14, 'movie', 1, 1)`).run().lastInsertRowid);
+  s.kodi.answers['XBMC.GetInfoBooleans'] = { 'Skin.HasSetting(CinemathequeKids)': true };
+  return { kid, cartoon };
+}
+
+test("in the kids view, what follows is only what the kid may watch, as the kid; the grown-ups' entries wait", async (t) => {
+  using s = await setup();
+  const { kid, cartoon } = kidsView(s);
+  t.mock.timers.enable({ apis: ['Date'], now: new Date(2026, 9, 31, 18, 0) });
+  addToUpNext(s.db, 'tv1', s.anna, s.b, null, Date.now());
+  addToUpNext(s.db, 'tv1', s.anna, cartoon, null, Date.now());
+  s.svc.upNextChanged();
+  await s.svc.onPlayer('tv1', ended);
+  assert.deepEqual(s.kodi.opened(), [{ movieid: 14 }], "the grown-up's film is skipped");
+  assert.deepEqual(upNext(s.db, 'tv1').map((e) => e.itemId), [s.b], 'and stays in the list');
+  assert.equal(s.svc.owners.start('tv1', Date.now()), kid, "what starts is the kid's");
+});
+
+test("in the kids view at the kid's bedtime, nothing follows and the list stays", async (t) => {
+  using s = await setup();
+  const { cartoon } = kidsView(s);
+  t.mock.timers.enable({ apis: ['Date'], now: new Date(2026, 9, 31, 20, 30) });
+  addToUpNext(s.db, 'tv1', s.anna, cartoon, null, Date.now());
+  s.svc.upNextChanged();
+  await s.svc.onPlayer('tv1', ended);
+  assert.deepEqual(s.kodi.opened(), []);
+  assert.deepEqual(upNext(s.db, 'tv1').map((e) => e.itemId), [cartoon]);
+});
+
+test('in the kids view with nothing the kid may watch in the list, nothing follows', async (t) => {
+  using s = await setup();
+  kidsView(s);
+  t.mock.timers.enable({ apis: ['Date'], now: new Date(2026, 9, 31, 18, 0) });
+  addToUpNext(s.db, 'tv1', s.anna, s.b, null, Date.now());
+  s.svc.upNextChanged();
+  await s.svc.onPlayer('tv1', ended);
+  assert.deepEqual(s.kodi.opened(), []);
+  assert.deepEqual(upNext(s.db, 'tv1').map((e) => e.itemId), [s.b]);
 });

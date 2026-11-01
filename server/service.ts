@@ -8,8 +8,8 @@ import { reconcile, applySheetHints, syncSheetOnlyItems, importSheetRows } from 
 import { fetchSheet } from './sheet.ts';
 import { type KodiConfig, KodiError, kodiCall, discoverKodi, detectPathPrefix, libraryPathPrefix, remote } from './kodi.ts';
 import { listProfiles, type Profile } from './profiles.ts';
-import { hasParentsCode, kidsProfile, kidsProfiles, bedtimeStop, isBedtime } from './kids.ts';
-import { holdsNext, entryName, nextLabel, tellSkin } from './holdNext.ts';
+import { hasParentsCode, kidsProfile, kidsProfiles, bedtimeStop, isBedtime, allowedItems, type KidsProfile } from './kids.ts';
+import { holdsNext, entryName, nextLabel, tellSkin, type KidOnTv } from './holdNext.ts';
 import { syncKidsTag, kidsViewProfile } from './kidsTag.ts';
 import { syncAgeRatings } from './kodiRatings.ts';
 import { syncFromKodi, matchPending, enrichTitles } from './metadata.ts';
@@ -286,7 +286,10 @@ export class Service extends EventEmitter {
     try {
       // Something started meanwhile (the TV's remote, a Play): it stays, and the list waits.
       if ((await kodiCall<unknown[]>(tv, 'Player.GetActivePlayers')).length) return;
-      await this.playNext(tvId);
+      // The kids view: only what the kid may watch follows, as theirs, and nothing at their bedtime.
+      const kid = await this.kidInView(tv);
+      if (kid && isBedtime(kid.bedtime, new Date())) return;
+      await this.playNext(tvId, undefined, kid);
     } catch (err) {
       console.warn(`Up next on ${tv.name}: ${(err as Error).message}`);
     }
@@ -296,13 +299,15 @@ export class Service extends EventEmitter {
    * Plays that entry of the TV's Up next, else the first, as the profile that added it; it leaves the list
    * once Kodi started it. One that can't play (gone from the NAS, a kid's bedtime, Kodi refused it) is
    * dropped, and the next tried; the one asked for says why. What is the TV's (Kodi not answering, its path
-   * to the media folder unknown) leaves the list as it was. True when one played.
+   * to the media folder unknown) leaves the list as it was. True when one played. `kid`: the kid of the TV's
+   * kids view: only an entry they may watch plays, as theirs; the others stay in the list.
    */
-  async playNext(tvId: string, id?: number): Promise<boolean> {
+  async playNext(tvId: string, id?: number, kid?: KidsProfile): Promise<boolean> {
+    const allowed = kid && allowedItems(this.db, kid.maxAge);
     try {
-      for (const e of upNext(this.db, tvId).filter((r) => id === undefined || r.id === id)) {
+      for (const e of upNext(this.db, tvId).filter((r) => (id === undefined || r.id === id) && (!allowed || allowed.has(r.itemId)))) {
         try {
-          await playItem(this, tvId, e.profileId, e.itemId, e.episodeId ?? undefined);
+          await playItem(this, tvId, kid?.id ?? e.profileId, e.itemId, e.episodeId ?? undefined);
           takeFromUpNext(this.db, tvId, Date.now(), e.id);
           return true;
         } catch (err) {
@@ -395,15 +400,13 @@ export class Service extends EventEmitter {
   }
 
   private async tellSkins(now: number): Promise<void> {
-    const kid = kidsProfiles(this.db)[0];
-    const bedtime = !!kid && isBedtime(kid.bedtime, new Date(now));
     // A TV that isn't connected (off) is told when it connects.
     for (const tv of this.tvs().filter((t) => this.liveTvs.has(t.id))) {
       try {
-        const kidsBedtime = bedtime && (await kidsViewProfile(this.db, tv)) === kid.id;
-        const { hold, first } = holdsNext(this.db, tv.id, now, kidsBedtime);
-        const news = `${hold}:${first?.id ?? ''}`;
+        // Read before asking Kodi anything: a play meanwhile asks for one more telling, after this one.
         if (this.tellAgain.delete(tv.id)) this.toldSkin.delete(tv.id);
+        const { hold, first } = holdsNext(this.db, tv.id, now, await this.kidOnTv(tv, now));
+        const news = `${hold}:${first?.id ?? ''}`;
         if (this.toldSkin.get(tv.id) === news) continue;
         // Not told (a skin without the settings yet, a call that didn't get through): asked again at the next look.
         await tellSkin(tv, hold, first ? nextLabel(await entryName(this.db, tv, first)) : '');
@@ -415,6 +418,22 @@ export class Service extends EventEmitter {
         this.skinErrors.set(tv.id, message);
       }
     }
+  }
+
+  /** The kids profile of the TV's kids view; none when it isn't in it (or doesn't say). */
+  private async kidInView(tv: KodiTv): Promise<KidsProfile | undefined> {
+    const id = await kidsViewProfile(this.db, tv);
+    return id === undefined ? undefined : (kidsProfile(this.db, id) ?? undefined);
+  }
+
+  /** The kid on the TV for what plays next: its kids view's, with what they may watch; else whose play it is. */
+  private async kidOnTv(tv: KodiTv, now: number): Promise<KidOnTv | undefined> {
+    const inView = await this.kidInView(tv);
+    const owner = this.owners.playingFor(tv.id);
+    const kid = inView ?? (owner === undefined ? null : kidsProfile(this.db, owner));
+    if (!kid) return undefined;
+    const bedtime = isBedtime(kid.bedtime, new Date(now));
+    return inView ? { bedtime, allowed: allowedItems(this.db, kid.maxAge) } : { bedtime };
   }
 
   /** The series (item id) of the episode Kodi started; none for a film, or an episode the app doesn't know. */

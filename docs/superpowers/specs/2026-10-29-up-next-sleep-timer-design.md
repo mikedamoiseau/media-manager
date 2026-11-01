@@ -122,6 +122,15 @@ A kid's bedtime still applies: an entry whose profile is a kids profile in
 its bedtime is not started (kids can't add entries, so this only guards
 against a profile that became a kids profile).
 
+Added 2026-11-01, with the owner, after a check with the Kodi session. Lumen
+stops no film or episode in its kids view. So on a TV in its kids view, only
+the entries the kid may watch follow: the first such entry, played as the
+kid. Nothing follows at the kid's bedtime. The other entries stay in the
+list for later. The hold Lumen reads follows the same rule: with no entry the
+kid may watch, Lumen's own next-episode card goes on with the kids' episodes.
+A kid's play past their bedtime on a TV not in its kids view also holds, so
+Lumen's card doesn't start the next episode only for the app to stop it.
+
 ### The timer
 
 A table `tv_sleep` (migration 14): `tv_id`, `at` (when to stop; null for

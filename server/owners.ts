@@ -47,6 +47,11 @@ export class TvOwners {
     return owner;
   }
 
+  /** Whose is what plays on the TV now; none when nothing does. */
+  playingFor(tvId: string): number | undefined {
+    return this.playing.get(tvId)?.profile;
+  }
+
   /** What last started on the TV is Kodi going on by itself (the next episode), not a Play or the TV remote. */
   chained(tvId: string): boolean {
     return this.byChain.get(tvId) ?? false;

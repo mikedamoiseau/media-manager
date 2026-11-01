@@ -198,3 +198,38 @@ test('a play while the TV is still being told: it is told again after', async ()
   await s.svc.syncHoldNext();
   assert.deepEqual(s.told(), [...holds('Next: Bee'), ...holds('Next: Bee')]);
 });
+
+/** The TV in Lumen's kids view, a kid going to bed at 20:00, and a film made for kids (Kodi's 14). */
+function kidsView(s: Awaited<ReturnType<typeof setup>>) {
+  setParentsCode(s.db, '1234');
+  const kid = addProfile(s.db, { name: 'Kid', color: PROFILE_COLORS[2], kids: true, bedtime: '20:00' }).id;
+  const cartoon = Number(s.db.prepare(`INSERT INTO items (path, folder, category, is_dir, match_state, present, kodi_id, kodi_type, added_at, updated_at)
+    VALUES ('KIDS/Cartoon.mkv', 'KIDS', 'kids', 0, 'unmatched', 1, 14, 'movie', 1, 1)`).run().lastInsertRowid);
+  s.kodi.answers['XBMC.GetInfoBooleans'] = { 'Skin.HasSetting(CinemathequeKids)': true };
+  return { kid, cartoon };
+}
+
+test("in the kids view, only an entry the kid may watch leaves it to the app; otherwise Lumen's card goes on", async () => {
+  using s = await setup();
+  const { cartoon } = kidsView(s);
+  addToUpNext(s.db, 'tv1', MAIN_PROFILE, s.film, null, Date.now());
+  await s.svc.checkSleep(new Date(2026, 9, 31, 18, 0).getTime());
+  assert.deepEqual(s.told(), free, "a grown-up's film doesn't hold the TV");
+  s.kodi.answers['VideoLibrary.GetMovieDetails'] = { moviedetails: { movieid: 14, title: 'Cartoon' } };
+  addToUpNext(s.db, 'tv1', MAIN_PROFILE, cartoon, null, Date.now());
+  await s.svc.checkSleep(new Date(2026, 9, 31, 18, 1).getTime());
+  assert.deepEqual(s.told(), [...free, ...holds('Next: Cartoon')], 'the first one the kid may watch');
+  await s.svc.checkSleep(new Date(2026, 9, 31, 20, 30).getTime());
+  assert.deepEqual(s.told(), [...free, ...holds('Next: Cartoon'), ...holds('')], 'at bedtime: held, with nothing next');
+});
+
+test("a kid's play past their bedtime, on a TV not in the kids view: the app holds, so Lumen's card starts nothing", async () => {
+  using s = await setup();
+  const { kid } = kidsView(s);
+  s.kodi.answers['XBMC.GetInfoBooleans'] = { 'Skin.HasSetting(CinemathequeKids)': false };
+  const at = new Date(2026, 9, 31, 20, 30).getTime();
+  s.svc.owners.touch('tv1', kid, at, true);
+  s.svc.owners.start('tv1', at);
+  await s.svc.checkSleep(at);
+  assert.deepEqual(s.told(), holds(''));
+});
