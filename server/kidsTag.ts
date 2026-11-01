@@ -1,5 +1,6 @@
+import { dirname, join } from 'node:path';
 import type { DB } from './db.ts';
-import { type KodiConfig, kodiCall } from './kodi.ts';
+import { type KodiConfig, kodiCall, toKodiPath } from './kodi.ts';
 import { allowedItems, kidsProfiles } from './kids.ts';
 import { paged } from './metadata.ts';
 
@@ -46,17 +47,39 @@ export async function kidsViewProfile(db: DB, cfg: KodiConfig): Promise<number |
   }
 }
 
+/** The titles every kids profile may watch; none without a kids profile. */
+function allowedForAll(db: DB): (id: number) => boolean {
+  const lists = kidsProfiles(db).map((k) => allowedItems(db, k.maxAge));
+  return (id) => lists.length > 0 && lists.every((l) => l.has(id));
+}
+
 /** Kodi's titles (`movie:<id>`, `tvshow:<id>`) allowed for every kids profile; none without a kids profile. */
 export function kidsTagKeys(db: DB): Set<string> {
-  const kids = kidsProfiles(db);
-  if (!kids.length) return new Set();
-  const lists = kids.map((k) => allowedItems(db, k.maxAge));
+  const allowed = allowedForAll(db);
   const rows = db.prepare('SELECT id, kodi_type, kodi_id FROM items WHERE kodi_id IS NOT NULL AND kodi_type IS NOT NULL').all() as Array<{
     id: number;
     kodi_type: string;
     kodi_id: number;
   }>;
-  return new Set(rows.filter((r) => lists.every((l) => l.has(r.id))).map((r) => `${r.kodi_type}:${r.kodi_id}`));
+  return new Set(rows.filter((r) => allowed(r.id)).map((r) => `${r.kodi_type}:${r.kodi_id}`));
+}
+
+/** Next to the channel list on the NAS: the kids' files Lumen lets play in its kids view though they carry no tag. */
+export const kidsFile = (liveFile: string): string => join(dirname(liveFile), 'kids-files.txt');
+
+/**
+ * The files every kid may watch that Kodi's library doesn't have (its scraper missed them), so they can't carry the
+ * Kids tag: the app plays them by path, and Lumen's kids view stops any untagged play not in this list (agreed with
+ * the Kodi skin session). One line per file and per way a TV reaches the media folder, exactly as the app opens it.
+ */
+export function kidsFilesText(db: DB, prefixes: string[]): string {
+  const allowed = allowedForAll(db);
+  const rows = db.prepare(`SELECT i.id, i.path FROM items i WHERE i.present = 1 AND i.is_dir = 0 AND i.kodi_id IS NULL
+    UNION ALL SELECT e.item_id, e.path FROM episodes e WHERE e.present = 1 AND e.kodi_id IS NULL`).all() as Array<{ id: number; path: string }>;
+  const files = rows.filter((r) => allowed(r.id)).map((r) => r.path);
+  const roots = [...new Set(prefixes.filter(Boolean).map((p) => toKodiPath(p, '')))];
+  const lines = [...new Set(roots.flatMap((root) => files.map((f) => `${root}${f}`.normalize('NFC'))))].sort();
+  return `# Cinematheque: files every kids profile may watch that Kodi's library doesn't have, one per line\n${lines.map((l) => `${l}\n`).join('')}`;
 }
 
 /** The titles whose tags must change for the Kids tag to be on exactly `want`, each with its whole new list. */

@@ -7,8 +7,8 @@ import { enrichTitles } from '../server/metadata.ts';
 import type { Tmdb, TitleDetails } from '../server/tmdb.ts';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { KIDS_TAG, KIDS_VIEW, kidsTagKeys, tagChanges, syncKidsTag, kidsViewProfile } from '../server/kidsTag.ts';
-import { mkdtempSync } from 'node:fs';
+import { KIDS_TAG, KIDS_VIEW, kidsTagKeys, tagChanges, syncKidsTag, kidsViewProfile, kidsFilesText, kidsFile } from '../server/kidsTag.ts';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Hono } from 'hono';
@@ -239,6 +239,53 @@ test('the Kids tag holds what every kid may watch', () => {
   assert.deepEqual([...kidsTagKeys(db)].sort(), ['movie:12', 'movie:6', 'tvshow:3']);
   addProfile(db, { name: 'Younger', color: PROFILE_COLORS[3], kids: true, maxAge: 6 });
   assert.deepEqual([...kidsTagKeys(db)].sort(), ['movie:6', 'tvshow:3'], 'only what both may watch');
+});
+
+test("the kids' files Kodi's library doesn't have: listed for Lumen as each TV reaches them, so its kids view lets them play", () => {
+  // kidsUnmatched (KIDS/1.mkv) and animeFrTp (ANIMES/6.mkv) aren't in Kodi; kidsShow (KIDS/14.mkv) is, but not all its episodes.
+  const { db, ids } = kidsLibrary();
+  const ep = db.prepare('INSERT INTO episodes (item_id, path, season, episode, present, kodi_id) VALUES (?, ?, 1, ?, ?, ?)');
+  ep.run(ids.kidsShow, 'KIDS/14.mkv/S01E01.mkv', 1, 1, null);
+  ep.run(ids.kidsShow, 'KIDS/14.mkv/S01E02.mkv', 2, 1, 40);
+  ep.run(ids.kidsShow, 'KIDS/14.mkv/S01E03.mkv', 3, 0, null);
+  const files = (prefixes: string[]) => kidsFilesText(db, prefixes).split('\n').filter((l) => l && !l.startsWith('#'));
+  assert.deepEqual(files(['smb://nas/video/MEDIA']), [], 'no kids profile: none');
+  setParentsCode(db, '4821');
+  addProfile(db, { name: 'Older', color: PROFILE_COLORS[2], kids: true, maxAge: 12 });
+  assert.deepEqual(files(['smb://nas/video/MEDIA/', '', 'nfs://nas/MEDIA', 'smb://nas/video/MEDIA']), [
+    'nfs://nas/MEDIA/ANIMES/6.mkv',
+    'nfs://nas/MEDIA/KIDS/1.mkv',
+    'nfs://nas/MEDIA/KIDS/14.mkv/S01E01.mkv',
+    'smb://nas/video/MEDIA/ANIMES/6.mkv',
+    'smb://nas/video/MEDIA/KIDS/1.mkv',
+    'smb://nas/video/MEDIA/KIDS/14.mkv/S01E01.mkv',
+  ]);
+  setOverride(db, `i:${ids.kidsUnmatched}`, 'no');
+  assert.ok(!files(['smb://nas/video/MEDIA']).includes('smb://nas/video/MEDIA/KIDS/1.mkv'), 'a parent said no: off the list');
+  assert.match(kidsFilesText(db, []), /^# /, 'says what it is');
+});
+
+test("the kids' files are put next to the channel list when what the kids may watch changes", (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const { db } = kidsLibrary();
+  const share = mkdtempSync(join(tmpdir(), 'share-'));
+  mkdirSync(join(share, 'IPTV'));
+  const liveFile = join(share, 'IPTV', 'channels.m3u');
+  saveSettings(db, { liveFile, kodiTvs: [{ id: 'tv1', name: 'Living room', host: '127.0.0.1', port: 9, user: '', pass: '', pathPrefix: 'smb://nas/video/MEDIA' }] });
+  const svc = new Service(db, mkdtempSync(join(tmpdir(), 'data-')));
+  svc.kidsChanged();
+  t.mock.timers.tick(5000);
+  assert.equal(kidsFile(liveFile), join(share, 'IPTV', 'kids-files.txt'));
+  assert.ok(!existsSync(kidsFile(liveFile)), 'no kids profile: no list on the NAS');
+  setParentsCode(db, '4821');
+  addProfile(db, { name: 'Older', color: PROFILE_COLORS[2], kids: true, maxAge: 12 });
+  svc.kidsChanged();
+  t.mock.timers.tick(5000);
+  assert.ok(readFileSync(kidsFile(liveFile), 'utf8').includes('smb://nas/video/MEDIA/KIDS/1.mkv\n'));
+  // A TV now reaches the media folder another way: the list follows at once.
+  t.after(() => svc.saveTvs([]));
+  svc.saveTvs([{ id: 'tv1', name: 'Living room', host: '127.0.0.1', port: 9, user: '', pass: '', pathPrefix: 'nfs://nas/MEDIA' }]);
+  assert.ok(readFileSync(kidsFile(liveFile), 'utf8').includes('nfs://nas/MEDIA/KIDS/1.mkv\n'));
 });
 
 test("the Kids tag in Kodi: only the titles that change, only their tags", async () => {

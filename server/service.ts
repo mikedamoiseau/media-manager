@@ -10,7 +10,7 @@ import { type KodiConfig, KodiError, kodiCall, discoverKodi, detectPathPrefix, l
 import { listProfiles, type Profile } from './profiles.ts';
 import { hasParentsCode, kidsProfile, kidsProfiles, bedtimeStop, isBedtime, allowedItems, parentsCodeForTvs, setParentsCode as storeParentsCode, type KidsProfile } from './kids.ts';
 import { holdsNext, entryName, nextLabel, tellSkin, type KidOnTv } from './holdNext.ts';
-import { syncKidsTag, kidsViewProfile, syncLumenPin } from './kidsTag.ts';
+import { syncKidsTag, kidsViewProfile, syncLumenPin, kidsFile, kidsFilesText } from './kidsTag.ts';
 import { syncAgeRatings } from './kodiRatings.ts';
 import { syncFromKodi, matchPending, enrichTitles } from './metadata.ts';
 import { Tmdb } from './tmdb.ts';
@@ -529,13 +529,14 @@ export class Service extends EventEmitter {
 
   /**
    * What the kids may watch may have changed (a profile, a parent's call, Kodi, ratings): the Kids tag in Kodi
-   * follows, after a pause, and so do the age ratings the TVs show.
+   * follows, after a pause, and so do the kids' files Kodi doesn't have and the age ratings the TVs show.
    */
   kidsChanged(): void {
     clearTimeout(this.kidsTimer);
     this.kidsTimer = setTimeout(() => {
       this.kidsTimer = undefined;
       void this.syncKidsTag();
+      this.writeKidsFile();
       void this.syncAgeRatings();
     }, 5000);
   }
@@ -550,6 +551,20 @@ export class Service extends EventEmitter {
       console.warn(`[kids] Kids tag not updated: ${(e as Error).message}`);
     }
   });
+
+  /**
+   * The kids' files Kodi's library doesn't have, next to the channel list, as each TV reaches them (not mounted: not
+   * written). Nothing to list without a kids profile or a TV's path to the media folder: the NAS is left alone.
+   */
+  private writeKidsFile(): void {
+    const prefixes = this.tvs().map((t) => t.pathPrefix).filter(Boolean);
+    if (!prefixes.length || !kidsProfiles(this.db).length) return;
+    try {
+      writeChannelFile(kidsFile(this.settings().liveFile), kidsFilesText(this.db, prefixes));
+    } catch (e) {
+      console.warn(`[kids] Kids' files list: ${(e as Error).message}`);
+    }
+  }
 
   private readonly syncAgeRatings = oneAtATime(async () => {
     const cfg = this.kodiConfig();
@@ -816,8 +831,12 @@ export class Service extends EventEmitter {
     }
   }
 
-  /** The files again when the owner has channels: the app's address in the list may have changed (a TV, or this Mac, moved). */
+  /**
+   * The files the TVs read again: the kids' files, and the channels when the owner has some (the app's address in the
+   * list, or how a TV reaches the media folder, may have changed: a TV, or this Mac, moved).
+   */
   private rewriteLiveFile(): void {
+    this.writeKidsFile();
     if (!pickedChannels(this.db).length) return;
     try {
       this.writeLiveFile();

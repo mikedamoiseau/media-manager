@@ -118,6 +118,19 @@ kids view of the TV that shows only their titles.
   The owner chose this knowing it is less safe: Kodi keeps the PIN in
   clear, and its JSON-RPC lets any device on the network read it. Lumen's
   own "set PIN" on the TV gives way to the app's (the Kodi session's side).
+- Added with the owner on 2026-11-01: one source for what kids may play
+  on a TV. Lumen's kids view now stops any film or episode that isn't a
+  title tagged "Cinematheque Kids" (an episode by its show's tag). Some
+  titles the kids may watch aren't in Kodi's library: its scraper missed
+  them, and the app plays them by path. Those can't carry the tag. So the
+  app also writes `kids-files.txt` next to the channel list on the NAS.
+  It holds one line per file every kids profile may watch that Kodi's
+  library doesn't have, in the form the app gives Kodi to play it, once
+  per way a TV reaches the media folder. Lines starting with `#` are
+  comments. Lumen lets a play through when its file is in the list. The
+  app rewrites the list when the kids' titles change (with the tag) and
+  when a TV's path to the media folder changes. With no kids profile, or
+  no TV path, it writes nothing.
 - Added with the owner on 2026-10-26: Lumen keeps the skin setting
   `CinemathequeKids` on while a TV shows its kids view. A play started on
   that TV then belongs to the kids profile (the first one made, if there
