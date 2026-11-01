@@ -18,16 +18,19 @@ export const KIDS_VIEW = 'CinemathequeKids';
 /** Lumen's kids PIN, asked to leave the kids view with the TV remote: a skin string, digits. */
 export const LUMEN_PIN = 'lumen.pin';
 
+/** Where Lumen's kids view reads the kids' files list (`kidsFile`): a skin string, the TV's own path to it. */
+export const KIDS_FILES = 'cinemathequekidsfiles';
+
 /**
- * Puts the parents' code as the TV's kids PIN, unless it is already: Kodi keeps a skin setting set this way only
- * until it saves them (a clean exit), so a TV may have lost it or another. True when written.
+ * Puts a skin string Lumen reads (the kids PIN, where the kids' list is), unless it is already: Kodi keeps a skin
+ * setting set this way only until it saves them (a clean exit), so a TV may have lost it or another. True when written.
  */
-export async function syncLumenPin(cfg: KodiConfig, code: string): Promise<boolean> {
-  const label = `Skin.String(${LUMEN_PIN})`;
+export async function syncSkinString(cfg: KodiConfig, setting: string, value: string): Promise<boolean> {
+  const label = `Skin.String(${setting})`;
   const now = await kodiCall<Record<string, string>>(cfg, 'XBMC.GetInfoLabels', { labels: [label] });
-  if (now[label] === code) return false;
+  if (now[label] === value) return false;
   // A string: Kodi refuses a number for a skin string.
-  await kodiCall(cfg, 'Settings.SetSkinSettingValue', { setting: LUMEN_PIN, value: code });
+  await kodiCall(cfg, 'Settings.SetSkinSettingValue', { setting, value });
   return true;
 }
 

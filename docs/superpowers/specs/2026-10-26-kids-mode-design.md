@@ -127,7 +127,10 @@ kids view of the TV that shows only their titles.
   It holds one line per file every kids profile may watch that Kodi's
   library doesn't have, in the form the app gives Kodi to play it, once
   per way a TV reaches the media folder. Lines starting with `#` are
-  comments. Lumen lets a play through when its file is in the list. The
+  comments. Lumen lets a play through when its file is in the list. Each
+  TV finds the list through the skin string `cinemathequekidsfiles`. The
+  app writes that string with the TV's own path to the list, the same way
+  and at the same times as the kids PIN. The
   app rewrites the list when the kids' titles change (with the tag) and
   when a TV's path to the media folder changes. With no kids profile, or
   no TV path, it writes nothing.
