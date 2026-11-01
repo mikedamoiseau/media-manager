@@ -28,7 +28,7 @@ import type { Settings } from './db.ts';
 import { TvError, addTv, editTv, removeTv, publicTvs, handoffTv, type TvInput } from './tvs.ts';
 import type { MediaType } from './scanner.ts';
 import { ProfileError, listProfiles, addProfile, editProfile, removeProfile, profileOf, type ProfileInput } from './profiles.ts';
-import { KidsError, setParentsCode, checkParentsCode, kidsProfile, kidsProfiles, allowedItems, itemKey, itemOverride, setItemOverride, kidsRoute, KIDS_REMOTE, NOT_FOR_KIDS, type Override } from './kids.ts';
+import { KidsError, checkParentsCode, kidsProfile, kidsProfiles, allowedItems, itemKey, itemOverride, setItemOverride, kidsRoute, KIDS_REMOTE, NOT_FOR_KIDS, type Override } from './kids.ts';
 import { PlayError, playItem } from './playItem.ts';
 import { upNextRoutes } from './upnextApi.ts';
 import { yearRoutes } from './yearApi.ts';
@@ -741,7 +741,13 @@ export function createApi(svc: Service): Hono {
   /** The household's code to leave kids mode; set again without the old one (from a device not in kids mode). */
   api.put('/kids/code', async (c) => {
     const { code } = (await c.req.json().catch(() => ({}))) as { code?: unknown };
-    return saveProfiles(c, () => setParentsCode(db, String(code ?? '')));
+    let told: Promise<string[]> | undefined;
+    const saved = saveProfiles(c, () => (told = svc.setParentsCode(String(code ?? ''))));
+    if (!told) return saved;
+    // Answered once the connected TVs have it as their kids PIN, saying which didn't take it (tried again soon);
+    // one that is off gets it when it connects.
+    const notOnTvs = await told;
+    return notOnTvs.length ? c.json({ profiles: listProfiles(db), notOnTvs }) : saved;
   });
 
   /** Leaving kids mode: the device asks before it switches profile. */

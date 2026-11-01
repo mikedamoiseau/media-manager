@@ -104,6 +104,20 @@ kids view of the TV that shows only their titles.
 - The kids view on the TV (its home built from the tag, and the code to
   leave it) belongs to the Lumen skin, built in the Kodi skin session.
   The app's side is only the tag.
+- Added with the owner on 2026-11-01: one code. The parents' code is also
+  Lumen's kids PIN on the TVs (the skin string `lumen.pin`, asked on the
+  TV's number pad to leave the kids view). The app writes it on each
+  connected TV when it is set. When a TV connects, the app reads it and
+  writes it back if it differs: Kodi keeps a skin setting set this way only
+  until it saves them, so a box Android killed has lost it. It checks
+  again at each play on the TV (a skin reloaded by a Lumen update went
+  back to what it had saved), and retries a write that failed at its next
+  look. Setting the code says which connected TV didn't take it. For that the
+  app keeps the code itself (key `lumenPin`, never sent to a phone) next to
+  its hash. A code set before then is on the TVs once it is set again.
+  The owner chose this knowing it is less safe: Kodi keeps the PIN in
+  clear, and its JSON-RPC lets any device on the network read it. Lumen's
+  own "set PIN" on the TV gives way to the app's (the Kodi session's side).
 - Added with the owner on 2026-10-26: Lumen keeps the skin setting
   `CinemathequeKids` on while a TV shows its kids view. A play started on
   that TV then belongs to the kids profile (the first one made, if there

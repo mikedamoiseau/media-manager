@@ -14,6 +14,22 @@ const isKidsTag = (t: string) => t.toLowerCase() === KIDS_TAG.toLowerCase();
 /** The skin setting Lumen keeps on while a TV shows its kids view (agreed with the Kodi skin session). */
 export const KIDS_VIEW = 'CinemathequeKids';
 
+/** Lumen's kids PIN, asked to leave the kids view with the TV remote: a skin string, digits. */
+export const LUMEN_PIN = 'lumen.pin';
+
+/**
+ * Puts the parents' code as the TV's kids PIN, unless it is already: Kodi keeps a skin setting set this way only
+ * until it saves them (a clean exit), so a TV may have lost it or another. True when written.
+ */
+export async function syncLumenPin(cfg: KodiConfig, code: string): Promise<boolean> {
+  const label = `Skin.String(${LUMEN_PIN})`;
+  const now = await kodiCall<Record<string, string>>(cfg, 'XBMC.GetInfoLabels', { labels: [label] });
+  if (now[label] === code) return false;
+  // A string: Kodi refuses a number for a skin string.
+  await kodiCall(cfg, 'Settings.SetSkinSettingValue', { setting: LUMEN_PIN, value: code });
+  return true;
+}
+
 /**
  * The kids profile watching on a TV in its kids view (the first one made, when there are several); none when
  * it isn't in it or doesn't answer. Kodi isn't asked without a kids profile.

@@ -8,9 +8,9 @@ import { reconcile, applySheetHints, syncSheetOnlyItems, importSheetRows } from 
 import { fetchSheet } from './sheet.ts';
 import { type KodiConfig, KodiError, kodiCall, discoverKodi, detectPathPrefix, libraryPathPrefix, remote } from './kodi.ts';
 import { listProfiles, type Profile } from './profiles.ts';
-import { hasParentsCode, kidsProfile, kidsProfiles, bedtimeStop, isBedtime, allowedItems, type KidsProfile } from './kids.ts';
+import { hasParentsCode, kidsProfile, kidsProfiles, bedtimeStop, isBedtime, allowedItems, parentsCodeForTvs, setParentsCode as storeParentsCode, type KidsProfile } from './kids.ts';
 import { holdsNext, entryName, nextLabel, tellSkin, type KidOnTv } from './holdNext.ts';
-import { syncKidsTag, kidsViewProfile } from './kidsTag.ts';
+import { syncKidsTag, kidsViewProfile, syncLumenPin } from './kidsTag.ts';
 import { syncAgeRatings } from './kodiRatings.ts';
 import { syncFromKodi, matchPending, enrichTitles } from './metadata.ts';
 import { Tmdb } from './tmdb.ts';
@@ -113,6 +113,8 @@ export class Service extends EventEmitter {
   /** The last error each TV gave, noted once. */
   private skinErrors = new Map<string, string>();
   private skinTurn: Promise<void> = Promise.resolve();
+  private pinTurn: Promise<void> = Promise.resolve();
+  private pinErrors = new Map<string, string>();
   /** TVs whose events connection is up. */
   private liveTvs = new Set<string>();
   /** What each TV plays now, in the play log: when it started and how long it was paused. */
@@ -247,6 +249,7 @@ export class Service extends EventEmitter {
     // A skin reloaded since (a Lumen update) went back to what it had saved: told again, long before an end needs it.
     this.tellAgain.add(tvId);
     void this.syncHoldNext();
+    void this.syncLumenPins([tvId]);
     const tv = this.tvs().find((t) => t.id === tvId);
     // A TV in its kids view: what starts there is the kid's.
     const kid = tv && (await kidsViewProfile(this.db, tv));
@@ -345,6 +348,8 @@ export class Service extends EventEmitter {
     if (stop.length || lapsed.length || stale.length) this.tvsChanged();
     // A kid's bedtime comes with the clock.
     await this.syncHoldNext(now);
+    // A kids PIN that didn't get through is tried again (only there: a TV may hold a PIN put there for a test).
+    if (this.pinErrors.size) await this.syncLumenPins([...this.pinErrors.keys()]);
   }
 
   /** What plays on the TV was paused or goes on: the pause doesn't count in its minutes. */
@@ -388,6 +393,52 @@ export class Service extends EventEmitter {
   kodiConnected(tvId: string): void {
     this.liveTvs.add(tvId);
     this.tellAgain.add(tvId);
+    // Kodi may have lost the kids PIN since (killed before it saved), or have another.
+    void this.syncLumenPins();
+  }
+
+  /**
+   * The household's code to leave kids mode, in the app and as the TVs' kids PIN (Lumen's): one code. Answers
+   * the connected TVs that didn't take it (tried again at the next look).
+   */
+  setParentsCode(code: string): Promise<string[]> {
+    storeParentsCode(this.db, code);
+    return this.syncLumenPins();
+  }
+
+  /**
+   * Each connected TV's kids PIN made the parents' code (`only`: these TVs). One round at a time; a TV that is
+   * off gets it when it connects.
+   */
+  syncLumenPins(only?: string[]): Promise<string[]> {
+    const round = this.pinTurn.then(() => this.tellPins(only));
+    this.pinTurn = round.then(
+      () => undefined,
+      (err: Error) => console.warn(`Kids PIN not told: ${err.message}`),
+    );
+    return round.catch(() => []);
+  }
+
+  /** The connected TVs that didn't take the code, by name. */
+  private async tellPins(only?: string[]): Promise<string[]> {
+    // A TV gone or off is told again when it connects.
+    for (const id of this.pinErrors.keys()) if (!this.liveTvs.has(id)) this.pinErrors.delete(id);
+    const code = parentsCodeForTvs(this.db);
+    if (!code) return [];
+    const missed: string[] = [];
+    for (const tv of this.tvs().filter((t) => this.liveTvs.has(t.id) && (!only || only.includes(t.id)))) {
+      try {
+        await syncLumenPin(tv, code);
+        this.pinErrors.delete(tv.id);
+      } catch (err) {
+        missed.push(tv.name);
+        // A skin without Lumen's PIN refuses: said once, tried again at the next connection.
+        const message = (err as Error).message;
+        if (this.pinErrors.get(tv.id) !== message) console.warn(`Kids PIN on ${tv.name} not set: ${message}`);
+        this.pinErrors.set(tv.id, message);
+      }
+    }
+    return missed;
   }
 
   /**

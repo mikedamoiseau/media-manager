@@ -327,7 +327,7 @@ function CodeInputs({ value, onChange }: { value: NewCode; onChange: (v: NewCode
   return (
     <>
       <label>
-        <span>Parents' code (4 digits, to leave kids mode)</span>
+        <span>Parents' code (4 digits, to leave kids mode, here and on the TVs)</span>
         <input className="code-input" inputMode="numeric" autoComplete="off" value={value.code} onChange={(e) => onChange({ ...value, code: digits(e.target.value) })} />
       </label>
       <label>
@@ -340,8 +340,10 @@ function CodeInputs({ value, onChange }: { value: NewCode; onChange: (v: NewCode
 
 async function saveCode({ code, again }: NewCode): Promise<void> {
   if (code !== again) throw new Error("The two codes aren't the same");
-  const { profiles } = await api.put<{ profiles: Profile[] }>('/api/kids/code', { code });
+  const { profiles, notOnTvs } = await api.put<{ profiles: Profile[]; notOnTvs?: string[] }>('/api/kids/code', { code });
   status.set((s) => (s ? { ...s, profiles, kidsCode: true } : s));
+  // Saved; a TV that didn't take it keeps its old kids PIN until the app gets through (it tries again).
+  if (notOnTvs?.length) toast(`Saved, but ${notOnTvs.join(' and ')} still asks for the old code for now`, 'error');
 }
 
 /** Settings: a new parents' code (also the way out when it's forgotten). */

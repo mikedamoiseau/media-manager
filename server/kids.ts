@@ -173,14 +173,31 @@ export function bedtimeStop(kid: { bedtime: string | null } | null, chained: boo
 
 // In the settings table but not among the app's settings (never sent to a phone): a salted hash.
 const CODE_KEY = 'parentsCode';
+// The same code as the TVs' kids PIN (Lumen's), which Kodi keeps in clear: one code, the owner's call (2026-11-01).
+const TV_CODE_KEY = 'lumenPin';
 const hashed = (salt: string, code: string) => createHash('sha256').update(`${salt}:${code}`).digest('hex');
 
 /** The household's code to leave kids mode: 4 digits. Set again from any device not in kids mode. */
 export function setParentsCode(db: DB, code: string): void {
   if (!/^\d{4}$/.test(code)) throw new KidsError('The code is 4 digits');
   const salt = randomBytes(8).toString('hex');
-  db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
-    .run(CODE_KEY, JSON.stringify({ salt, hash: hashed(salt, code) }));
+  const save = db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value');
+  // Both or neither: a hash saved without the TVs' copy would let the TVs get the old code back.
+  db.exec('BEGIN');
+  try {
+    save.run(CODE_KEY, JSON.stringify({ salt, hash: hashed(salt, code) }));
+    save.run(TV_CODE_KEY, JSON.stringify(code));
+    db.exec('COMMIT');
+  } catch (e) {
+    db.exec('ROLLBACK');
+    throw e;
+  }
+}
+
+/** The code for the TVs' kids PIN; none before it was set again since the app keeps it (only its hash before). */
+export function parentsCodeForTvs(db: DB): string | null {
+  const r = db.prepare('SELECT value FROM settings WHERE key = ?').get(TV_CODE_KEY) as { value: string } | undefined;
+  return r ? (JSON.parse(r.value) as string) : null;
 }
 
 export function hasParentsCode(db: DB): boolean {
