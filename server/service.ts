@@ -27,6 +27,9 @@ import { refreshCatalog, refreshGuides, checkStreams, writeChannelFile, channelF
 export const NEXT_PAUSE = 1000;
 /** How often the sleep timers are looked at (the clock, not one long timer: right after the Mac slept). */
 const SLEEP_CHECK = 15_000;
+// In the settings table but not among the app's settings: new files on the NAS Kodi hasn't been asked to scan yet,
+// counted up each time more are found (a request clears only the files it was sent for).
+const KODI_SCAN_OWED = 'kodiScanOwed';
 
 export interface TaskStatus {
   running: boolean;
@@ -114,6 +117,7 @@ export class Service extends EventEmitter {
   private skinErrors = new Map<string, string>();
   private skinTurn: Promise<void> = Promise.resolve();
   private skinStringTurn: Promise<void> = Promise.resolve();
+  private kodiScanTurn: Promise<void> = Promise.resolve();
   /** What a TV refused, by `<tv id> <skin string>`. */
   private skinStringErrors = new Map<string, string>();
   /** TVs whose events connection is up. */
@@ -398,6 +402,8 @@ export class Service extends EventEmitter {
     this.tellAgain.add(tvId);
     // Kodi may have lost the kids PIN and the list's place since (killed before it saved), or have others.
     void this.syncSkinStrings((id) => id === tvId);
+    // New files found while every TV was off.
+    void this.askKodiToScan([tvId]);
   }
 
   /**
@@ -674,15 +680,35 @@ export class Service extends EventEmitter {
 
   /** New files: ask Kodi to pick them up too (it scrapes them into its own library), then re-sync from it later. */
   private async onNewFiles(): Promise<void> {
-    const cfg = this.kodiConfig();
-    if (!cfg) return;
-    try {
-      await kodiCall(cfg, 'VideoLibrary.Scan', { showdialogs: false });
-      clearTimeout(this.kodiResyncTimer);
-      this.kodiResyncTimer = setTimeout(() => void this.metadata(), 3 * 60_000);
-    } catch (e) {
-      console.warn(`Kodi library scan request failed: ${(e as Error).message}`);
-    }
+    this.db.prepare("INSERT INTO settings (key, value) VALUES (?, '1') ON CONFLICT(key) DO UPDATE SET value = value + 1").run(KODI_SCAN_OWED);
+    await this.askKodiToScan(this.tvs().map((t) => t.id));
+  }
+
+  /**
+   * Asks the first of these TVs that answers to scan Kodi's library for the new files, unless one already has:
+   * the TVs share one library. Kept until one does, even when the app restarts, so a TV that was off is asked
+   * when it connects. One request at a time: two TVs never scan the shared library at once.
+   */
+  askKodiToScan(tvIds: string[]): Promise<void> {
+    const turn = this.kodiScanTurn.then(async () => {
+      const owed = this.db.prepare('SELECT value FROM settings WHERE key = ?').get(KODI_SCAN_OWED) as { value: string } | undefined;
+      if (!owed) return;
+      for (const tv of tvIds.map((id) => this.tvs().find((t) => t.id === id)).filter((t) => t !== undefined)) {
+        try {
+          await kodiCall(tv, 'VideoLibrary.Scan', { showdialogs: false });
+        } catch (e) {
+          console.warn(`Kodi library scan request to ${tv.name} failed: ${(e as Error).message}`);
+          continue;
+        }
+        // More found meanwhile: asked for at their own turn.
+        this.db.prepare('DELETE FROM settings WHERE key = ? AND value = ?').run(KODI_SCAN_OWED, owed.value);
+        clearTimeout(this.kodiResyncTimer);
+        this.kodiResyncTimer = setTimeout(() => void this.metadata(), 3 * 60_000);
+        return;
+      }
+    });
+    this.kodiScanTurn = turn.catch(() => {});
+    return turn;
   }
 
   async importSheet(): Promise<void> {

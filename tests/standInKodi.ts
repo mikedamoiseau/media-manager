@@ -4,7 +4,8 @@ import type { AddressInfo } from 'node:net';
 /**
  * A stand-in Kodi: answers what Play and Stop ask, and keeps every call. `answers`: other methods' results;
  * `refused`: items Player.Open fails for, as Kodi does for a file it can't open; `invalid`: methods Kodi answers
- * "Invalid params" (a skin setting the skin doesn't have); `down.now`: every call fails, as on a network hiccup.
+ * "Invalid params" (a skin setting the skin doesn't have); `down.now`: every call fails, as on a network hiccup;
+ * `hold.until`: calls are kept, and answered once it settles (a TV slow to answer).
  */
 export async function standInKodi() {
   const calls: Array<{ method: string; params: Record<string, unknown> }> = [];
@@ -13,13 +14,15 @@ export async function standInKodi() {
   const refused: unknown[] = [];
   const invalid = new Set<string>();
   const down = { now: false };
+  const hold: { until?: Promise<void> } = {};
   const server = createServer((req, res) => {
     if (down.now) return void req.socket.destroy();
     let body = '';
     req.on('data', (d) => (body += d));
-    req.on('end', () => {
+    req.on('end', async () => {
       const m = JSON.parse(body) as { id: number; method: string; params: Record<string, unknown> };
       calls.push({ method: m.method, params: m.params });
+      await hold.until;
       const refuse = m.method === 'Player.Open' && refused.some((r) => JSON.stringify(r) === JSON.stringify(m.params.item));
       const result = m.method === 'Player.GetActivePlayers' ? players : m.method in answers ? answers[m.method] : 'OK';
       const error = refuse ? { code: -32100, message: 'Failed to execute method.' } : invalid.has(m.method) ? { code: -32602, message: 'Invalid params.' } : null;
@@ -30,5 +33,5 @@ export async function standInKodi() {
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
   const port = (server.address() as AddressInfo).port;
   const opened = () => calls.filter((c) => c.method === 'Player.Open').map((c) => c.params.item);
-  return { calls, players, answers, refused, invalid, down, server, port, opened };
+  return { calls, players, answers, refused, invalid, down, hold, server, port, opened };
 }
