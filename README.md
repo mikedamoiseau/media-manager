@@ -51,7 +51,7 @@ The app never writes to the media folders or to the Google Sheet.
 
 ## Requirements
 
-- **macOS.** The background service is a LaunchAgent, and a few fallbacks are macOS-specific. The server itself is plain Node and should run elsewhere, untested.
+- **macOS, or Home Assistant as an add-on** (see [Home Assistant add-on](#home-assistant-add-on)). On a Mac, the background service is a LaunchAgent, and a few fallbacks are macOS-specific.
 - **Node 24 or later.** The server runs TypeScript directly, with no build step. Developed on Node 25.
 - **The media share mounted on the Mac**, by default at `/Volumes/video/MEDIA`.
 - **A TMDB API key**, free at [themoviedb.org](https://www.themoviedb.org/settings/api).
@@ -77,6 +77,18 @@ scripts/service.sh install     # also: uninstall | restart | status
 On the iPhone, open `http://<mac-ip>:8642` in Safari, then Share → *Add to Home Screen*. It opens full screen. The server prints its LAN address when it starts (`data/logs/server.log` when it runs as a service).
 
 `PORT` and `MM_DATA_DIR` change the port (default 8642) and the data folder (default `./data`).
+
+### Home Assistant add-on
+
+This repository is also a Home Assistant add-on repository (`repository.yaml`, add-on in `addon/`). The image is built for amd64 by GitHub Actions and published to GHCR when the `version` in `addon/config.yaml` changes, so Home Assistant pulls it instead of building it. GHCR makes a new package private: after the first build, set *media-manager-addon* to public in the package's settings on GitHub (once), or Home Assistant can't pull it.
+
+1. In Home Assistant, *Settings → System → Storage → Add network storage*: mount the media share with usage *Media*, read-only. If the app should write the live-TV list, mount the folder that holds it as a second, read-write share. They appear under `/media/<name>`.
+2. *Settings → Add-ons → Add-on store → ⋮ → Repositories*: add this repository's URL, then install *Cinémathèque*.
+3. In the app's Settings, set the media folder and the live-TV file to their `/media/<name>/...` paths.
+
+The add-on uses the host network (Bonjour, port 8642 for phones, the TVs' live channels through the app). Its data is in the add-on's `/data`, which Home Assistant backs up with the add-on stopped. The image caches (`img`, `thumbs`) are left out.
+
+To move an existing library over: copy a `sqlite3 data/media.db ".backup ..."` copy as `media.db`, and the `posters` folder, into `/share/cinematheque` before the add-on's first start. It takes them from there when its `/data` has no library yet.
 
 ## First-time setup
 

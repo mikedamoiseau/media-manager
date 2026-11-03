@@ -1,0 +1,49 @@
+# Publishes the Home Assistant add-on's image when addon/config.yaml changes (a new `version`), after the tests.
+name: Home Assistant add-on
+
+on:
+  push:
+    branches: [main]
+    paths: [addon/config.yaml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26
+      # The image tests convert with ffmpeg off a Mac.
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+
+  image:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - id: addon
+        run: |
+          echo "version=$(sed -n 's/^version: *"\([^"]*\)".*/\1/p' addon/config.yaml)" >> "$GITHUB_OUTPUT"
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          build-args: VERSION=${{ steps.addon.outputs.version }}
+          tags: ghcr.io/mikedamoiseau/media-manager-addon:${{ steps.addon.outputs.version }}

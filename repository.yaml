@@ -1,0 +1,3 @@
+# Lets Home Assistant use this repository as an add-on repository (the add-on is in addon/).
+name: Cinémathèque
+url: https://github.com/mikedamoiseau/media-manager

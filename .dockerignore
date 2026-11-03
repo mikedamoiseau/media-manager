@@ -1,0 +1,13 @@
+# Never in the image: the library, the keys and the logs live in data/.
+data
+*.db
+*.db-shm
+*.db-wal
+.env
+.env.*
+node_modules
+web/dist
+.git
+.github
+docs
+tests

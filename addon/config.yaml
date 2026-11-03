@@ -1,0 +1,27 @@
+# Home Assistant add-on. The image is built on GitHub (.github/workflows/addon.yml) when `version` changes,
+# so Home Assistant pulls it instead of building it, and backups don't carry it.
+name: Cinémathèque
+version: "0.1.0"
+slug: cinematheque
+description: The films and series on the NAS, for the phone and the Kodi TVs.
+url: https://github.com/mikedamoiseau/media-manager
+arch:
+  - amd64
+image: ghcr.io/mikedamoiseau/media-manager-addon
+startup: application
+boot: auto
+# The LAN as is: Kodi found by Bonjour, phones on port 8642, the TVs' live channels through the app.
+# On the host network there is no port mapping: [PORT:8642] stays 8642.
+host_network: true
+webui: http://[HOST]:[PORT:8642]
+# media: the NAS shares Home Assistant mounts (MEDIA read-only, IPTV read-write: set on each share).
+# share (read-only): a library brought over, read once on the first start (see run.sh).
+map:
+  - media:rw
+  - share
+# Stopped for the backup: the SQLite library is then closed and whole.
+backup: cold
+# Caches the app fetches again.
+backup_exclude:
+  - img
+  - thumbs

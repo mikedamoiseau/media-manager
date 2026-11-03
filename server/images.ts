@@ -60,9 +60,9 @@ export function cachedImage(dir: string, url: string, width: number): Promise<st
     await writeFile(tmp, Buffer.from(await res.arrayBuffer()));
     if (sized) await rename(tmp, file);
     else {
-      // Non-TMDB art (fanart.tv posters are ~1000px): downscale with macOS sips.
+      // Non-TMDB art (fanart.tv posters are ~1000px): downscale.
       try {
-        await run('/usr/bin/sips', ['-s', 'format', 'jpeg', '-s', 'formatOptions', '80', '--resampleWidth', String(width), tmp, '--out', file], { timeout: 30000 });
+        await toJpeg(tmp, file, { width }, 80);
       } finally {
         await unlink(tmp).catch(() => {});
       }
@@ -73,14 +73,14 @@ export function cachedImage(dir: string, url: string, width: number): Promise<st
   return p;
 }
 
-/** Store an uploaded image as a poster (normalized to JPEG, max 780px wide). */
+/** Store an uploaded image as a poster (normalized to JPEG, at most 1170px on its longer side). */
 export async function storeUpload(dir: string, name: string, data: Uint8Array): Promise<string> {
   mkdirSync(dir, { recursive: true });
   const tmp = join(dir, `${name}.upload`);
   const out = join(dir, `${name}.jpg`);
   await writeFile(tmp, data);
   try {
-    await run('/usr/bin/sips', ['-s', 'format', 'jpeg', '-s', 'formatOptions', '85', '-Z', '1170', tmp, '--out', out], { timeout: 30000 });
+    await toJpeg(tmp, out, { max: 1170 }, 85);
   } finally {
     await unlink(tmp).catch(() => {});
   }
@@ -89,6 +89,23 @@ export async function storeUpload(dir: string, name: string, data: Uint8Array): 
 
 const ffmpegBin = ['/opt/homebrew/bin/ffmpeg', '/usr/local/bin/ffmpeg'].find(existsSync) ?? 'ffmpeg';
 const ffprobeBin = ['/opt/homebrew/bin/ffprobe', '/usr/local/bin/ffprobe'].find(existsSync) ?? 'ffprobe';
+
+/**
+ * An image as a JPEG, `width` px wide or at most `max` px on its longer side: with macOS's sips on a Mac,
+ * else with ffmpeg (the Home Assistant add-on). `quality`: sips' 0–100.
+ */
+function toJpeg(src: string, out: string, size: { width: number } | { max: number }, quality: number): Promise<unknown> {
+  if (process.platform === 'darwin') {
+    const fit = 'width' in size ? ['--resampleWidth', String(size.width)] : ['-Z', String(size.max)];
+    return run('/usr/bin/sips', ['-s', 'format', 'jpeg', '-s', 'formatOptions', String(quality), ...fit, src, '--out', out], { timeout: 30000 });
+  }
+  const scale = 'width' in size
+    ? `scale=${size.width}:-2`
+    : `scale='min(${size.max},iw)':'min(${size.max},ih)':force_original_aspect_ratio=decrease`;
+  // ffmpeg's JPEG quality runs 2 (best) to 31: about sips' 85 at 3.
+  const q = String(Math.round(2 + ((100 - quality) / 100) * 8));
+  return run(ffmpegBin, ['-v', 'error', '-i', src, '-vf', scale, '-q:v', q, '-frames:v', '1', '-update', '1', '-y', out], { timeout: 30000 });
+}
 
 /** Grab a frame ~15% into a video as a thumbnail (Kodi-style "thumb" for files with no artwork). */
 export function videoThumb(dir: string, key: string, videoPath: string): Promise<string> {
