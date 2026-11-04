@@ -3,7 +3,7 @@
 # over from another machine is taken from the first of these folders that has one: media.db (a `sqlite3 .backup`
 # copy) and the posters/ folder; img/ and thumbs/ are optional, the app fetches them again.
 set -e
-for from in /share/cinematheque /media/nas_iptv/cinematheque_import; do
+for from in /share/cinematheque /media/nas_video/IPTV/cinematheque_import; do
   if [ ! -f /data/media.db ] && [ -f "$from/media.db" ]; then
     echo "First start: taking the library from $from"
     # Copied aside first, and media.db moved in last: if the copy breaks off, the next start tries again.

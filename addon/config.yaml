@@ -1,7 +1,7 @@
 # Home Assistant add-on. The image is built on GitHub (.github/workflows/addon.yml) when `version` changes,
 # so Home Assistant pulls it instead of building it, and backups don't carry it.
 name: Cinémathèque
-version: "0.1.0"
+version: "0.1.1"
 slug: cinematheque
 description: The films and series on the NAS, for the phone and the Kodi TVs.
 url: https://github.com/mikedamoiseau/media-manager

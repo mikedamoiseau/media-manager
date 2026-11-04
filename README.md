@@ -80,9 +80,10 @@ On the iPhone, open `http://<mac-ip>:8642` in Safari, then Share → *Add to Hom
 
 ### Home Assistant add-on
 
-This repository is also a Home Assistant add-on repository (`repository.yaml`, add-on in `addon/`). The image is built for amd64 by GitHub Actions and published to GHCR when the `version` in `addon/config.yaml` changes, so Home Assistant pulls it instead of building it. GHCR makes a new package private: after the first build, set *media-manager-addon* to public in the package's settings on GitHub (once), or Home Assistant can't pull it.
+This repository is also a Home Assistant add-on repository (`repository.yaml`, add-on in `addon/`). The image is built for amd64 by GitHub Actions and published to GHCR when the `version` in `addon/config.yaml` changes, so Home Assistant pulls it instead of building it. The package takes the repository's visibility: Home Assistant can pull it from a public repository.
 
-1. In Home Assistant, *Settings → System → Storage → Add network storage*: mount the media share with usage *Media*, read-only. If the app should write the live-TV list, mount the folder that holds it as a second, read-write share. They appear under `/media/<name>`.
+1. In Home Assistant, *Settings → System → Storage → Add network storage*: mount the NAS share that holds the media folder, with usage *Media*. It appears under `/media/<name>`. Home Assistant has no read-only option for network storage: give the mount's NAS account read-only rights, plus write rights on the live-TV list's folder if the app should write it.
+   - The media folder and the live-TV list's folder must come through this one mount. The TVs are told where the guide and the kids' list are from where they reach the media folder: two mounts give them a wrong path.
 2. *Settings → Add-ons → Add-on store → ⋮ → Repositories*: add this repository's URL, then install *Cinémathèque*.
 3. In the app's Settings, set the media folder and the live-TV file to their `/media/<name>/...` paths.
 
