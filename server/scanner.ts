@@ -1,3 +1,4 @@
+import { existsSync, readdirSync } from 'node:fs';
 import { readdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { isVideo, extOf, PARTIAL_EXT, parseName, seasonFromDir } from './parse.ts';
@@ -141,8 +142,8 @@ export async function scanMediaRoot(root: string, opts: ScanOptions = {}): Promi
   const toStat: Array<{ item: ScannedItem; file?: ScannedFile }> = [];
   for (const item of items) {
     if (!item.isDir) {
-      if (!opts.known?.has(item.path)) toStat.push({ item });
-    } else for (const f of item.files) if (!opts.known?.has(f.path)) toStat.push({ item, file: f });
+      if (!opts.known?.has(nfc(item.path))) toStat.push({ item });
+    } else for (const f of item.files) if (!opts.known?.has(nfc(f.path))) toStat.push({ item, file: f });
   }
   if (toStat.length) opts.onProgress?.(`Reading ${toStat.length} new files`);
   await pool(toStat, 16, async ({ item, file }) => {
@@ -156,5 +157,61 @@ export async function scanMediaRoot(root: string, opts: ScanOptions = {}): Promi
       item.mtime = s.mtime;
     }
   });
-  return items;
+  // Read through the names as listed; known by one form of them.
+  return composed(items);
+}
+
+/**
+ * Scanned items with their paths in one form (see nfc). Two names that differ only in form (a disk that keeps
+ * both) are one entry: the first listed, so a scan never fails on them. Two such folders aren't merged: the
+ * second's files are left out (they couldn't be opened from the shared path either).
+ */
+export function composed(items: ScannedItem[]): ScannedItem[] {
+  const seen = new Set<string>();
+  const out: ScannedItem[] = [];
+  for (const item of items) {
+    item.path = nfc(item.path);
+    if (seen.has(item.path)) continue;
+    seen.add(item.path);
+    item.folder = nfc(item.folder);
+    item.files = item.files.filter((f) => {
+      f.path = nfc(f.path);
+      if (seen.has(f.path)) return false;
+      seen.add(f.path);
+      return true;
+    });
+    out.push(item);
+  }
+  return out;
+}
+
+/**
+ * Paths are kept composed (NFC): macOS lists a NAS's names decomposed, Linux (the Home Assistant add-on) as the
+ * NAS stores them, mostly composed. One form, so a library moved between them still knows its files.
+ */
+export const nfc = (p: string): string => p.normalize('NFC');
+
+/**
+ * A file of the library on disk, from its (NFC) path: as the NAS stores it, for one stored decomposed (each
+ * folder and file name in either form). Not there: the plain path.
+ */
+export function onDisk(root: string, rel: string): string {
+  const full = join(root, rel);
+  if (existsSync(full)) return full;
+  let at = root;
+  for (const name of rel.split('/')) {
+    if (existsSync(join(at, name))) {
+      at = join(at, name);
+      continue;
+    }
+    let listed: string | undefined;
+    try {
+      listed = readdirSync(at).find((n) => nfc(n) === nfc(name));
+    } catch {
+      /* not a folder, or gone */
+    }
+    if (listed === undefined) return full;
+    at = join(at, listed);
+  }
+  return at;
 }

@@ -9,7 +9,7 @@ import { libraryCards, libraryVersion, itemDetail, img, marks } from './views.ts
 import { peopleIndex, findPeople } from './people.ts';
 import { setParts, ownedSetKeys, staleSetKeys } from './sets.ts';
 import { duplicateFilms, incompleteSets } from './reports.ts';
-import { pool } from './scanner.ts';
+import { onDisk, pool } from './scanner.ts';
 import { parseRange, videoType, vlcPlaylist, kodiMedia, parseHandoff } from './media.ts';
 import { suggestions, recordActivity, rate } from './suggestions.ts';
 import { elsewhere, cinema, inCinemas, filmDetails, asFilm, getPick, setPick, wantedFilms, localDay } from './films.ts';
@@ -201,7 +201,7 @@ export function createApi(svc: Service): Hono {
       if (!ep) return c.body(null, 404);
       rel = ep.path;
     }
-    const full = join(svc.settings().mediaRoot, rel);
+    const full = onDisk(svc.settings().mediaRoot, rel);
     if (!existsSync(full)) return c.body(null, 404);
     try {
       return sendFile(await videoThumb(svc.imagesDir('thumbs'), `i${id}`, full), 86400 * 30);
@@ -321,7 +321,7 @@ export function createApi(svc: Service): Hono {
       }
     }
     if (!rel) return c.json({ error: 'File is not on the NAS' }, 404);
-    const file = join(svc.settings().mediaRoot, rel);
+    const file = onDisk(svc.settings().mediaRoot, rel);
     let size = 0;
     try {
       size = statSync(file).size;

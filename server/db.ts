@@ -426,7 +426,30 @@ export function openDb(file: string): DB {
       throw e;
     }
   }
+  composePaths(db);
   return db;
+}
+
+/**
+ * Files' paths in the form a scan gives them (NFC, see scanner.ts): a library from a Mac kept them decomposed.
+ * One whose composed path is taken already is left as it is (the next scan finds it gone).
+ */
+function composePaths(db: DB): void {
+  for (const [table, where] of [['items', "source = 'disk'"], ['episodes', '1']] as const) {
+    const rows = db.prepare(`SELECT id, path FROM ${table} WHERE ${where}`).all() as Array<{ id: number; path: string }>;
+    const decomposed = rows.filter((r) => r.path !== r.path.normalize('NFC'));
+    if (!decomposed.length) continue;
+    const taken = new Set(rows.map((r) => r.path));
+    const set = db.prepare(`UPDATE ${table} SET path = ? WHERE id = ?`);
+    tx(db, () => {
+      for (const r of decomposed) {
+        const p = r.path.normalize('NFC');
+        if (taken.has(p)) continue;
+        set.run(p, r.id);
+        taken.add(p);
+      }
+    });
+  }
 }
 
 export function tx<T>(db: DB, fn: () => T): T {
