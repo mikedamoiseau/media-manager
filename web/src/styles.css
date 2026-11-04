@@ -2916,11 +2916,27 @@ select option {
   color: var(--brume);
 }
 
-/* The categories: all, or one. */
+/* The categories: all, or one. More than fit on a phone: they scroll sideways, each at its width. */
 .live-lists {
   margin-top: 10px;
   max-width: 100%;
   overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.live-lists::-webkit-scrollbar {
+  display: none;
+}
+
+.live-lists button {
+  flex-shrink: 0;
+}
+
+/* Add channels: spaced as the sheet spaces its parts, and as tall as its buttons (32px + the 3px padding): the
+   sheet's grid would squeeze a row that scrolls to nothing. */
+.sheet-body .live-lists {
+  margin-top: 0;
+  min-height: 38px;
 }
 
 .live-scroll {

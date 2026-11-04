@@ -9,14 +9,34 @@ import { guideCandidates, guideXml, matchGuide, readXmltv, type GuideChannel, ty
 import { pool } from './scanner.ts';
 import { EXTRA_CHANNELS } from './extraChannels.ts';
 
-/** The channel lists the owner picks from, in this order: the first wins a channel both have. */
-export const LIVE_LISTS = [
-  { list: 'fr', url: 'https://iptv-org.github.io/iptv/countries/fr.m3u' },
-  { list: 'be', url: 'https://iptv-org.github.io/iptv/countries/be.m3u' },
+const IPTV_ORG = 'https://iptv-org.github.io/iptv';
+const FRENCH = `${IPTV_ORG}/languages/fra.m3u`;
+const ENGLISH = `${IPTV_ORG}/languages/eng.m3u`;
+
+/**
+ * The channel lists the owner picks from, in this order: the first wins a channel both have (the kids categories
+ * before the others, so a kids channel is in one). A list with a `group` keeps the channels of that iptv-org
+ * category from its addresses (iptv-org's French and English lists). `kids`: a channel picked from it is for kids.
+ */
+export const LIVE_LISTS: Array<{ list: string; urls: string[]; group?: string; kids?: true }> = [
+  { list: 'fr', urls: [`${IPTV_ORG}/countries/fr.m3u`] },
+  { list: 'be', urls: [`${IPTV_ORG}/countries/be.m3u`] },
+  { list: 'enfants', urls: [FRENCH], group: 'Kids', kids: true },
+  { list: 'kids', urls: [ENGLISH], group: 'Kids', kids: true },
+  { list: 'news', urls: [FRENCH, ENGLISH], group: 'News' },
+  { list: 'documentary', urls: [FRENCH, ENGLISH], group: 'Documentary' },
+  { list: 'music', urls: [FRENCH, ENGLISH], group: 'Music' },
 ];
 
-/** Each list's category, as the app and the TVs (a channel group in Kodi) name it; 'extra': EXTRA_CHANNELS. */
-export const LIST_NAMES: Record<string, string> = { fr: 'France', be: 'Belgium', extra: 'Extra' };
+/**
+ * Each list's category, as the app and the TVs (a channel group in Kodi) name it, in the TVs' order; 'extra':
+ * EXTRA_CHANNELS. 'kids' shares its name with the TVs' Kids group (KIDS_GROUP): its channels are for kids.
+ */
+export const LIST_NAMES: Record<string, string> = {
+  fr: 'France', be: 'Belgium', extra: 'Extra', news: 'News', documentary: 'Documentary', enfants: 'Enfants', kids: 'Kids', music: 'Music',
+};
+
+const KIDS_LISTS = new Set(LIVE_LISTS.filter((l) => l.kids).map((l) => l.list));
 
 /** A change to the live TV channels that can't be made as asked: the message says why. */
 export class LiveError extends Error {}
@@ -102,7 +122,10 @@ export function saveCatalog(db: DB, lists: Array<{ list: string; entries: M3uEnt
   });
 }
 
-/** The owner's channels, in this order within each category. Their guide picks, own stream addresses, logos and players stay. */
+/**
+ * The owner's channels, in this order within each category. Their guide picks, own stream addresses, logos, players
+ * and kids switches stay; one newly picked from a kids category (Enfants, Kids) is for kids.
+ */
 export function setPicks(db: DB, picks: string[]): void {
   if (new Set(picks).size !== picks.length) throw new LiveError('A channel is in the list twice');
   const listOf = db.prepare('SELECT list FROM live_catalog WHERE key = ?');
@@ -133,7 +156,7 @@ export function setPicks(db: DB, picks: string[]): void {
     const ins = db.prepare('INSERT INTO live_channels(key, position, guide, url, kids, logo, player) VALUES (?, ?, ?, ?, ?, ?, ?)');
     keys.forEach((k, i) => {
       const was = kept.get(k);
-      ins.run(k, i + 1, was?.guide ?? null, was?.url ?? null, was?.kids ?? 0, was?.logo ?? null, was?.player ?? null);
+      ins.run(k, i + 1, was?.guide ?? null, was?.url ?? null, was?.kids ?? (KIDS_LISTS.has(lists.get(k)!) ? 1 : 0), was?.logo ?? null, was?.player ?? null);
     });
   });
 }
@@ -206,8 +229,11 @@ export function channelFileText(db: DB, app: string | null = null, guide: string
   return buildM3u(pickedChannels(db).map((c) => ({
     entry: {
       ...c.entry,
-      // A kids channel is also in the Kids group (IPTV Simple reads groups apart at ';').
-      group: `${LIST_NAMES[c.list] ?? c.entry.group}${c.kids ? `;${KIDS_GROUP}` : ''}`,
+      // A kids channel is also in the Kids group (IPTV Simple reads groups apart at ';'), which holds nothing else:
+      // a channel of the Kids category the owner turned off for kids is in no group.
+      group: [LIST_NAMES[c.list] ?? c.entry.group, ...(c.kids ? [KIDS_GROUP] : [])]
+        .filter((g, i, all) => all.indexOf(g) === i && (g !== KIDS_GROUP || c.kids))
+        .join(';'),
       // Kodi's lines for the TVs only: VLC on the phone gets the entry without them.
       ...(c.player === 'ffmpegdirect' ? { opts: [...c.entry.opts, ...ffmpegDirect(c.entry.url)] } : {}),
       ...(app && viaApp(c.entry.url) ? { url: `${app}/api/livetv/${encodeURIComponent(c.entry.key)}/tv.m3u8` } : {}),
@@ -345,16 +371,17 @@ export function kidsChannelNamed(db: DB, name: string): boolean {
   return named(pickedChannels(db), name)?.kids === true;
 }
 
-/** Every channel the owner can pick, lists in their order, with where the owner put it and its guide. */
+/** Every channel the owner can pick, categories in their order, with where the owner put it and its guide. */
 export function liveCatalog(db: DB, sources: string[]): CatalogRow[] {
   const guide = resolver(db, sources);
   const rows = db.prepare(`SELECT c.*, p.position, p.guide, p.url AS own, p.logo AS own_logo, p.kids, p.player, c.seen_at >= COALESCE(l.refreshed_at, 0) AS listed
     FROM live_catalog c LEFT JOIN live_channels p ON p.key = c.key LEFT JOIN live_lists l ON l.list = c.list`).all() as Array<
     CatalogDbRow & { position: number | null; guide: string | null; own: string | null; own_logo: string | null; listed: number; kids: number | null; player: TvPlayer | null }
   >;
+  const lists = Object.keys(LIST_NAMES);
   const order = (list: string) => {
-    const i = LIVE_LISTS.findIndex((l) => l.list === list);
-    return i < 0 ? LIVE_LISTS.length : i;
+    const i = lists.indexOf(list);
+    return i < 0 ? lists.length : i;
   };
   rows.sort((a, b) => order(a.list) - order(b.list) || a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' }));
   return rows.map((r) => ({
@@ -459,22 +486,33 @@ export async function refreshCatalog(db: DB, fetchFn: typeof fetch, now: number)
   const out: Array<{ list: string; error?: string }> = [];
   const owned = db.prepare('SELECT key FROM live_catalog WHERE list = ?');
   const kept = new Set<string>();
-  for (const { list, url } of LIVE_LISTS) {
+  // Each address read once: iptv-org's French and English lists feed several categories.
+  const texts = new Map<string, Promise<string>>();
+  const text = (url: string) => {
+    if (!texts.has(url)) {
+      texts.set(url, (async () => {
+        const res = await fetchFn(url, { signal: AbortSignal.timeout(60_000) });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.text();
+      })());
+    }
+    return texts.get(url)!;
+  };
+  for (const { list, urls, group } of LIVE_LISTS) {
     try {
-      const res = await fetchFn(url, { signal: AbortSignal.timeout(60_000) });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const entries = parseM3u(await res.text());
-      if (!entries.length) throw new Error('no channel in the list');
-      got.push({ list, entries: entries.filter((e) => !kept.has(e.key)) });
+      const entries: M3uEntry[] = [];
+      for (const url of urls) entries.push(...parseM3u(await text(url)));
+      const mine = group ? entries.filter((e) => e.group.split(';').includes(group)) : entries;
+      if (!mine.length) throw new Error('no channel in the list');
+      got.push({ list, entries: mine.filter((e) => !kept.has(e.key)) });
       out.push({ list });
     } catch (e) {
       for (const r of owned.all(list) as Array<{ key: string }>) kept.add(r.key);
       out.push({ list, error: (e as Error).message });
     }
   }
-  // The Extra channels aren't downloaded: they're there every time, after the lists.
-  got.push({ list: 'extra', entries: EXTRA_CHANNELS.filter((e) => !kept.has(e.key)) });
-  saveCatalog(db, got, now);
+  // The Extra channels aren't downloaded: they're there every time, and first, so no list takes one over.
+  saveCatalog(db, [{ list: 'extra', entries: EXTRA_CHANNELS.filter((e) => !kept.has(e.key)) }, ...got], now);
   return out;
 }
 

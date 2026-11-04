@@ -191,8 +191,8 @@ const M3U = (...lines: string[]) => ['#EXTM3U', ...lines].join('\n');
 test('a list that fails to download leaves its channels as they were', async () => {
   const db = catalog();
   const { fn } = fakeFetch({
-    [LIVE_LISTS[0]!.url]: new Response('down', { status: 500 }),
-    [LIVE_LISTS[1]!.url]: new Response(M3U('#EXTINF:-1 tvg-id="BX1.be@SD" tvg-logo="" group-title="General",BX1 (720p)', 'http://new/bx1.m3u8', '#EXTINF:-1 tvg-id="LCI.fr@SD" tvg-logo="" group-title="News",LCI', 'http://be/lci2.m3u8')),
+    [LIVE_LISTS[0]!.urls[0]!]: new Response('down', { status: 500 }),
+    [LIVE_LISTS[1]!.urls[0]!]: new Response(M3U('#EXTINF:-1 tvg-id="BX1.be@SD" tvg-logo="" group-title="General",BX1 (720p)', 'http://new/bx1.m3u8', '#EXTINF:-1 tvg-id="LCI.fr@SD" tvg-logo="" group-title="News",LCI', 'http://be/lci2.m3u8')),
   });
   const res = await refreshCatalog(db, fn, at(5));
   assert.ok(res.find((r) => r.list === 'fr')!.error);
@@ -206,7 +206,7 @@ test('a list that fails to download leaves its channels as they were', async () 
 
 test('a list that downloads empty counts as failed', async () => {
   const db = catalog();
-  const { fn } = fakeFetch({ [LIVE_LISTS[0]!.url]: new Response('#EXTM3U\n'), [LIVE_LISTS[1]!.url]: new Response('') });
+  const { fn } = fakeFetch({ [LIVE_LISTS[0]!.urls[0]!]: new Response('#EXTM3U\n'), [LIVE_LISTS[1]!.urls[0]!]: new Response('') });
   const res = await refreshCatalog(db, fn, at(5));
   assert.ok(res.every((r) => r.error));
   assert.equal(liveCatalog(db, [X]).filter((r) => r.listed && r.list !== 'extra').length, 5);
@@ -260,7 +260,7 @@ test("the daily refresh leaves the NAS file alone until the owner has picked cha
   saveSettings(db, { liveFile: file, liveGuides: [X] });
   const svc = new Service(db, join(tmp, 'data'));
   const lists = M3U('#EXTINF:-1 tvg-id="TF1.fr@SD" tvg-logo="" group-title="General",TF1', 'http://s/tf1.m3u8');
-  const { fn } = fakeFetch({ [LIVE_LISTS[0]!.url]: new Response(lists), [LIVE_LISTS[1]!.url]: new Response(M3U('#EXTINF:-1 tvg-id="BX1.be@SD",BX1', 'http://s/bx1')), [X]: new Response(GUIDE) });
+  const { fn } = fakeFetch({ [LIVE_LISTS[0]!.urls[0]!]: new Response(lists), [LIVE_LISTS[1]!.urls[0]!]: new Response(M3U('#EXTINF:-1 tvg-id="BX1.be@SD",BX1', 'http://s/bx1')), [X]: new Response(GUIDE) });
   await svc.refreshLiveNow(fn);
   assert.equal(readFileSync(file, 'utf8'), '#EXTM3U\n#EXTINF:-1,Starter\nhttp://starter\n', 'no picks yet: the list the TVs use stays');
   assert.equal(svc.saveLivePicks(['TF1.fr@SD']), 'written');
@@ -282,8 +282,8 @@ test("Kodi's guide sits next to the list: written with the owner's channels, aga
     assert.match(readFileSync(guide, 'utf8'), /<channel id="TF1.fr@SD"><display-name>TF1<\/display-name>/);
     assert.doesNotMatch(readFileSync(guide, 'utf8'), /<programme/, 'no guide read yet');
     const { fn } = fakeFetch({
-      [LIVE_LISTS[0]!.url]: new Response(M3U('#EXTINF:-1 tvg-id="TF1.fr@SD" group-title="General",TF1', 'http://s/TF1.fr@SD.m3u8')),
-      [LIVE_LISTS[1]!.url]: new Response(M3U('#EXTINF:-1 tvg-id="BX1.be@SD",BX1', 'http://s/bx1')),
+      [LIVE_LISTS[0]!.urls[0]!]: new Response(M3U('#EXTINF:-1 tvg-id="TF1.fr@SD" group-title="General",TF1', 'http://s/TF1.fr@SD.m3u8')),
+      [LIVE_LISTS[1]!.urls[0]!]: new Response(M3U('#EXTINF:-1 tvg-id="BX1.be@SD",BX1', 'http://s/bx1')),
       [X]: new Response(GUIDE),
     });
     await svc.refreshLiveNow(fn);
@@ -376,8 +376,8 @@ test('a NAS file that cannot be written does not stop the lists, the guides or t
     setPicks(db, ['TF1.fr@SD']);
     const svc = new Service(db, join(tmp, 'data'));
     const { fn } = fakeFetch({
-      [LIVE_LISTS[0]!.url]: new Response(M3U('#EXTINF:-1 tvg-id="TF1.fr@SD" group-title="General",TF1', 'http://s/TF1.fr@SD.m3u8')),
-      [LIVE_LISTS[1]!.url]: new Response(M3U('#EXTINF:-1 tvg-id="BX1.be@SD",BX1', 'http://s/bx1')),
+      [LIVE_LISTS[0]!.urls[0]!]: new Response(M3U('#EXTINF:-1 tvg-id="TF1.fr@SD" group-title="General",TF1', 'http://s/TF1.fr@SD.m3u8')),
+      [LIVE_LISTS[1]!.urls[0]!]: new Response(M3U('#EXTINF:-1 tvg-id="BX1.be@SD",BX1', 'http://s/bx1')),
       [X]: new Response(GUIDE),
       'http://s/TF1.fr@SD.m3u8': new Response('#EXTM3U\n'),
     });
@@ -469,14 +469,98 @@ test("the app's address in the TVs' list: only one that every TV reaches", () =>
 
 test('the Extra channels: always offered after the lists, even when a list fails', async () => {
   const db = catalog();
-  const { fn } = fakeFetch({ [LIVE_LISTS[0]!.url]: new Response('down', { status: 500 }), [LIVE_LISTS[1]!.url]: new Response('down', { status: 500 }) });
+  const { fn } = fakeFetch({ [LIVE_LISTS[0]!.urls[0]!]: new Response('down', { status: 500 }), [LIVE_LISTS[1]!.urls[0]!]: new Response('down', { status: 500 }) });
   const res = await refreshCatalog(db, fn, at(5));
-  assert.deepEqual(res.map((r) => r.list), ['fr', 'be'], 'only the lists downloaded say how it went');
+  assert.deepEqual(res.map((r) => r.list), LIVE_LISTS.map((l) => l.list), 'only the lists downloaded say how it went');
   const rows = liveCatalog(db, [X]);
   const extra = rows.filter((r) => r.list === 'extra');
   assert.equal(extra.length, EXTRA_CHANNELS.length);
   assert.ok(extra.every((r) => r.listed));
-  assert.equal(rows.findIndex((r) => r.list === 'extra'), rows.length - extra.length, 'after the lists');
+  assert.equal(rows.findIndex((r) => r.list === 'extra'), rows.length - extra.length, 'after France and Belgium');
+});
+
+/** iptv-org's French and English lists, as the categories read from them. */
+const FRENCH = LIVE_LISTS.find((l) => l.list === 'enfants')!.urls[0]!;
+const ENGLISH = LIVE_LISTS.find((l) => l.list === 'kids')!.urls[0]!;
+const inf = (key: string, name: string, group: string) => [`#EXTINF:-1 tvg-id="${key}" tvg-logo="" group-title="${group}",${name} (720p)`, `http://s/${key}.m3u8`];
+
+test("the French and English channels of four categories: each language list read once, a channel in iptv-org's kids category in Enfants or Kids", async () => {
+  const db = catalog();
+  const i24 = EXTRA_CHANNELS.find((e) => e.name === 'i24NEWS')!;
+  const { fn, calls } = fakeFetch({
+    [LIVE_LISTS[0]!.urls[0]!]: new Response(M3U(...inf('TF1.fr@SD', 'TF1', 'General'))),
+    [LIVE_LISTS[1]!.urls[0]!]: new Response(M3U(...inf('BX1.be@SD', 'BX1', 'General'))),
+    [FRENCH]: new Response(M3U(
+      ...inf('TF1.fr@SD', 'TF1', 'General;News'),
+      ...inf('Cnews.fr@SD', 'Le Monde en 24h', 'News'),
+      ...inf('BobLeponge.fr@SD', "Bob l'eponge", 'Kids'),
+      ...inf('KidsSongs.fr@SD', 'Comptines', 'Kids;Music'),
+      ...inf('TraceIvoire.ci@SD', 'Trace Ivoire', 'Music'),
+      ...inf('Cuisine.fr@SD', 'Cuisine', 'Cooking'),
+      ...inf(i24.key, 'i24NEWS French', 'News'),
+    )),
+    [ENGLISH]: new Response(M3U(
+      ...inf('BBCNews.uk@SD', 'BBC News', 'News'),
+      ...inf('NatGeo.us@SD', 'Nat Geo', 'Documentary'),
+      ...inf('BabyFirst.us@SD', 'BabyFirst', 'Kids'),
+      ...inf('BobLeponge.fr@SD', 'SpongeBob', 'Kids'),
+      ...inf('Stingray.ca@SD', 'Stingray Classica', 'Music'),
+    )),
+  });
+  const res = await refreshCatalog(db, fn, at(5));
+  assert.ok(res.every((r) => !r.error), JSON.stringify(res));
+  assert.equal(calls.filter((c) => c.url === FRENCH).length, 1, 'one download for every category');
+  assert.equal(calls.filter((c) => c.url === ENGLISH).length, 1);
+  const listOf = new Map(liveCatalog(db, [X]).map((r) => [r.key, r.list]));
+  assert.equal(listOf.get('TF1.fr@SD'), 'fr', 'France keeps its channels');
+  assert.equal(listOf.get(i24.key), 'extra', 'and Extra its own');
+  assert.equal(listOf.get('Cnews.fr@SD'), 'news');
+  assert.equal(listOf.get('BBCNews.uk@SD'), 'news');
+  assert.equal(listOf.get('NatGeo.us@SD'), 'documentary');
+  assert.equal(listOf.get('BobLeponge.fr@SD'), 'enfants', 'French first');
+  assert.equal(listOf.get('KidsSongs.fr@SD'), 'enfants', 'a kids channel is in the kids category before any other');
+  assert.equal(listOf.get('BabyFirst.us@SD'), 'kids');
+  assert.equal(listOf.get('TraceIvoire.ci@SD'), 'music');
+  assert.equal(listOf.get('Stingray.ca@SD'), 'music');
+  assert.equal(listOf.has('Cuisine.fr@SD'), false, 'not one of the four categories');
+  assert.equal(liveCatalog(db, [X]).find((r) => r.key === i24.key)!.name, 'i24NEWS', "Extra's own entry");
+});
+
+test('a language list that fails leaves every category it feeds as it was', async () => {
+  const db = catalog();
+  saveCatalog(db, [{ list: 'news', entries: [entry('BBCNews.uk@SD', 'BBC News')] }, { list: 'enfants', entries: [entry('BobLeponge.fr@SD', "Bob l'eponge")] }], at(1));
+  const { fn } = fakeFetch({ [FRENCH]: new Response(M3U(...inf('BobLeponge.fr@SD', "Bob l'eponge", 'Kids'))), [ENGLISH]: new Response('down', { status: 500 }) });
+  const res = await refreshCatalog(db, fn, at(5));
+  assert.deepEqual(res.filter((r) => r.error).map((r) => r.list), ['fr', 'be', 'kids', 'news', 'documentary', 'music']);
+  const rows = liveCatalog(db, [X]);
+  const bbc = rows.find((r) => r.key === 'BBCNews.uk@SD')!;
+  assert.deepEqual([bbc.list, bbc.listed], ['news', true]);
+  assert.equal(rows.find((r) => r.key === 'BobLeponge.fr@SD')!.listed, true);
+});
+
+test('a channel picked from Enfants or Kids is for kids; the Kids group never holds one that is not', () => {
+  const db = catalog();
+  saveCatalog(db, [
+    { list: 'extra', entries: [entry('Pocoyo.extra', 'Pocoyo')] },
+    { list: 'news', entries: [entry('BBCNews.uk@SD', 'BBC News')] },
+    { list: 'enfants', entries: [entry('BobLeponge.fr@SD', "Bob l'eponge")] },
+    { list: 'kids', entries: [entry('BabyFirst.us@SD', 'BabyFirst')] },
+    { list: 'music', entries: [entry('Stingray.ca@SD', 'Stingray Classica')] },
+  ], at(1));
+  setPicks(db, ['Stingray.ca@SD', 'BabyFirst.us@SD', 'BobLeponge.fr@SD', 'BBCNews.uk@SD', 'Pocoyo.extra', 'TF1.fr@SD']);
+  assert.deepEqual(pickedChannels(db).map((c) => `${c.number} ${c.entry.key} ${c.kids}`), [
+    '1 TF1.fr@SD false', '2 Pocoyo.extra false', '3 BBCNews.uk@SD false', '4 BobLeponge.fr@SD true', '5 BabyFirst.us@SD true', '6 Stingray.ca@SD false',
+  ], 'Extra keeps its numbers, the new categories after it');
+  const text = channelFileText(db);
+  assert.match(text, /tvg-name="BBC News" tvg-logo="[^"]*" group-title="News"/);
+  assert.match(text, /tvg-name="Bob l'eponge" tvg-logo="[^"]*" group-title="Enfants;Kids"/);
+  assert.match(text, /tvg-name="BabyFirst" tvg-logo="[^"]*" group-title="Kids",/);
+  assert.match(text, /tvg-name="Stingray Classica" tvg-logo="[^"]*" group-title="Music"/);
+  setKids(db, 'BabyFirst.us@SD', false);
+  setPicks(db, ['TF1.fr@SD', 'BabyFirst.us@SD']);
+  assert.equal(pickedChannels(db).find((c) => c.entry.key === 'BabyFirst.us@SD')!.kids, false, 'turned off, it stays off');
+  assert.match(channelFileText(db), /tvg-name="BabyFirst" tvg-logo="[^"]*" group-title="",/, "in no group: Kids is the kids' group");
+  assert.deepEqual(liveCatalog(db, [X]).map((r) => r.list).filter((l, i, all) => all.indexOf(l) === i), ['fr', 'be', 'extra', 'news', 'enfants', 'kids', 'music'], 'Settings shows the categories in their order');
 });
 
 test('the Extra channels: one key each, an https address, a name and a logo', () => {

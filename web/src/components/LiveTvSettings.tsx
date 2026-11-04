@@ -214,7 +214,7 @@ function AddChannels({ rows, picked, onToggle, onClose }: { rows: CatalogRow[]; 
   const shown = rows.filter((r) => r.list === list && (r.listed || picked.has(r.key)) && matches(nq, r.name, r.group));
   return (
     <Sheet title="Add channels" onClose={onClose} wide>
-      <div className="segmented" role="radiogroup" aria-label="List">
+      <div className="segmented live-lists" role="radiogroup" aria-label="List">
         {lists.map((l) => (
           <button key={l} role="radio" aria-checked={list === l} onClick={() => setList(l)}>
             {listName(l)}

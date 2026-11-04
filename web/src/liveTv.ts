@@ -45,8 +45,10 @@ export function liveVlcHref(origin: string, ch: LiveChannel, back: string | null
 }
 
 // The channels' categories: their lists, as the server names them too (LIST_NAMES in server/livetv.ts).
-const LISTS = ['fr', 'be', 'extra'];
-const NAMES: Record<string, string> = { fr: 'France', be: 'Belgium', extra: 'Extra' };
+const NAMES: Record<string, string> = {
+  fr: 'France', be: 'Belgium', extra: 'Extra', news: 'News', documentary: 'Documentary', enfants: 'Enfants', kids: 'Kids', music: 'Music',
+};
+const LISTS = Object.keys(NAMES);
 
 /** A category's name. */
 export const listName = (list: string): string => NAMES[list] ?? list;
